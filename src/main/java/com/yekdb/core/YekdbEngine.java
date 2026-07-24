@@ -1,12 +1,15 @@
 package com.yekdb.core;
 
 import com.yekdb.config.YekdbConfiguration;
+import com.yekdb.logs.LoggerFactory;
+import com.yekdb.logs.YekdbLogger;
 import com.yekdb.storage.StorageEngine;
 
 public final class YekdbEngine {
 
     private YekdbConfiguration configuration;
     private StorageEngine storageEngine;
+    private YekdbLogger logger;
     private boolean running;
 
     public void start() {
@@ -25,19 +28,24 @@ public final class YekdbEngine {
 
         configuration = YekdbConfiguration.load();
 
-        System.out.println(
-                "[YEKDB] Initializing storage layer..."
-        );
+        LoggerFactory.initialize(configuration);
+        logger = LoggerFactory.getLogger();
+
+        logger.info("YEKDB logger initialized.");
+
+        logger.info("Initializing storage layer.");
 
         storageEngine = new StorageEngine(configuration);
         storageEngine.initialize();
+
+        logger.info("Storage Engine initialized.");
 
         running = true;
 
         printSystemInformation();
 
-        System.out.println(
-                "[YEKDB] Database engine started successfully."
+        logger.info(
+                "Database engine started successfully."
         );
     }
 
@@ -46,9 +54,11 @@ public final class YekdbEngine {
             return;
         }
 
-        System.out.println(
-                "[YEKDB] Shutting down database engine..."
-        );
+        if (logger != null) {
+            logger.info(
+                    "Shutting down database engine."
+            );
+        }
 
         if (storageEngine != null) {
             storageEngine.shutdown();
@@ -56,9 +66,14 @@ public final class YekdbEngine {
 
         running = false;
 
-        System.out.println(
-                "[YEKDB] Database engine stopped successfully."
-        );
+        if (logger != null) {
+            logger.info(
+                    "Database engine stopped successfully."
+            );
+        }
+
+        LoggerFactory.shutdown();
+        logger = null;
     }
 
     public boolean isRunning() {
@@ -104,6 +119,14 @@ public final class YekdbEngine {
         System.out.println(
                 "[YEKDB] Charset        : "
                         + configuration.getCharset().displayName()
+        );
+
+        System.out.println(
+                "[YEKDB] Database file  : "
+                        + configuration
+                        .getDatabaseFilePath()
+                        .toAbsolutePath()
+                        .normalize()
         );
     }
 
