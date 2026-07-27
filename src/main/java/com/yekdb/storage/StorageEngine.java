@@ -1,89 +1,94 @@
 package com.yekdb.storage;
 
-import com.yekdb.config.YekdbConfiguration;
-import com.yekdb.exception.StorageException;
+import com.yekdb.storage.file.DataFile;
+import com.yekdb.storage.record.Record;
+import com.yekdb.storage.record.RecordSerializer;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 
-public final class StorageEngine {
+/**
+ * YEKDB depolama işlemlerini yöneten ana sınıftır.
+ *
+ * Record nesnelerinin:
+ * - diske yazılması
+ * - diskten okunması
+ * - veri dosyasının açılması ve kapatılması
+ *
+ * işlemlerini yönetir.
+ */
+public class StorageEngine {
 
-    private final YekdbConfiguration configuration;
-
+    private final DataFile dataFile;
     private boolean initialized;
 
-    public StorageEngine(YekdbConfiguration configuration) {
-
-        if (configuration == null) {
-            throw new IllegalArgumentException(
-                    "Configuration cannot be null."
-            );
-        }
-
-        this.configuration = configuration;
+    public StorageEngine(Path dataFilePath) {
+        this.dataFile = new DataFile(dataFilePath);
+        this.initialized = false;
     }
 
-    public void initialize() {
-
+    public void initialize() throws IOException {
         if (initialized) {
             return;
         }
 
-        createDirectory(configuration.getDataDirectory());
-
-        createDirectory(configuration.getLogDirectory());
-
+        dataFile.open();
         initialized = true;
-
-        System.out.println(
-                "[STORAGE] Storage Engine initialized."
-        );
     }
 
-    private void createDirectory(Path directory) {
-
-        try {
-
-            Files.createDirectories(directory);
-
-            if (!Files.isDirectory(directory)) {
-
-                throw new StorageException(
-                        "Directory is invalid : "
-                                + directory
-                );
-            }
-
-            if (!Files.isWritable(directory)) {
-
-                throw new StorageException(
-                        "Directory is not writable : "
-                                + directory
-                );
-            }
-
-        } catch (IOException exception) {
-
-            throw new StorageException(
-                    "Cannot initialize directory : "
-                            + directory,
-                    exception
-            );
+    public void shutdown() throws IOException {
+        if (!initialized) {
+            return;
         }
+
+        dataFile.sync();
+        dataFile.close();
+        initialized = false;
+    }
+
+    public long insertRecord(Record record) throws IOException {
+        ensureInitialized();
+
+        byte[] serializedRecord =
+                RecordSerializer.serialize(record);
+
+        long position =
+                dataFile.append(serializedRecord);
+
+        dataFile.sync();
+
+        return position;
+    }
+
+    public Record readRecord(
+            long position,
+            int serializedLength
+    ) throws IOException {
+
+        ensureInitialized();
+
+        byte[] recordBytes = dataFile.read(
+                position,
+                serializedLength
+        );
+
+        return RecordSerializer.deserialize(recordBytes);
+    }
+
+    public long getFileSize() throws IOException {
+        ensureInitialized();
+        return dataFile.size();
     }
 
     public boolean isInitialized() {
         return initialized;
     }
 
-    public void shutdown() {
-
-        initialized = false;
-
-        System.out.println(
-                "[STORAGE] Storage Engine stopped."
-        );
+    private void ensureInitialized() {
+        if (!initialized) {
+            throw new IllegalStateException(
+                    "StorageEngine başlatılmadan işlem yapılamaz."
+            );
+        }
     }
-
 }

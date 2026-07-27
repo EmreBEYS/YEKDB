@@ -1,144 +1,115 @@
 package com.yekdb.core;
 
-import com.yekdb.config.YekdbConfiguration;
-import com.yekdb.logs.LoggerFactory;
-import com.yekdb.logs.YekdbLogger;
 import com.yekdb.storage.StorageEngine;
+import com.yekdb.storage.record.Record;
 
-public final class YekdbEngine {
+import java.io.IOException;
+import java.nio.file.Path;
 
-    private YekdbConfiguration configuration;
-    private StorageEngine storageEngine;
-    private YekdbLogger logger;
+/**
+ * YEKDB sisteminin ana motorudur.
+ *
+ * Alt bileşenlerin yaşam döngüsünü yönetir:
+ * - Configuration
+ * - Logger
+ * - StorageEngine
+ *
+ * İleride buraya:
+ * - SQL Engine
+ * - Transaction Manager
+ * - Catalog Manager
+ * - Index Manager
+ *
+ * bileşenleri eklenecektir.
+ */
+public class YekdbEngine {
+
+    private final StorageEngine storageEngine;
     private boolean running;
 
-    public void start() {
+    public YekdbEngine(Path dataFilePath) {
+        this.storageEngine = new StorageEngine(dataFilePath);
+        this.running = false;
+    }
+
+    /**
+     * YEKDB motorunu başlatır.
+     */
+    public void start() throws IOException {
         if (running) {
-            System.out.println(
-                    "[YEKDB] Database engine is already running."
-            );
             return;
         }
 
-        printBanner();
+        System.out.println("YEKDB başlatılıyor...");
 
-        System.out.println(
-                "[YEKDB] Loading system configuration..."
-        );
-
-        configuration = YekdbConfiguration.load();
-
-        LoggerFactory.initialize(configuration);
-        logger = LoggerFactory.getLogger();
-
-        logger.info("YEKDB logger initialized.");
-
-        logger.info("Initializing storage layer.");
-
-        storageEngine = new StorageEngine(configuration);
         storageEngine.initialize();
-
-        logger.info("Storage Engine initialized.");
 
         running = true;
 
-        printSystemInformation();
-
-        logger.info(
-                "Database engine started successfully."
-        );
+        System.out.println("YEKDB başarıyla başlatıldı.");
     }
 
-    public void shutdown() {
+    /**
+     * YEKDB motorunu güvenli şekilde kapatır.
+     */
+    public void shutdown() throws IOException {
         if (!running) {
             return;
         }
 
-        if (logger != null) {
-            logger.info(
-                    "Shutting down database engine."
-            );
-        }
+        System.out.println("YEKDB kapatılıyor...");
 
-        if (storageEngine != null) {
-            storageEngine.shutdown();
-        }
+        storageEngine.shutdown();
 
         running = false;
 
-        if (logger != null) {
-            logger.info(
-                    "Database engine stopped successfully."
-            );
-        }
+        System.out.println("YEKDB başarıyla kapatıldı.");
+    }
 
-        LoggerFactory.shutdown();
-        logger = null;
+    /**
+     * Yeni kaydı depolama motoruna gönderir.
+     *
+     * @return Kaydın dosyada başladığı konum
+     */
+    public long insertRecord(Record record) throws IOException {
+        ensureRunning();
+        return storageEngine.insertRecord(record);
+    }
+
+    /**
+     * Belirtilen dosya konumundaki kaydı okur.
+     */
+    public Record readRecord(
+            long position,
+            int serializedLength
+    ) throws IOException {
+
+        ensureRunning();
+
+        return storageEngine.readRecord(
+                position,
+                serializedLength
+        );
+    }
+
+    public long getDataFileSize() throws IOException {
+        ensureRunning();
+        return storageEngine.getFileSize();
     }
 
     public boolean isRunning() {
         return running;
     }
 
-    public YekdbConfiguration getConfiguration() {
-        return configuration;
-    }
-
     public StorageEngine getStorageEngine() {
         return storageEngine;
     }
 
-    private void printSystemInformation() {
-        System.out.println(
-                "[YEKDB] Version        : "
-                        + configuration.getVersion()
-        );
-
-        System.out.println(
-                "[YEKDB] Data directory : "
-                        + configuration
-                        .getDataDirectory()
-                        .toAbsolutePath()
-                        .normalize()
-        );
-
-        System.out.println(
-                "[YEKDB] Log directory  : "
-                        + configuration
-                        .getLogDirectory()
-                        .toAbsolutePath()
-                        .normalize()
-        );
-
-        System.out.println(
-                "[YEKDB] Page size      : "
-                        + configuration.getPageSize()
-                        + " bytes"
-        );
-
-        System.out.println(
-                "[YEKDB] Charset        : "
-                        + configuration.getCharset().displayName()
-        );
-
-        System.out.println(
-                "[YEKDB] Database file  : "
-                        + configuration
-                        .getDatabaseFilePath()
-                        .toAbsolutePath()
-                        .normalize()
-        );
-    }
-
-    private void printBanner() {
-        System.out.println("""
-                
-                ========================================
-                            YEKDB DATABASE
-                ========================================
-                Relational Database Management System
-                Developed from scratch with Java
-                ========================================
-                """);
+    private void ensureRunning() {
+        if (!running) {
+            throw new IllegalStateException(
+                    "YEKDB Engine başlatılmadan işlem yapılamaz."
+            );
+        }
     }
 }

@@ -1,65 +1,98 @@
 package com.yekdb;
 
 import com.yekdb.core.YekdbEngine;
-import com.yekdb.exception.YekdbException;
+import com.yekdb.storage.record.Record;
+import com.yekdb.storage.record.RecordSerializer;
 
-public final class YekdbApplication {
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 
-    private YekdbApplication() {
-    }
+public class YekdbApplication {
 
     public static void main(String[] args) {
-        YekdbEngine engine = new YekdbEngine();
 
-        registerShutdownHook(engine);
+        YekdbEngine engine = new YekdbEngine(
+                Path.of("data", "yekdb.ydb")
+        );
 
         try {
             engine.start();
-        } catch (YekdbException exception) {
-            printStartupError(exception);
-            System.exit(1);
-        } catch (RuntimeException exception) {
-            printUnexpectedError(exception);
-            System.exit(1);
+
+            Record originalRecord = new Record(
+                    1L,
+                    "YEKDB Storage Engine"
+                            .getBytes(StandardCharsets.UTF_8)
+            );
+
+            long position =
+                    engine.insertRecord(originalRecord);
+
+            int serializedLength =
+                    RecordSerializer.calculateSerializedSize(
+                            originalRecord
+                    );
+
+            Record loadedRecord =
+                    engine.readRecord(
+                            position,
+                            serializedLength
+                    );
+
+            System.out.println(
+                    "Engine çalışıyor mu: "
+                            + engine.isRunning()
+            );
+
+            System.out.println(
+                    "Kayıt konumu: " + position
+            );
+
+            System.out.println(
+                    "Yazılan kayıt: " + originalRecord
+            );
+
+            System.out.println(
+                    "Okunan kayıt: " + loadedRecord
+            );
+
+            System.out.println(
+                    "Okunan veri: "
+                            + new String(
+                            loadedRecord.getData(),
+                            StandardCharsets.UTF_8
+                    )
+            );
+
+            System.out.println(
+                    "Kayıtlar eşit mi: "
+                            + originalRecord.equals(loadedRecord)
+            );
+
+            System.out.println(
+                    "Veri dosyası boyutu: "
+                            + engine.getDataFileSize()
+                            + " byte"
+            );
+
+        } catch (Exception exception) {
+
+            System.err.println(
+                    "YEKDB çalışırken hata oluştu: "
+                            + exception.getMessage()
+            );
+
+            exception.printStackTrace();
+
+        } finally {
+
+            try {
+                engine.shutdown();
+            } catch (Exception exception) {
+                System.err.println(
+                        "YEKDB kapatılırken hata oluştu: "
+                                + exception.getMessage()
+                );
+            }
         }
-    }
-
-    private static void registerShutdownHook(
-            YekdbEngine engine
-    ) {
-        Runtime.getRuntime().addShutdownHook(
-                new Thread(
-                        engine::shutdown,
-                        "yekdb-shutdown-hook"
-                )
-        );
-    }
-
-    private static void printStartupError(
-            YekdbException exception
-    ) {
-        System.err.println(
-                "[YEKDB] Database engine could not be started."
-        );
-
-        System.err.println(
-                "[YEKDB] Error: " + exception.getMessage()
-        );
-
-        exception.printStackTrace();
-    }
-
-    private static void printUnexpectedError(
-            RuntimeException exception
-    ) {
-        System.err.println(
-                "[YEKDB] An unexpected system error occurred."
-        );
-
-        System.err.println(
-                "[YEKDB] Error: " + exception.getMessage()
-        );
-
-        exception.printStackTrace();
     }
 }
