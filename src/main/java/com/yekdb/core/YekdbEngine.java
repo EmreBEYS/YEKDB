@@ -1,10 +1,12 @@
 package com.yekdb.core;
 
 import com.yekdb.storage.StorageEngine;
-import com.yekdb.storage.record.Record;
+import com.yekdb.storage.file.DatabaseHeader;
+import com.yekdb.storage.page.Page;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Objects;
 
 /**
  * YEKDB sisteminin ana motorudur.
@@ -14,7 +16,7 @@ import java.nio.file.Path;
  * - Logger
  * - StorageEngine
  *
- * İleride buraya:
+ * İleride:
  * - SQL Engine
  * - Transaction Manager
  * - Catalog Manager
@@ -22,13 +24,22 @@ import java.nio.file.Path;
  *
  * bileşenleri eklenecektir.
  */
-public class YekdbEngine {
+public final class YekdbEngine {
 
     private final StorageEngine storageEngine;
+
     private boolean running;
 
     public YekdbEngine(Path dataFilePath) {
-        this.storageEngine = new StorageEngine(dataFilePath);
+
+        Objects.requireNonNull(
+                dataFilePath,
+                "Data file path cannot be null."
+        );
+
+        this.storageEngine =
+                new StorageEngine(dataFilePath);
+
         this.running = false;
     }
 
@@ -36,6 +47,7 @@ public class YekdbEngine {
      * YEKDB motorunu başlatır.
      */
     public void start() throws IOException {
+
         if (running) {
             return;
         }
@@ -46,14 +58,18 @@ public class YekdbEngine {
 
         running = true;
 
-        System.out.println("YEKDB başarıyla başlatıldı.");
+        System.out.println(
+                "YEKDB başarıyla başlatıldı."
+        );
     }
 
     /**
      * YEKDB motorunu güvenli şekilde kapatır.
      */
     public void shutdown() throws IOException {
-        if (!running) {
+
+        if (!running
+                && !storageEngine.isInitialized()) {
             return;
         }
 
@@ -63,37 +79,63 @@ public class YekdbEngine {
 
         running = false;
 
-        System.out.println("YEKDB başarıyla kapatıldı.");
-    }
-
-    /**
-     * Yeni kaydı depolama motoruna gönderir.
-     *
-     * @return Kaydın dosyada başladığı konum
-     */
-    public long insertRecord(Record record) throws IOException {
-        ensureRunning();
-        return storageEngine.insertRecord(record);
-    }
-
-    /**
-     * Belirtilen dosya konumundaki kaydı okur.
-     */
-    public Record readRecord(
-            long position,
-            int serializedLength
-    ) throws IOException {
-
-        ensureRunning();
-
-        return storageEngine.readRecord(
-                position,
-                serializedLength
+        System.out.println(
+                "YEKDB başarıyla kapatıldı."
         );
     }
 
-    public long getDataFileSize() throws IOException {
+    public void writePage(Page page)
+            throws IOException {
+
         ensureRunning();
+
+        storageEngine.writePage(page);
+    }
+
+    public Page readPage(int pageId)
+            throws IOException {
+
+        ensureRunning();
+
+        return storageEngine.readPage(pageId);
+    }
+
+    public boolean pageExists(int pageId)
+            throws IOException {
+
+        ensureRunning();
+
+        return storageEngine.pageExists(pageId);
+    }
+
+    public int getPageCount()
+            throws IOException {
+
+        ensureRunning();
+
+        return storageEngine.getPageCount();
+    }
+
+    public void checkpoint()
+            throws IOException {
+
+        ensureRunning();
+
+        storageEngine.checkpoint();
+    }
+
+    public DatabaseHeader getDatabaseHeader() {
+
+        ensureRunning();
+
+        return storageEngine.getDatabaseHeader();
+    }
+
+    public long getDataFileSize()
+            throws IOException {
+
+        ensureRunning();
+
         return storageEngine.getFileSize();
     }
 
@@ -106,9 +148,10 @@ public class YekdbEngine {
     }
 
     private void ensureRunning() {
+
         if (!running) {
             throw new IllegalStateException(
-                    "YEKDB Engine başlatılmadan işlem yapılamaz."
+                    "YEKDB Engine must be running before use."
             );
         }
     }

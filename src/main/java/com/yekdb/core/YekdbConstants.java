@@ -1,4 +1,9 @@
 package com.yekdb.core;
 
-public class YekdbConstants {
+public final class YekdbConstants {
+
+    public static final int PAGE_SIZE = 4096;
+
+    private YekdbConstants() {
+    }
 }

@@ -1,4 +1,4 @@
-package com.yekdb.page;
+package com.yekdb.storage.page;
 
 import com.yekdb.storage.page.Page;
 import com.yekdb.storage.page.PageType;

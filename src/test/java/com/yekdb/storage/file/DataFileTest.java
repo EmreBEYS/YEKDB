@@ -1,9 +1,9 @@
 package com.yekdb.storage.file;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -11,99 +11,116 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class DataFileTest {
 
-    private final Path testFile =
-            Path.of("data", "test-datafile.ydb");
+    private Path testDirectory;
+    private Path testFilePath;
+    private DataFile dataFile;
+
+    @BeforeEach
+    void setUp() throws Exception {
+
+        testDirectory = Path.of(
+                "target",
+                "test-data",
+                "data-file"
+        );
+
+        testFilePath = testDirectory.resolve("test.data");
+
+        Files.createDirectories(testDirectory);
+        Files.deleteIfExists(testFilePath);
+
+        dataFile = new DataFile(testFilePath);
+    }
 
     @AfterEach
-    void cleanup() throws Exception {
-        Files.deleteIfExists(testFile);
+    void tearDown() throws Exception {
+
+        if (dataFile != null && dataFile.isOpen()) {
+            dataFile.close();
+        }
+
+        Files.deleteIfExists(testFilePath);
     }
 
     @Test
-    void shouldCreateDataFile() throws Exception {
-
-        DataFile dataFile = new DataFile(testFile);
+    void shouldCreateAndOpenDataFile() throws Exception {
 
         dataFile.open();
 
-        assertTrue(Files.exists(testFile));
-
-        dataFile.close();
+        assertTrue(dataFile.exists());
+        assertTrue(dataFile.isOpen());
+        assertEquals(0, dataFile.size());
     }
 
     @Test
-    void shouldAppendAndReadData() throws Exception {
-
-        DataFile dataFile = new DataFile(testFile);
+    void shouldAppendBytesToFile() throws Exception {
 
         dataFile.open();
 
-        byte[] data =
-                "YEKDB".getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = {10, 20, 30, 40};
 
-        long position =
-                dataFile.append(data);
+        long position = dataFile.append(bytes);
 
-        byte[] read =
-                dataFile.read(position, data.length);
-
-        assertArrayEquals(data, read);
-
-        dataFile.close();
-    }
-
-    @Test
-    void shouldReturnCorrectFileSize() throws Exception {
-
-        DataFile dataFile = new DataFile(testFile);
-
-        dataFile.open();
-
-        byte[] data =
-                "ABCDE".getBytes(StandardCharsets.UTF_8);
-
-        dataFile.append(data);
-
-        assertEquals(
-                data.length,
-                dataFile.size()
+        assertEquals(0, position);
+        assertEquals(4, dataFile.size());
+        assertArrayEquals(
+                bytes,
+                dataFile.read(0, bytes.length)
         );
-
-        dataFile.close();
     }
 
     @Test
-    void shouldAppendAtEndOfFile() throws Exception {
-
-        DataFile dataFile = new DataFile(testFile);
+    void shouldWriteBytesAtSpecifiedPosition() throws Exception {
 
         dataFile.open();
 
-        long first =
-                dataFile.append(new byte[5]);
+        dataFile.append(new byte[]{0, 0, 0, 0, 0});
+        dataFile.write(1, new byte[]{10, 20, 30});
 
-        long second =
-                dataFile.append(new byte[10]);
-
-        assertEquals(0, first);
-        assertEquals(5, second);
-
-        dataFile.close();
-    }
-
-    @Test
-    void shouldSyncWithoutException() throws Exception {
-
-        DataFile dataFile = new DataFile(testFile);
-
-        dataFile.open();
-
-        dataFile.append(new byte[10]);
-
-        assertDoesNotThrow(
-                dataFile::sync
+        assertArrayEquals(
+                new byte[]{0, 10, 20, 30, 0},
+                dataFile.read(0, 5)
         );
+    }
 
+    @Test
+    void shouldCloseDataFile() throws Exception {
+
+        dataFile.open();
         dataFile.close();
+
+        assertFalse(dataFile.isOpen());
+    }
+
+    @Test
+    void shouldRejectOperationsWhenFileIsClosed() {
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> dataFile.size()
+        );
+    }
+
+    @Test
+    void shouldRejectNegativePosition() throws Exception {
+
+        dataFile.open();
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> dataFile.read(-1, 1)
+        );
+    }
+
+    @Test
+    void shouldRejectReadBeyondFileSize() throws Exception {
+
+        dataFile.open();
+        dataFile.append(new byte[]{1, 2, 3});
+
+        assertThrows(
+                java.io.EOFException.class,
+                () -> dataFile.read(0, 4)
+        );
     }
 }

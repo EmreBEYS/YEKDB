@@ -1,256 +1,199 @@
 # YEKDB
 ### Yet Another Embedded Key Database
 
-> A lightweight, modular and educational relational database management system implemented entirely in Java from scratch.
+> A lightweight relational database management system written entirely from scratch in Java.
 
 ![Java](https://img.shields.io/badge/Java-21-orange)
 ![Maven](https://img.shields.io/badge/Maven-3.x-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-green)
-![Status](https://img.shields.io/badge/Status-Development-yellow)
-![Tests](https://img.shields.io/badge/Tests-31_Passing-brightgreen)
+![Status](https://img.shields.io/badge/Status-Active%20Development-yellow)
+![Tests](https://img.shields.io/badge/JUnit-64%20Tests%20Passed-brightgreen)
 
 ---
 
 # 📖 About
 
-YEKDB (Yet Another Embedded Key Database) is a relational database management system (RDBMS) developed entirely from scratch in Java.
+YEKDB (Yet Another Embedded Key Database) is a relational database management system (RDBMS) implemented entirely from scratch in Java.
 
-Unlike PostgreSQL, MySQL or SQLite, YEKDB does not reuse any existing database engine or source code. Every subsystem is independently designed and implemented to better understand the internal architecture of modern database systems.
+Unlike PostgreSQL, MySQL, or SQLite, this project is **not based on any existing database source code**. Every subsystem is independently designed and implemented to understand the internal architecture of modern database systems.
 
-The project focuses on creating a modular, extensible and educational database engine while documenting every development sprint and architectural decision.
-
-The long-term goal of YEKDB is to implement its own:
-
-- Storage Engine
-- Buffer Manager
-- Catalog Manager
-- SQL Parser
-- Query Optimizer
-- Execution Engine
-- Transaction Manager
-- Recovery Manager
-- B+Tree Index
-- Network Layer
+The long-term objective is to build a complete page-oriented database engine featuring transactions, indexing, SQL parsing, concurrency control, and client-server support.
 
 ---
 
-# 🚀 Current Features
+# ✨ Current Features
 
-- ✅ Modular Project Architecture
-- ✅ Core Engine
-- ✅ Yekdb Engine
+- ✅ Configuration System
+- ✅ Logging Infrastructure
 - ✅ Storage Engine
-- ✅ Configuration Manager
-- ✅ Custom Logger System
-- ✅ Page Architecture
-- ✅ Record Model
-- ✅ Record Serialization
-- ✅ DataFile Management
-- ✅ Persistent `.ydb` Storage
-- ✅ JUnit Test Suite (31 Tests)
-- ✅ Maven Build System
+- ✅ DataFile Manager
+- ✅ Database Header
+- ✅ Physical Page Architecture
+- ✅ Page Header
+- ✅ Page Serializer
+- ✅ Page Manager
+- ✅ Persistent Database File (.ydb)
+- ✅ Binary File Format
+- ✅ Random Page Access
+- ✅ Cross-platform Support
+- ✅ JUnit Test Suite
 
 ---
 
-# 🏗 Current Architecture
+# 🏗 Storage Architecture
 
-```text
-                    YekdbApplication
-                           │
-                           ▼
-                      YekdbEngine
-                           │
-                           ▼
-                     StorageEngine
-                           │
-              ┌────────────┴────────────┐
-              ▼                         ▼
-      RecordSerializer             DataFile
-              │                         │
-              └────────────┬────────────┘
-                           ▼
-                        yekdb.ydb
+```
+                 YEKDB Engine
+                       │
+                       ▼
+                Storage Engine
+                       │
+          ┌────────────┴────────────┐
+          ▼                         ▼
+   DatabaseHeader             PageManager
+                                      │
+                                      ▼
+                              PageSerializer
+                                      │
+                                      ▼
+                                  DataFile
+                                      │
+                                      ▼
+                                  yekdb.ydb
+```
+
+---
+
+# 💾 Physical Database Layout
+
+```
++-----------------------------+
+| Database Header (128 Bytes) |
++-----------------------------+
+| Page 0 (4096 Bytes)         |
++-----------------------------+
+| Page 1 (4096 Bytes)         |
++-----------------------------+
+| Page 2 (4096 Bytes)         |
++-----------------------------+
 ```
 
 ---
 
 # 📂 Project Structure
 
-```text
-src
-├── main
-│   ├── java
-│   │   └── com.yekdb
-│   │       ├── config
-│   │       ├── core
-│   │       ├── logging
-│   │       ├── storage
-│   │       │   ├── file
-│   │       │   ├── page
-│   │       │   ├── record
-│   │       │   └── serializer
-│   │       ├── parser
-│   │       ├── transaction
-│   │       └── ...
-│   └── resources
-│       └── yekdb.properties
+```
+YEKDB
 │
-└── test
-    └── java
-        └── com.yekdb
+├── config/
+├── data/
+├── docs/
+├── logs/
+│
+├── src
+│   ├── main
+│   │   └── java
+│   │       └── com.yekdb
+│   │           ├── core
+│   │           ├── storage
+│   │           │   ├── file
+│   │           │   ├── page
+│   │           │   └── record
+│   │           └── logging
+│   │
+│   └── test
+│
+└── pom.xml
 ```
 
 ---
 
-# 📚 Documentation
+# 🧪 Testing
 
-Every development sprint is documented with both **Developer Notes** and **Architecture Documents**.
+Current test results:
 
-## 📒 Developer Notes
+| Component | Tests |
+|-----------|------:|
+| DataFile | 7 / 7 |
+| DatabaseHeader | 11 / 11 |
+| PageSerializer | 11 / 11 |
+| PageManager | 13 / 13 |
+| StorageEngine | 11 / 11 |
+| YekdbEngine | 11 / 11 |
 
-- ✅ 00-01 Project Architecture
-- ✅ 00-02 Core Engine & Storage Engine
-- ✅ 00-03 Configuration Manager, Logger & Page Architecture
-- ✅ 00-04 Record, Serialization & Storage Engine
-
-## 🏛 Architecture Documents
-
-- ✅ 00-01 System Architecture
-- ✅ 00-02 Core Engine Design
-- ✅ 00-03 Configuration, Logger & Page Design
-- ✅ 00-04 Record & Storage Architecture
+**Total:** **64 / 64 Tests Passed**
 
 ---
 
-# 🧪 Test Coverage
+# 🚀 Roadmap
 
-| Module | Status |
-|---------|:------:|
-| Page | ✅ |
-| Record | ✅ |
-| Record Serializer | ✅ |
-| DataFile | ✅ |
-| Storage Engine | ✅ |
-| Yekdb Engine | ✅ |
+## Completed
 
-**31 / 31 Tests Passing**
+- ✅ Project Architecture
+- ✅ Configuration Manager
+- ✅ Logger System
+- ✅ Storage Engine
+- ✅ Database Header
+- ✅ Physical Page Architecture
+- ✅ Binary Page Serialization
+- ✅ Persistent Database File
+- ✅ Random Page Access
 
----
+## In Progress
 
-# 🗺 Development Roadmap
+- 🔄 Record Manager
+- 🔄 Slot Directory
+- 🔄 Free Space Manager
+- 🔄 Record Allocation
 
-## Version 0.1
+## Planned
 
-- [x] Project Architecture
-- [x] Core Engine
-- [x] Storage Engine Skeleton
-- [x] Configuration Manager
-- [x] Custom Logger
-- [x] Page Architecture
-- [x] JUnit Infrastructure
-
----
-
-## Version 0.2
-
-- [x] Record Model
-- [x] Record Serialization
-- [x] DataFile
-- [x] Persistent `.ydb` Storage
-- [x] Storage Engine Integration
-- [x] JUnit Test Suite
+- ⏳ B+ Tree Indexes
+- ⏳ SQL Parser
+- ⏳ Query Executor
+- ⏳ Transaction Manager
+- ⏳ Write Ahead Logging (WAL)
+- ⏳ Buffer Pool
+- ⏳ Multi-Version Concurrency Control (MVCC)
+- ⏳ Client / Server Architecture
 
 ---
 
-## Version 0.3
+# 📄 Documentation
 
-- [ ] Database Header
-- [ ] Page Manager
-- [ ] Catalog Manager
-- [ ] Table Metadata
-- [ ] CREATE TABLE
-- [ ] INSERT
-- [ ] SELECT
+Each development sprint is documented with detailed technical documentation and developer notes.
 
----
+Examples:
 
-## Version 0.4
-
-- [ ] SQL Parser
-- [ ] Query Optimizer
-- [ ] Execution Engine
-- [ ] Buffer Manager
-- [ ] Transaction Manager
-- [ ] Recovery Manager
+- Developer Notes
+- Storage Engine Documentation
+- Architecture Documents
+- Design Decisions
+- Test Reports
 
 ---
 
-## Version 0.5
-
-- [ ] B+Tree Index
-- [ ] Network Layer
-- [ ] Multi-user Support
-- [ ] Client-Server Architecture
-- [ ] Backup & Restore
-
----
-
-# ⚙ Build
-
-```bash
-mvn clean install
-```
-
----
-
-# 🧪 Run Tests
-
-```bash
-mvn test
-```
-
----
-
-# 💻 Requirements
+# 🛠 Technologies
 
 - Java 21
-- Maven 3.9+
-- IntelliJ IDEA (Recommended)
+- Maven
+- JUnit 5
+- IntelliJ IDEA
+- Git
+- GitHub
 
 ---
 
-# 📈 Current Project Status
+# 📜 License
 
-| Component | Status |
-|-----------|:------:|
-| Core Engine | ✅ |
-| Storage Layer | ✅ |
-| Persistence | ✅ |
-| Testing | ✅ |
-| SQL Engine | ⏳ |
-| Query Engine | ⏳ |
-| Transaction Manager | ⏳ |
+This project is licensed under the MIT License.
 
 ---
 
-# 📄 License
-
-This project is currently developed for educational and research purposes.
-
-A dedicated open-source license will be selected in a future release.
-
----
-
-# 👨‍💻 Developer
+# 👨‍💻 Author
 
 **Yunus Emre KUL**
 
 Computer Engineering Student
 
-İnönü University
-
-GitHub: **EmreBEYS**
-
----
-
-⭐ **If you find this project interesting, consider giving it a star!**
+Developing a relational database management system from scratch for educational and research purposes.
