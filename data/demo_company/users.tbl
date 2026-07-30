@@ -1,0 +1,10 @@
+YEKDB_TABLE
+version=1
+tableName=users
+columnCount=4
+createdAt=2026-07-30T10:53:57.348038
+columns=
+id:INT
+name:STRING
+email:STRING
+active:BOOLEAN
