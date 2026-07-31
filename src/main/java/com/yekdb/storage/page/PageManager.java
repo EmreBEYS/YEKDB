@@ -68,16 +68,6 @@ public final class PageManager {
         int pageId = page.getHeader().getPageId();
         int pageCount = getPageCount();
 
-        /*
-         * Mevcut sayfa güncellenebilir:
-         * pageId < pageCount
-         *
-         * Yeni sayfa dosyanın sonuna eklenebilir:
-         * pageId == pageCount
-         *
-         * Arada boş sayfa bırakılamaz:
-         * pageId > pageCount
-         */
         if (pageId > pageCount) {
             throw new IllegalArgumentException(
                     "Pages must be written sequentially. " +
@@ -85,6 +75,9 @@ public final class PageManager {
                             ", but received " + pageId + "."
             );
         }
+
+        boolean isNewPage =
+                pageId == pageCount;
 
         byte[] pageBytes =
                 pageSerializer.serialize(page);
@@ -96,8 +89,21 @@ public final class PageManager {
                 pageOffset,
                 pageBytes
         );
-    }
 
+        /*
+         * Yeni bir fiziksel sayfa eklenmişse
+         * DatabaseHeader.totalPages güncellenir.
+         */
+        if (isNewPage) {
+
+            DatabaseHeader databaseHeader =
+                    readDatabaseHeader();
+
+            databaseHeader.incrementTotalPages();
+
+            writeDatabaseHeader(databaseHeader);
+        }
+    }
     /**
      * Belirtilen kimliğe sahip sayfayı veri dosyasından okur.
      */
@@ -243,5 +249,51 @@ public final class PageManager {
                     "Page ID cannot be negative."
             );
         }
+    }
+    private DatabaseHeader readDatabaseHeader()
+            throws IOException {
+
+        byte[] headerBytes = dataFile.read(
+                0,
+                DatabaseHeader.HEADER_SIZE
+        );
+
+        return DatabaseHeader.fromBytes(headerBytes);
+    }
+
+    private void writeDatabaseHeader(
+            DatabaseHeader databaseHeader
+    ) throws IOException {
+
+        Objects.requireNonNull(
+                databaseHeader,
+                "Database header cannot be null."
+        );
+
+        dataFile.write(
+                0,
+                databaseHeader.toBytes()
+        );
+    }
+    public int getHeaderPageCount()
+            throws IOException {
+
+        ensureDataFileReady();
+
+        return readDatabaseHeader()
+                .getTotalPages();
+    }
+    /**
+     * DatabaseHeader içerisindeki sayfa sayısı ile
+     * fiziksel dosyadan hesaplanan sayfa sayısının
+     * tutarlı olup olmadığını kontrol eder.
+     */
+    public boolean isPageCountConsistent()
+            throws IOException {
+
+        ensureDataFileReady();
+
+        return getPageCount()
+                == getHeaderPageCount();
     }
 }

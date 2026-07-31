@@ -12,11 +12,11 @@
 
 # 📖 About
 
-YEKDB (Yet Another Embedded Key Database) is an educational relational database management system (RDBMS) developed completely from scratch in Java.
+YEKDB (Yet Another Embedded Key Database) is an educational Relational Database Management System (RDBMS) developed completely from scratch in Java.
 
-The project is **not based on PostgreSQL, MySQL or SQLite source code**. Every subsystem is designed independently to understand how modern database systems work internally.
+The project is **not based on PostgreSQL, MySQL or SQLite source code**. Every subsystem is independently designed and implemented to better understand how modern database systems work internally.
 
-The objective is to implement every major database component step by step while maintaining a clean, modular and well-documented architecture.
+The objective is to build every major database component step by step while maintaining a clean, modular and well-documented architecture.
 
 ---
 
@@ -32,10 +32,12 @@ The objective is to implement every major database component step by step while 
 
 ## Physical Storage Engine
 
-- Fixed-size pages
+- Fixed-size page architecture
 - Database file format
-- Page serialization
-- Record serialization
+- Database Header
+- Page Header
+- Page Serializer
+- Page Manager
 - Binary storage architecture
 
 ## Database Management
@@ -61,6 +63,22 @@ The objective is to implement every major database component step by step while 
 - Duplicate column detection
 - Table existence checks
 
+## Physical Record Management (Sprint 00-08)
+
+- Row abstraction
+- Physical row storage
+- Row serialization
+- Record serialization
+- Record Manager
+- Insert records
+- Read records
+- Update records
+- Logical delete
+- Automatic Record ID generation
+- Multi-page record storage
+- Persistent record recovery
+- Active / Deleted record management
+
 ---
 
 # 📂 Project Structure
@@ -70,13 +88,27 @@ src
 └── main
     └── java
         └── com.yekdb
+            ├── command
             ├── config
+            ├── console
             ├── core
             ├── database
-            ├── logging
+            ├── exception
+            ├── execution
+            ├── index
+            ├── logs
+            ├── model
+            ├── network
+            ├── optimizer
+            ├── parser
+            ├── security
+            ├── space
             ├── storage
-            ├── table
-            └── demo
+            │     ├── file
+            │     ├── page
+            │     ├── record
+            │     └── StorageEngine
+            └── table
 ```
 
 ---
@@ -88,10 +120,30 @@ data/
 └── demo_company/
     ├── users.tbl
     ├── products.tbl
-    └── orders.tbl
+    ├── orders.tbl
+
+Storage Pipeline
+
+Row
+ ↓
+RowSerializer
+ ↓
+Record
+ ↓
+RecordSerializer
+ ↓
+Page
+ ↓
+PageManager
+ ↓
+PageSerializer
+ ↓
+DataFile
+ ↓
+Physical Storage
 ```
 
-Each table is represented as an individual **.tbl** file.
+Each table is stored as an independent physical file while records are managed through binary pages.
 
 ---
 
@@ -134,16 +186,30 @@ manager.dropTable("users");
 
 Current test coverage
 
-| Module | Tests |
-|---------|------:|
-| Column | 9 |
-| Table | 13 |
-| TableMetadata | 8 |
-| TableCatalog | 21 |
-| TableManager | 25 |
-| **Total** | **76 ✅** |
+| Module | Status |
+|---------|--------|
+| DatabaseManager | ✅ |
+| TableManager | ✅ |
+| PageManager | ✅ |
+| Row | ✅ |
+| RowSerializer | ✅ |
+| RecordSerializer | ✅ |
+| RecordManager | ✅ |
 
-All tests are written using **JUnit 5**.
+Current test count:
+
+**107+ successful JUnit 5 tests**
+
+The Record Management layer has been validated through:
+
+- Physical page storage
+- Binary serialization
+- Record insertion
+- Record updates
+- Logical deletion
+- Multi-page storage
+- Persistent recovery
+- Record ID generation
 
 ---
 
@@ -155,10 +221,16 @@ All tests are written using **JUnit 5**.
 docs/screenshots/table-demo.png
 ```
 
-## Table Architecture
+## Record Management Demo
 
 ```
-docs/screenshots/table-architecture.png
+docs/screenshots/record-demo.png
+```
+
+## Record Architecture
+
+```
+docs/screenshots/record-architecture.png
 ```
 
 ## Physical Storage
@@ -172,39 +244,55 @@ docs/screenshots/storage-engine.png
 # 🛣 Roadmap
 
 ## ✅ Sprint 00-01
+
 - Initial project structure
 - Core architecture
 
 ## ✅ Sprint 00-02
+
 - Core Engine
 - Storage Engine
 
 ## ✅ Sprint 00-03
+
 - Configuration Manager
 - Logger
 - Page Architecture
 
 ## ✅ Sprint 00-04
+
 - Record & Page System
 
 ## ✅ Sprint 00-05
+
 - Physical Storage Engine
 
 ## ✅ Sprint 00-06
+
 - Database Management Layer
 
 ## ✅ Sprint 00-07
+
 - Table Management Layer
 
-### Next Sprint (00-08)
+## ✅ Sprint 00-08
 
 - Row Management
-- INSERT
-- DELETE
-- UPDATE
-- Record Storage
-- Page Allocation
-- Row Serialization
+- Physical Record Storage
+- Record Serialization
+- Record Manager
+- Insert
+- Read
+- Update
+- Logical Delete
+- Persistent Recovery
+
+### Next Sprint (00-09)
+
+- Index Manager
+- B+ Tree Index
+- Index Pages
+- Index Serializer
 
 ---
 
@@ -225,6 +313,27 @@ Each sprint includes:
 - Java 21
 - Maven
 - JUnit 5
+- Git
+- GitHub
+
+---
+
+# 🎯 Sprint 00-08 Highlights
+
+This sprint introduces the first complete physical record management layer of YEKDB.
+
+Implemented features include:
+
+- Binary Row serialization
+- Binary Record serialization
+- Physical Record Manager
+- Persistent record storage
+- Record updates
+- Logical deletion
+- Automatic Record ID generation
+- Multi-page record allocation
+- Recovery after reopening database files
+- Comprehensive JUnit test coverage
 
 ---
 
@@ -246,4 +355,4 @@ Malatya / Türkiye
 
 ---
 
-⭐ This repository documents the complete development process of a database management system built entirely from scratch.
+⭐ This repository documents the complete development process of a relational database management system built entirely from scratch in Java.

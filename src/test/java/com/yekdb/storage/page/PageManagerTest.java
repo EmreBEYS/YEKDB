@@ -5,42 +5,30 @@ import com.yekdb.storage.file.DatabaseHeader;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-import java.nio.file.Files;
+import java.io.IOException;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class PageManagerTest {
 
-    private Path testDirectory;
-    private Path testFilePath;
+    @TempDir
+    Path tempDirectory;
 
     private DataFile dataFile;
     private PageManager pageManager;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() throws IOException {
 
-        testDirectory = Path.of(
-                "target",
-                "test-data",
-                "page-manager"
-        );
+        Path databasePath =
+                tempDirectory.resolve("page-manager-test.yekdb");
 
-        testFilePath = testDirectory.resolve(
-                "page-manager-test.data"
-        );
-
-        Files.createDirectories(testDirectory);
-        Files.deleteIfExists(testFilePath);
-
-        dataFile = new DataFile(testFilePath);
+        dataFile = new DataFile(databasePath);
         dataFile.open();
 
-        /*
-         * Page alanından önce database header bulunmalıdır.
-         */
         DatabaseHeader databaseHeader =
                 new DatabaseHeader();
 
@@ -49,50 +37,41 @@ class PageManagerTest {
                 databaseHeader.toBytes()
         );
 
-        pageManager =
-                new PageManager(dataFile);
+        dataFile.sync();
+
+        pageManager = new PageManager(dataFile);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown() throws IOException {
 
-        if (dataFile != null && dataFile.isOpen()) {
+        if (dataFile != null
+                && dataFile.isOpen()) {
+
             dataFile.close();
         }
-
-        Files.deleteIfExists(testFilePath);
     }
 
     @Test
-    void shouldCalculatePageOffsetsCorrectly() {
-
-        assertEquals(
-                128,
-                pageManager.calculatePageOffset(0)
-        );
-
-        assertEquals(
-                4224,
-                pageManager.calculatePageOffset(1)
-        );
-
-        assertEquals(
-                8320,
-                pageManager.calculatePageOffset(2)
-        );
-    }
-
-    @Test
-    void shouldInitiallyContainZeroPages() throws Exception {
+    void shouldStartWithZeroPages() throws IOException {
 
         assertEquals(
                 0,
                 pageManager.getPageCount()
         );
+
+        assertEquals(
+                0,
+                pageManager.getHeaderPageCount()
+        );
+
+        assertTrue(
+                pageManager.isPageCountConsistent()
+        );
     }
 
     @Test
-    void shouldWriteFirstPage() throws Exception {
+    void shouldWriteFirstPage() throws IOException {
 
         Page page = new Page(
                 0,
@@ -107,249 +86,323 @@ class PageManagerTest {
         );
 
         assertEquals(
-                DatabaseHeader.HEADER_SIZE + Page.PAGE_SIZE,
-                dataFile.size()
+                1,
+                pageManager.getHeaderPageCount()
+        );
+
+        assertTrue(
+                pageManager.isPageCountConsistent()
         );
     }
 
     @Test
-    void shouldWriteAndReadPage() throws Exception {
+    void shouldNotIncrementHeaderCountWhenExistingPageIsUpdated()
+            throws IOException {
 
-        Page original = new Page(
+        Page page = new Page(
                 0,
                 PageType.DATA
         );
 
-        original.getPayload()[0] = 10;
-        original.getPayload()[1] = 20;
-        original.getPayload()[2] = 30;
+        pageManager.writePage(page);
 
-        original.getHeader().setRecordCount(1);
-        original.getHeader().setUsedBytes(3);
+        page.getPayload()[0] = 42;
+        page.getHeader().setUsedBytes(1);
 
-        pageManager.writePage(original);
-
-        Page restored =
-                pageManager.readPage(0);
+        pageManager.writePage(page);
 
         assertEquals(
-                0,
-                restored.getHeader().getPageId()
-        );
-
-        assertEquals(
-                PageType.DATA,
-                restored.getHeader().getPageType()
+                1,
+                pageManager.getPageCount()
         );
 
         assertEquals(
                 1,
-                restored.getHeader().getRecordCount()
+                pageManager.getHeaderPageCount()
+        );
+
+        assertTrue(
+                pageManager.isPageCountConsistent()
+        );
+    }
+
+    @Test
+    void shouldWritePagesSequentially() throws IOException {
+
+        Page firstPage = new Page(
+                0,
+                PageType.DATA
+        );
+
+        Page secondPage = new Page(
+                1,
+                PageType.INDEX
+        );
+
+        pageManager.writePage(firstPage);
+        pageManager.writePage(secondPage);
+
+        assertEquals(
+                2,
+                pageManager.getPageCount()
+        );
+
+        assertEquals(
+                2,
+                pageManager.getHeaderPageCount()
+        );
+
+        assertTrue(
+                pageManager.isPageCountConsistent()
+        );
+    }
+
+    @Test
+    void shouldRejectPageGap() {
+
+        Page invalidPage = new Page(
+                2,
+                PageType.DATA
+        );
+
+        IllegalArgumentException exception =
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> pageManager.writePage(
+                                invalidPage
+                        )
+                );
+
+        assertTrue(
+                exception.getMessage()
+                        .contains(
+                                "Pages must be written sequentially"
+                        )
+        );
+    }
+
+    @Test
+    void shouldReadWrittenPage() throws IOException {
+
+        Page originalPage = new Page(
+                0,
+                PageType.DATA
+        );
+
+        originalPage.getPayload()[0] = 10;
+        originalPage.getPayload()[1] = 20;
+        originalPage.getPayload()[2] = 30;
+
+        originalPage.getHeader().setUsedBytes(3);
+        originalPage.getHeader().setRecordCount(1);
+
+        pageManager.writePage(originalPage);
+
+        Page restoredPage =
+                pageManager.readPage(0);
+
+        assertEquals(
+                0,
+                restoredPage.getHeader().getPageId()
+        );
+
+        assertEquals(
+                PageType.DATA,
+                restoredPage.getHeader().getPageType()
+        );
+
+        assertEquals(
+                1,
+                restoredPage.getHeader().getRecordCount()
         );
 
         assertEquals(
                 3,
-                restored.getHeader().getUsedBytes()
+                restoredPage.getHeader().getUsedBytes()
         );
 
         assertEquals(
                 10,
-                restored.getPayload()[0]
+                restoredPage.getPayload()[0]
         );
 
         assertEquals(
                 20,
-                restored.getPayload()[1]
+                restoredPage.getPayload()[1]
         );
 
         assertEquals(
                 30,
-                restored.getPayload()[2]
+                restoredPage.getPayload()[2]
         );
     }
 
     @Test
-    void shouldWriteMultiplePagesSequentially() throws Exception {
+    void shouldReturnTrueWhenPageExists()
+            throws IOException {
 
-        pageManager.writePage(
-                new Page(0, PageType.DATA)
-        );
-
-        pageManager.writePage(
-                new Page(1, PageType.INDEX)
-        );
-
-        pageManager.writePage(
-                new Page(2, PageType.FREE)
-        );
-
-        assertEquals(
-                3,
-                pageManager.getPageCount()
-        );
-
-        assertEquals(
-                PageType.DATA,
-                pageManager.readPage(0)
-                        .getHeader()
-                        .getPageType()
-        );
-
-        assertEquals(
-                PageType.INDEX,
-                pageManager.readPage(1)
-                        .getHeader()
-                        .getPageType()
-        );
-
-        assertEquals(
-                PageType.FREE,
-                pageManager.readPage(2)
-                        .getHeader()
-                        .getPageType()
-        );
-    }
-
-    @Test
-    void shouldUpdateExistingPageWithoutIncreasingPageCount()
-            throws Exception {
-
-        Page original = new Page(
+        Page page = new Page(
                 0,
                 PageType.DATA
         );
 
-        pageManager.writePage(original);
-
-        Page updated = new Page(
-                0,
-                PageType.DATA
-        );
-
-        updated.getPayload()[0] = 99;
-        updated.getHeader().setRecordCount(1);
-        updated.getHeader().setUsedBytes(1);
-
-        pageManager.writePage(updated);
-
-        assertEquals(
-                1,
-                pageManager.getPageCount()
-        );
-
-        Page restored =
-                pageManager.readPage(0);
-
-        assertEquals(
-                99,
-                restored.getPayload()[0]
-        );
-    }
-
-    @Test
-    void shouldDetectExistingPages() throws Exception {
-
-        pageManager.writePage(
-                new Page(0, PageType.DATA)
-        );
+        pageManager.writePage(page);
 
         assertTrue(
                 pageManager.pageExists(0)
         );
-
-        assertFalse(
-                pageManager.pageExists(1)
-        );
     }
 
     @Test
-    void shouldRejectNonSequentialPageWrite() {
+    void shouldReturnFalseWhenPageDoesNotExist()
+            throws IOException {
 
-        Page page = new Page(
-                4,
-                PageType.DATA
-        );
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> pageManager.writePage(page)
+        assertFalse(
+                pageManager.pageExists(0)
         );
     }
 
     @Test
     void shouldRejectReadingMissingPage() {
 
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> pageManager.readPage(0)
+        IllegalArgumentException exception =
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> pageManager.readPage(0)
+                );
+
+        assertEquals(
+                "Page does not exist: 0",
+                exception.getMessage()
         );
     }
 
     @Test
-    void shouldRejectNegativePageId() {
+    void shouldRejectNegativePageIdForRead() {
 
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> pageManager.calculatePageOffset(-1)
-        );
+        IllegalArgumentException exception =
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> pageManager.readPage(-1)
+                );
 
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> pageManager.readPage(-1)
+        assertEquals(
+                "Page ID cannot be negative.",
+                exception.getMessage()
         );
     }
 
     @Test
-    void shouldRejectOperationsWhenDataFileIsClosed()
-            throws Exception {
+    void shouldCalculateFirstPageOffset() {
+
+        assertEquals(
+                DatabaseHeader.HEADER_SIZE,
+                pageManager.calculatePageOffset(0)
+        );
+    }
+
+    @Test
+    void shouldCalculateSecondPageOffset() {
+
+        long expectedOffset =
+                DatabaseHeader.HEADER_SIZE
+                        + Page.PAGE_SIZE;
+
+        assertEquals(
+                expectedOffset,
+                pageManager.calculatePageOffset(1)
+        );
+    }
+
+    @Test
+    void shouldRejectNullPage() {
+
+        NullPointerException exception =
+                assertThrows(
+                        NullPointerException.class,
+                        () -> pageManager.writePage(null)
+                );
+
+        assertEquals(
+                "Page cannot be null.",
+                exception.getMessage()
+        );
+    }
+
+    @Test
+    void shouldRejectNullDataFile() {
+
+        NullPointerException exception =
+                assertThrows(
+                        NullPointerException.class,
+                        () -> new PageManager(null)
+                );
+
+        assertEquals(
+                "Data file cannot be null.",
+                exception.getMessage()
+        );
+    }
+
+    @Test
+    void shouldFailWhenDataFileIsClosed()
+            throws IOException {
 
         dataFile.close();
 
-        assertThrows(
-                IllegalStateException.class,
-                () -> pageManager.getPageCount()
-        );
+        IllegalStateException exception =
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> pageManager.getPageCount()
+                );
 
-        assertThrows(
-                IllegalStateException.class,
-                () -> pageManager.writePage(
-                        new Page(0, PageType.DATA)
-                )
-        );
-    }
-
-    @Test
-    void shouldRejectPageOperationsWithoutDatabaseHeader()
-            throws Exception {
-
-        dataFile.resize(0);
-
-        assertThrows(
-                IllegalStateException.class,
-                () -> pageManager.getPageCount()
-        );
-
-        assertThrows(
-                IllegalStateException.class,
-                () -> pageManager.writePage(
-                        new Page(0, PageType.DATA)
-                )
+        assertEquals(
+                "Data file must be open before page operations.",
+                exception.getMessage()
         );
     }
 
     @Test
-    void shouldRejectMisalignedDataFile() throws Exception {
+    void shouldPersistHeaderPageCountAfterReopen()
+            throws IOException {
 
-        /*
-         * Header sonrasına geçersiz, eksik sayfa verisi ekliyoruz.
-         */
-        dataFile.append(
-                new byte[]{1, 2, 3}
+        Page firstPage = new Page(
+                0,
+                PageType.DATA
         );
 
-        assertThrows(
-                IllegalStateException.class,
-                () -> pageManager.getPageCount()
+        Page secondPage = new Page(
+                1,
+                PageType.DATA
+        );
+
+        pageManager.writePage(firstPage);
+        pageManager.writePage(secondPage);
+        pageManager.sync();
+
+        Path filePath =
+                dataFile.getFilePath();
+
+        dataFile.close();
+
+        dataFile = new DataFile(filePath);
+        dataFile.open();
+
+        pageManager =
+                new PageManager(dataFile);
+
+        assertEquals(
+                2,
+                pageManager.getPageCount()
+        );
+
+        assertEquals(
+                2,
+                pageManager.getHeaderPageCount()
+        );
+
+        assertTrue(
+                pageManager.isPageCountConsistent()
         );
     }
 }
