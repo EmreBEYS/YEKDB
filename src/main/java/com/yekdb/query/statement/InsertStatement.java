@@ -1,20 +1,18 @@
-package com.yekdb.query.command;
+package com.yekdb.query.statement;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
 /**
- * INSERT INTO SQL komutunu temsil eder.
+ * Parser tarafından ayrıştırılmış INSERT sorgusunu temsil eder.
  *
- * <p>Komut, hedef tablo adını ve tabloya eklenecek
- * değerleri taşır.</p>
+ * <p>Örnek SQL:</p>
  *
- * <p>Fiziksel Row nesnesinin oluşturulması
- * QueryExecutor katmanında gerçekleştirilecektir.</p>
+ * <pre>
+ * INSERT INTO users VALUES (1, 'Emre', 21);
+ * </pre>
  */
-public final class InsertCommand implements Command {
+public final class InsertStatement implements Statement {
 
     /**
      * Kaydın ekleneceği tablo adı.
@@ -27,12 +25,12 @@ public final class InsertCommand implements Command {
     private final List<Object> values;
 
     /**
-     * Yeni INSERT komutu oluşturur.
+     * Yeni bir InsertStatement oluşturur.
      *
      * @param tableName hedef tablo adı
      * @param values    eklenecek değerler
      */
-    public InsertCommand(
+    public InsertStatement(
             String tableName,
             List<Object> values
     ) {
@@ -45,17 +43,23 @@ public final class InsertCommand implements Command {
 
         if (values.isEmpty()) {
             throw new IllegalArgumentException(
-                    "INSERT command must contain at least one value."
+                    "INSERT statement must contain at least one value."
             );
         }
 
-        /*
-         * List.copyOf null eleman kabul etmediği için
-         * ArrayList ve unmodifiableList kullanılır.
-         */
-        this.values = Collections.unmodifiableList(
-                new ArrayList<>(values)
+        this.values = java.util.Collections.unmodifiableList(
+                new java.util.ArrayList<>(values)
         );
+    }
+
+    /**
+     * Statement türünü döndürür.
+     *
+     * @return INSERT
+     */
+    @Override
+    public StatementType getType() {
+        return StatementType.INSERT;
     }
 
     /**
@@ -68,37 +72,25 @@ public final class InsertCommand implements Command {
     }
 
     /**
-     * Eklenecek değerleri döndürür.
+     * Eklenecek değerleri değiştirilemez liste olarak döndürür.
      *
-     * @return değiştirilemez değer listesi
+     * @return değer listesi
      */
     public List<Object> getValues() {
         return values;
     }
 
     /**
-     * Eklenecek değer sayısını döndürür.
-     *
-     * @return değer sayısı
-     */
-    public int getValueCount() {
-        return values.size();
-    }
-
-    /**
      * Tablo adını doğrular ve temizler.
      */
     private String validateTableName(String tableName) {
-        String normalizedName = Objects.requireNonNull(
-                tableName,
-                "Table name cannot be null."
-        ).trim();
-
-        if (normalizedName.isBlank()) {
+        if (tableName == null || tableName.isBlank()) {
             throw new IllegalArgumentException(
-                    "Table name cannot be blank."
+                    "Table name cannot be null or blank."
             );
         }
+
+        String normalizedName = tableName.trim();
 
         if (!normalizedName.matches(
                 "[A-Za-z_][A-Za-z0-9_]*"
@@ -113,7 +105,7 @@ public final class InsertCommand implements Command {
 
     @Override
     public String toString() {
-        return "InsertCommand{" +
+        return "InsertStatement{" +
                 "tableName='" + tableName + '\'' +
                 ", values=" + values +
                 '}';

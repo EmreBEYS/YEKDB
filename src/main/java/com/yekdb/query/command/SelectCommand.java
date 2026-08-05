@@ -6,9 +6,8 @@ import java.util.Objects;
 /**
  * SELECT SQL komutunu temsil eder.
  *
- * <p>İlk sürümde SELECT * FROM table sorgusu
- * desteklenmektedir. Sütun listesi yapısı ileride
- * belirli sütun seçimleri için kullanılacaktır.</p>
+ * <p>Hem tüm sütunların hem de belirli sütunların
+ * seçilmesini destekler.</p>
  */
 public final class SelectCommand implements Command {
 
@@ -76,9 +75,7 @@ public final class SelectCommand implements Command {
     /**
      * Belirli sütunları seçen SELECT komutu oluşturur.
      *
-     * Bu yapı sonraki sürümlerde kullanılacaktır.
-     *
-     * @param tableName hedef tablo adı
+     * @param tableName       hedef tablo adı
      * @param selectedColumns seçilecek sütunlar
      * @return SELECT komutu
      */
@@ -117,6 +114,14 @@ public final class SelectCommand implements Command {
             );
         }
 
+        if (!normalizedName.matches(
+                "[A-Za-z_][A-Za-z0-9_]*"
+        )) {
+            throw new IllegalArgumentException(
+                    "Invalid table name: " + tableName
+            );
+        }
+
         return normalizedName;
     }
 
@@ -129,6 +134,14 @@ public final class SelectCommand implements Command {
         if (normalizedName.isBlank()) {
             throw new IllegalArgumentException(
                     "Column name cannot be blank."
+            );
+        }
+
+        if (!normalizedName.matches(
+                "[A-Za-z_][A-Za-z0-9_]*"
+        )) {
+            throw new IllegalArgumentException(
+                    "Invalid column name: " + columnName
             );
         }
 

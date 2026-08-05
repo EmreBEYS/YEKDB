@@ -1,5 +1,5 @@
 # YEKDB
-### Yet Another Embedded Key Database
+## Yet Another Embedded Key Database
 
 > A lightweight relational database management system written entirely in Java.
 
@@ -7,161 +7,276 @@
 ![Maven](https://img.shields.io/badge/Maven-3.x-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-green)
 ![Status](https://img.shields.io/badge/Status-Development-yellow)
+![Tests](https://img.shields.io/badge/Tests-15%20Passed-brightgreen)
+![Current Sprint](https://img.shields.io/badge/Sprint-00--10-success)
 
 ---
 
 # 📖 About
 
-YEKDB (Yet Another Embedded Key Database) is a relational database management system developed completely from scratch in Java.
+YEKDB (Yet Another Embedded Key Database) is a relational database management system (RDBMS) written completely from scratch in Java.
 
-Unlike PostgreSQL, MySQL or SQLite, every subsystem of YEKDB is implemented independently to understand how a modern database system works internally.
+Unlike educational database projects built on existing engines, YEKDB independently implements every major subsystem including:
 
-The long-term objective is to build a fully functional embedded relational database including:
+- Physical Storage Engine
+- Record Management
+- Database Management
+- Table Management
+- Index Management
+- SQL Query Execution
 
-- Storage Engine
-- Query Engine
-- SQL Parser
-- Index Manager
-- Transaction Manager
-- Buffer Manager
-- Optimizer
-- Catalog Manager
+The primary objective of the project is to understand how modern relational database systems work internally while building a fully functional database engine from the ground up.
 
 ---
 
-# ✨ Current Features
+# ✨ Features
 
-### Storage Layer
+## Storage Engine
 
-- Physical Data File
+- Physical Page Management
+- Binary DataFile Format
 - Database Header
-- Fixed-size Page Architecture
-- Page Manager
-- Record Manager
-- Row Serialization
+- Page Header
+- Record Storage
+- Record Serialization
 
-### Database Layer
+---
+
+## Database Engine
 
 - Database Management
 - Table Management
-- Table Metadata
-- Catalog Management
+- Record Management
+- Index Management
 
-### Query Layer
+---
 
-- SQL Command Architecture
-- Command Abstraction
-- Query Execution Skeleton
+## Query Engine
+
+Sprint 00-10 introduces the first complete query execution infrastructure.
+
+Implemented components:
+
+- SQL Tokenizer
+- SQL Parser
+- Statement Model
+- Statement → Command Mapper
+- Query Executor
 - Execute Result Model
-- Query Exception Handling
+
+---
+
+# Supported Operations
+
+## SQL Statements
+
+```sql
+INSERT INTO employees VALUES (1,'Emre',21);
+
+SELECT * FROM employees;
+
+DELETE FROM employees
+WHERE record_id = 0;
+```
+
+---
+
+## Management Commands
+
+Currently supported through the internal command system.
+
+- CREATE DATABASE
+- USE DATABASE
+- CREATE TABLE
+- DROP TABLE
+- DROP DATABASE
+
+---
+
+# Query Execution Architecture
+
+```
+                    SQL Statement
+                          │
+                          ▼
+                  SQL Tokenizer
+                          │
+                          ▼
+                    SQL Parser
+                          │
+                          ▼
+                 Statement Objects
+                          │
+                          ▼
+             StatementCommandMapper
+                          │
+                          ▼
+                     Command Objects
+                          │
+                          ▼
+                    QueryExecutor
+              ┌───────────┼───────────┐
+              ▼           ▼           ▼
+      DatabaseManager  TableManager  RecordManager
+                                      │
+                                      ▼
+                                 PageManager
+                                      │
+                                      ▼
+                                   DataFile
+                                      │
+                                      ▼
+                                Physical Storage
+```
+
+---
+
+# 📸 Screenshots
+
+## Query Execution Architecture
+
+<p align="center">
+<img src="docs/screenshots/Query_Execution_Architecture.png" width="900">
+</p>
+
+---
+
+## QueryExecutor Internal Workflow
+
+<p align="center">
+<img src="docs/screenshots/QueryExecutor_Internal_Workflow.png" width="900">
+</p>
+
+---
+
+## Query Execution Demo
+
+<p align="center">
+<img src="docs/screenshots/demo1.png" width="900">
+</p>
+
+<p align="center">
+<img src="docs/screenshots/demo2.png" width="900">
+</p>
+
+---
+
+## QueryExecutor Tests
+
+<p align="center">
+<img src="docs/screenshots/QueryExecutorTest.png" width="900">
+</p>
+
+---
+
+## ExecuteResult Tests
+
+<p align="center">
+<img src="docs/screenshots/ExecuteResultTest.png" width="900">
+</p>
+
+---
+
+## Integration Test
+
+<p align="center">
+<img src="docs/screenshots/QueryExecutorIntegrationTest.png" width="900">
+</p>
+
+---
+
+# 🧪 Testing
+
+| Test Suite | Result |
+|------------|:------:|
+| QueryExecutorTest | ✅ 8 / 8 |
+| ExecuteResultTest | ✅ 6 / 6 |
+| QueryExecutorIntegrationTest | ✅ 1 / 1 |
+
+**Total**
+
+```
+15 Tests Passed
+```
 
 ---
 
 # 📂 Project Structure
 
-```text
-src
-├── core
-├── database
-├── index
-├── network
-├── optimizer
-├── parser
-├── query
-│   ├── command
-│   └── executor
-├── security
-├── space
-├── storage
-├── table
-├── transaction
-└── util
+```
+YEKDB
+│
+├── config
+├── data
+├── docs
+│   ├── screenshots
+│   └── documentation
+├── logs
+├── src
+│   ├── catalog
+│   ├── config
+│   ├── database
+│   ├── exception
+│   ├── index
+│   ├── logging
+│   ├── query
+│   ├── storage
+│   ├── table
+│   └── util
+└── pom.xml
 ```
 
 ---
 
-# 🚀 Sprint Progress
+# 📈 Development Progress
 
 | Sprint | Status |
-|---------|--------|
-| 00-01 | ✅ Core Project Structure |
-| 00-02 | ✅ Storage Engine |
-| 00-03 | ✅ Configuration & Logger |
-| 00-04 | ✅ Page Architecture |
-| 00-05 | ✅ Physical Storage Engine |
-| 00-06 | ✅ Database Management |
-| 00-07 | ✅ Table Management |
-| 00-08 | ✅ Record Management |
-| 00-09 | ✅ SQL Command Models |
-| 00-10 | ✅ Query Execution Foundation |
+|----------|:------:|
+| 00-01 | ✅ |
+| 00-02 | ✅ |
+| 00-03 | ✅ |
+| 00-04 | ✅ |
+| 00-05 | ✅ |
+| 00-06 | ✅ |
+| 00-07 | ✅ |
+| 00-08 | ✅ |
+| 00-09 | ✅ |
+| **00-10 Query Execution Foundation** | ✅ |
 
 ---
 
-# 📌 Sprint 00-10
+# 🚀 Next Sprint
 
-Completed
+Sprint 00-11
 
-- Designed Query Execution architecture.
-- Implemented ExecuteResult model.
-- Implemented QueryExecutionException.
-- Added QueryExecutor foundation.
-- Completed SQL Command models.
-- Prepared Query layer for future SQL Parser integration.
+Planned features:
 
-Implemented SQL Commands
-
-- CREATE DATABASE
-- USE DATABASE
-- DROP DATABASE
-- CREATE TABLE
-- DROP TABLE
-- INSERT
-- SELECT
-- DELETE
+- UPDATE Execution
+- WHERE Expression Engine
+- Predicate Evaluation
+- Expression Tree
+- Query Optimization Foundation
 
 ---
 
-# 🔜 Next Sprint (00-11)
-
-Planned Features
-
-- SQL Lexer
-- SQL Parser
-- Token System
-- Query Parsing
-- QueryExecutor Integration
-- RecordManager Integration
-- INSERT execution
-- SELECT execution
-- DELETE execution
-
----
-
-# 🛠 Technologies
+# ⚙ Requirements
 
 - Java 21
-- Maven
-- JUnit 5
+- Maven 3.x
+- IntelliJ IDEA
 
 ---
 
-# 📖 Documentation
-
-Each sprint contains detailed documentation including:
-
-- Developer Notes
-- Architecture Documents
-- UML / Architecture Diagrams
-- Internal Design Notes
-
----
-
-# 🎯 Project Goal
-
-YEKDB aims to become a fully educational embedded relational database management system where every subsystem is implemented manually for learning modern database internals.
-
----
-
-# 📜 License
+# 📄 License
 
 This project is licensed under the MIT License.
+
+---
+
+# 👨‍💻 Author
+
+**Yunus Emre KUL**
+
+Computer Engineering Student
+
+Developing a relational database management system completely from scratch in Java.

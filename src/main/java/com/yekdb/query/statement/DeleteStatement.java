@@ -1,17 +1,17 @@
-package com.yekdb.query.command;
-
-import java.util.Objects;
+package com.yekdb.query.statement;
 
 /**
- * DELETE SQL komutunu temsil eder.
+ * Parser tarafından ayrıştırılmış DELETE sorgusunu temsil eder.
  *
- * <p>Komut, hedef tablo adını ve isteğe bağlı
- * WHERE koşulunu taşır.</p>
+ * <p>Örnek SQL:</p>
  *
- * <p>WHERE koşulunun değerlendirilmesi
- * QueryExecutor katmanında gerçekleştirilecektir.</p>
+ * <pre>
+ * DELETE FROM users WHERE id = 1;
+ * DELETE FROM users;
+ * </pre>
  */
-public final class DeleteCommand implements Command {
+
+public final class DeleteStatement implements Statement {
 
     /**
      * Kayıtların silineceği tablo adı.
@@ -21,22 +21,34 @@ public final class DeleteCommand implements Command {
     /**
      * DELETE işleminde kullanılacak WHERE koşulu.
      *
-     * Koşulsuz DELETE sorgularında null olabilir.
+     * <p>İlk sürümde koşul metinsel olarak saklanmaktadır.
+     * İlerleyen sprintlerde ayrı bir Condition modeline
+     * dönüştürülebilir.</p>
      */
     private final String whereClause;
 
     /**
-     * Yeni DELETE komutu oluşturur.
+     * Yeni bir DeleteStatement oluşturur.
      *
-     * @param tableName  hedef tablo adı
-     * @param whereClause WHERE koşulu
+     * @param tableName  kayıtların silineceği tablo
+     * @param whereClause WHERE koşulu; koşulsuz DELETE için null olabilir
      */
-    public DeleteCommand(
+    public DeleteStatement(
             String tableName,
             String whereClause
     ) {
         this.tableName = validateTableName(tableName);
         this.whereClause = normalizeWhereClause(whereClause);
+    }
+
+    /**
+     * Statement türünü döndürür.
+     *
+     * @return DELETE
+     */
+    @Override
+    public StatementType getType() {
+        return StatementType.DELETE;
     }
 
     /**
@@ -51,16 +63,17 @@ public final class DeleteCommand implements Command {
     /**
      * WHERE koşulunu döndürür.
      *
-     * @return koşul veya null
+     * @return koşul veya koşul bulunmuyorsa null
      */
     public String getWhereClause() {
         return whereClause;
     }
 
     /**
-     * Komutta WHERE koşulu bulunup bulunmadığını döndürür.
+     * Statement içerisinde WHERE koşulu bulunup
+     * bulunmadığını kontrol eder.
      *
-     * @return koşul varsa true
+     * @return WHERE koşulu varsa true
      */
     public boolean hasWhereClause() {
         return whereClause != null;
@@ -70,16 +83,13 @@ public final class DeleteCommand implements Command {
      * Tablo adını doğrular ve temizler.
      */
     private String validateTableName(String tableName) {
-        String normalizedName = Objects.requireNonNull(
-                tableName,
-                "Table name cannot be null."
-        ).trim();
-
-        if (normalizedName.isBlank()) {
+        if (tableName == null || tableName.isBlank()) {
             throw new IllegalArgumentException(
-                    "Table name cannot be blank."
+                    "Table name cannot be null or blank."
             );
         }
+
+        String normalizedName = tableName.trim();
 
         if (!normalizedName.matches(
                 "[A-Za-z_][A-Za-z0-9_]*"
@@ -94,6 +104,9 @@ public final class DeleteCommand implements Command {
 
     /**
      * WHERE koşulunu temizler.
+     *
+     * Null veya yalnızca boşluk içeren koşullar
+     * koşul bulunmuyor şeklinde değerlendirilir.
      */
     private String normalizeWhereClause(
             String whereClause
@@ -108,7 +121,7 @@ public final class DeleteCommand implements Command {
 
     @Override
     public String toString() {
-        return "DeleteCommand{" +
+        return "DeleteStatement{" +
                 "tableName='" + tableName + '\'' +
                 ", whereClause='" + whereClause + '\'' +
                 '}';
