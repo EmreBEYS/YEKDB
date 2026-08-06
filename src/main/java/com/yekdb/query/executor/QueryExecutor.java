@@ -11,149 +11,152 @@ import com.yekdb.query.command.DropTableCommand;
 import com.yekdb.query.command.InsertCommand;
 import com.yekdb.query.command.SelectCommand;
 import com.yekdb.query.command.UseDatabaseCommand;
-import com.yekdb.query.mapper.StatementCommandMapper;
-import com.yekdb.query.parser.SqlParser;
-import com.yekdb.query.statement.Statement;
-import com.yekdb.storage.file.DataFile;
-import com.yekdb.storage.file.DatabaseHeader;
-import com.yekdb.storage.page.PageManager;
-import com.yekdb.storage.page.PageType;
-import com.yekdb.storage.record.Record;
-import com.yekdb.storage.record.RecordManager;
+import com.yekdb.query.datasource.QueryDataSource;
+import com.yekdb.query.result.QueryResult;
 import com.yekdb.storage.record.Row;
-import com.yekdb.storage.record.RowSerializer;
+import com.yekdb.table.Column;
+import com.yekdb.table.DataType;
 import com.yekdb.table.Table;
 import com.yekdb.table.TableManager;
 import com.yekdb.table.TableMetadata;
 
-import java.io.IOException;
-import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Objects;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
- * SQL komutlarını ilgili YEKDB yönetici ve depolama
- * katmanlarına yönlendirerek çalıştırır.
+ * Parser veya istemci katmanı tarafından oluşturulan SQL komutlarını
+ * ilgili yönetim ve sorgu yürütme katmanlarına yönlendirir.
  *
- * <p>Desteklenen temel işlemler:</p>
+ * Desteklenen Command türleri:
  *
- * <ul>
- *     <li>CREATE DATABASE</li>
- *     <li>USE DATABASE</li>
- *     <li>DROP DATABASE</li>
- *     <li>CREATE TABLE</li>
- *     <li>DROP TABLE</li>
- *     <li>INSERT INTO</li>
- *     <li>SELECT *</li>
- *     <li>DELETE ... WHERE record_id = value</li>
- * </ul>
+ * - CreateDatabaseCommand
+ * - UseDatabaseCommand
+ * - DropDatabaseCommand
+ * - CreateTableCommand
+ * - DropTableCommand
+ * - SelectCommand
+ *
+ * Eski testler ve istemciler için execute(String) desteği de bulunur.
  */
 public final class QueryExecutor implements AutoCloseable {
 
     /**
-     * Tablo kayıtlarının tutulduğu fiziksel veri dosyası uzantısı.
+     * Veritabanı oluşturma, seçme ve silme işlemlerini yönetir.
      */
-    private static final String TABLE_DATA_FILE_EXTENSION = ".data";
-
-    /**
-     * Sprint 00-10 kapsamında desteklenen DELETE koşulu.
-     *
-     * Örnekler:
-     *
-     * record_id = 5
-     * recordId = 5
-     * _record_id = 5
-     */
-    private static final Pattern RECORD_ID_CONDITION_PATTERN =
-            Pattern.compile(
-                    "(?i)^(record_id|recordId|_record_id)\\s*=\\s*(\\d+)$"
-            );
-
     private final DatabaseManager databaseManager;
-    private final SqlParser sqlParser;
 
     /**
-     * Açılmış tablo veri dosyaları.
+     * SELECT sorgularında tablo ve satır verilerinin
+     * alınacağı veri kaynağıdır.
+     *
+     * Yalnızca yönetim komutları kullanılacaksa null olabilir.
      */
-    private final Map<String, DataFile> openDataFiles;
+    private final QueryDataSource queryDataSource;
 
     /**
-     * Tablo adına göre oluşturulmuş RecordManager nesneleri.
+     * SELECT sorgularını optimizer ve tarama katmanları
+     * üzerinden çalıştırır.
      */
-    private final Map<String, RecordManager> recordManagers;
+    private final SelectExecutor selectExecutor;
 
     /**
-     * Aktif veritabanına bağlı tablo yöneticisi.
+     * Aktif veritabanına bağlı tablo yöneticisidir.
      */
     private TableManager tableManager;
 
     /**
-     * Yeni QueryExecutor oluşturur.
+     * Yalnızca veritabanı ve tablo yönetimi desteği bulunan
+     * QueryExecutor oluşturur.
      *
      * @param databaseManager veritabanı yöneticisi
      */
-    public QueryExecutor(DatabaseManager databaseManager) {
+    public QueryExecutor(
+            DatabaseManager databaseManager
+    ) {
         this(
                 databaseManager,
-                new SqlParser()
+                null,
+                new SelectExecutor()
         );
     }
 
     /**
-     * Belirtilen parser ile yeni QueryExecutor oluşturur.
+     * SELECT desteği bulunan QueryExecutor oluşturur.
      *
      * @param databaseManager veritabanı yöneticisi
-     * @param sqlParser       SQL parser
+     * @param queryDataSource SELECT veri kaynağı
      */
     public QueryExecutor(
             DatabaseManager databaseManager,
-            SqlParser sqlParser
+            QueryDataSource queryDataSource
+    ) {
+        this(
+                databaseManager,
+                queryDataSource,
+                new SelectExecutor()
+        );
+    }
+
+    /**
+     * Bütün bağımlılıkların dışarıdan verilebildiği constructor.
+     *
+     * @param databaseManager veritabanı yöneticisi
+     * @param queryDataSource sorgu veri kaynağı
+     * @param selectExecutor SELECT yürütücüsü
+     */
+    public QueryExecutor(
+            DatabaseManager databaseManager,
+            QueryDataSource queryDataSource,
+            SelectExecutor selectExecutor
     ) {
         this.databaseManager = Objects.requireNonNull(
                 databaseManager,
                 "DatabaseManager cannot be null."
         );
 
-        this.sqlParser = Objects.requireNonNull(
-                sqlParser,
-                "SqlParser cannot be null."
-        );
+        this.queryDataSource = queryDataSource;
 
-        this.openDataFiles = new HashMap<>();
-        this.recordManagers = new HashMap<>();
+        this.selectExecutor = Objects.requireNonNull(
+                selectExecutor,
+                "SelectExecutor cannot be null."
+        );
 
         initializeTableManager();
     }
 
     /**
-     * SQL metnini parse eder, Command nesnesine dönüştürür
-     * ve çalıştırır.
+     * SQL metnini uygun Command nesnesine dönüştürerek çalıştırır.
      *
-     * @param sql çalıştırılacak SQL
+     * Bu metot eski testlerle geriye uyumluluk sağlar.
+     *
+     * Desteklenen SQL metinleri:
+     *
+     * CREATE DATABASE database_name
+     * USE DATABASE database_name
+     * USE database_name
+     * DROP DATABASE database_name
+     * CREATE TABLE table_name (...)
+     * DROP TABLE table_name
+     *
+     * @param sql çalıştırılacak SQL metni
      * @return yürütme sonucu
      */
     public ExecuteResult execute(String sql) {
-        Statement statement = sqlParser.parse(sql);
+        if (sql == null || sql.isBlank()) {
+            throw new QueryExecutionException(
+                    "SQL statement cannot be null or blank."
+            );
+        }
 
-        return execute(statement);
-    }
+        String normalizedSql = removeTrailingSemicolon(
+                sql.trim()
+        );
 
-    /**
-     * Statement nesnesini Command nesnesine dönüştürerek
-     * çalıştırır.
-     *
-     * @param statement çalıştırılacak statement
-     * @return yürütme sonucu
-     */
-    public ExecuteResult execute(Statement statement) {
-        Command command =
-                StatementCommandMapper.map(statement);
+        Command command = parseSqlCommand(
+                normalizedSql
+        );
 
         return execute(command);
     }
@@ -192,16 +195,20 @@ public final class QueryExecutor implements AutoCloseable {
                 return executeDropTable(value);
             }
 
-            if (command instanceof InsertCommand value) {
-                return executeInsert(value);
+            if (command instanceof InsertCommand) {
+                return unsupportedRecordOperation(
+                        "INSERT"
+                );
             }
 
             if (command instanceof SelectCommand value) {
                 return executeSelect(value);
             }
 
-            if (command instanceof DeleteCommand value) {
-                return executeDelete(value);
+            if (command instanceof DeleteCommand) {
+                return unsupportedRecordOperation(
+                        "DELETE"
+                );
             }
 
             throw new QueryExecutionException(
@@ -211,13 +218,6 @@ public final class QueryExecutor implements AutoCloseable {
 
         } catch (QueryExecutionException exception) {
             throw exception;
-
-        } catch (IOException exception) {
-            throw new QueryExecutionException(
-                    "Physical query execution failed for command: "
-                            + command.getClass().getSimpleName(),
-                    exception
-            );
 
         } catch (RuntimeException exception) {
             throw new QueryExecutionException(
@@ -249,10 +249,7 @@ public final class QueryExecutor implements AutoCloseable {
      */
     private ExecuteResult executeUseDatabase(
             UseDatabaseCommand command
-    ) throws IOException {
-
-        closeRecordResources();
-
+    ) {
         Database database = databaseManager.useDatabase(
                 command.getDatabaseName()
         );
@@ -272,21 +269,17 @@ public final class QueryExecutor implements AutoCloseable {
      */
     private ExecuteResult executeDropDatabase(
             DropDatabaseCommand command
-    ) throws IOException {
-
+    ) {
         Database currentDatabase =
                 databaseManager.getCurrentDatabase();
 
         boolean droppingCurrentDatabase =
                 currentDatabase != null
-                        && currentDatabase.getName()
+                        && currentDatabase
+                        .getName()
                         .equalsIgnoreCase(
                                 command.getDatabaseName()
                         );
-
-        if (droppingCurrentDatabase) {
-            closeRecordResources();
-        }
 
         databaseManager.dropDatabase(
                 command.getDatabaseName()
@@ -328,20 +321,11 @@ public final class QueryExecutor implements AutoCloseable {
      */
     private ExecuteResult executeDropTable(
             DropTableCommand command
-    ) throws IOException {
-
+    ) {
         TableManager activeTableManager =
                 requireTableManager();
 
-        closeTableRecordResources(
-                command.getTableName()
-        );
-
         activeTableManager.dropTable(
-                command.getTableName()
-        );
-
-        deleteTableDataFile(
                 command.getTableName()
         );
 
@@ -352,384 +336,348 @@ public final class QueryExecutor implements AutoCloseable {
     }
 
     /**
-     * INSERT komutunu çalıştırır.
-     */
-    private ExecuteResult executeInsert(
-            InsertCommand command
-    ) throws IOException {
-
-        TableManager activeTableManager =
-                requireTableManager();
-
-        requireTableExists(
-                activeTableManager,
-                command.getTableName()
-        );
-
-        Table table = activeTableManager.getTable(
-                command.getTableName()
-        );
-
-        validateInsertValueCount(
-                table,
-                command
-        );
-
-        /*
-         * Row sınıfı mevcut sürümde null değer kabul etmez.
-         */
-        validateNoNullValues(
-                command.getValues()
-        );
-
-        Row row = new Row(
-                command.getValues()
-        );
-
-        RecordManager recordManager =
-                requireRecordManager(
-                        command.getTableName()
-                );
-
-        Record record =
-                recordManager.insert(row);
-
-        return ExecuteResult.success(
-                "Record inserted successfully. "
-                        + "Table: "
-                        + command.getTableName()
-                        + ", record ID: "
-                        + record.getRecordId(),
-                1
-        );
-    }
-
-    /**
      * SELECT komutunu çalıştırır.
-     *
-     * Sprint 00-10 kapsamında SELECT * desteklenir.
      */
     private ExecuteResult executeSelect(
             SelectCommand command
-    ) throws IOException {
+    ) {
+        QueryDataSource activeDataSource =
+                requireQueryDataSource();
 
-        TableManager activeTableManager =
-                requireTableManager();
-
-        requireTableExists(
-                activeTableManager,
+        Table table = activeDataSource.getTable(
                 command.getTableName()
         );
 
-        if (!command.isSelectAll()) {
-            throw new QueryExecutionException(
-                    "Selecting specific columns is not supported "
-                            + "in Sprint 00-10. Use SELECT *."
-            );
-        }
+        List<Row> rows = activeDataSource.getRows(
+                command.getTableName()
+        );
 
-        RecordManager recordManager =
-                requireRecordManager(
-                        command.getTableName()
+        QueryResult queryResult =
+                selectExecutor.execute(
+                        table,
+                        rows,
+                        command.getWhereExpression()
                 );
 
-        List<Record> records =
-                recordManager.getActiveRecords();
-
-        List<Row> rows =
-                new ArrayList<>(records.size());
-
-        for (Record record : records) {
-            Row row = RowSerializer.deserialize(
-                    record.getData()
-            );
-
-            rows.add(row);
-        }
+        String message =
+                "SELECT query executed successfully. "
+                        + "Returned row count: "
+                        + queryResult.getRows().size()
+                        + ", execution time: "
+                        + queryResult.getExecutionTimeMillis()
+                        + " ms";
 
         return ExecuteResult.success(
-                rows.size()
-                        + " row(s) selected from table: "
-                        + command.getTableName(),
-                rows
+                message,
+                queryResult.getRows()
         );
     }
 
     /**
-     * DELETE komutunu çalıştırır.
+     * SQL metnini uygun Command nesnesine dönüştürür.
+     */
+    private Command parseSqlCommand(String sql) {
+        String upperSql = sql.toUpperCase(
+                Locale.ROOT
+        );
+
+        if (upperSql.startsWith("CREATE DATABASE ")) {
+            String databaseName = extractValueAfterKeyword(
+                    sql,
+                    "CREATE DATABASE"
+            );
+
+            return new CreateDatabaseCommand(
+                    databaseName
+            );
+        }
+
+        if (upperSql.startsWith("USE DATABASE ")) {
+            String databaseName = extractValueAfterKeyword(
+                    sql,
+                    "USE DATABASE"
+            );
+
+            return new UseDatabaseCommand(
+                    databaseName
+            );
+        }
+
+        if (upperSql.startsWith("USE ")) {
+            String databaseName = extractValueAfterKeyword(
+                    sql,
+                    "USE"
+            );
+
+            return new UseDatabaseCommand(
+                    databaseName
+            );
+        }
+
+        if (upperSql.startsWith("DROP DATABASE ")) {
+            String databaseName = extractValueAfterKeyword(
+                    sql,
+                    "DROP DATABASE"
+            );
+
+            return new DropDatabaseCommand(
+                    databaseName
+            );
+        }
+
+        if (upperSql.startsWith("CREATE TABLE ")) {
+            return parseCreateTableCommand(
+                    sql
+            );
+        }
+
+        if (upperSql.startsWith("DROP TABLE ")) {
+            String tableName = extractValueAfterKeyword(
+                    sql,
+                    "DROP TABLE"
+            );
+
+            return new DropTableCommand(
+                    tableName
+            );
+        }
+
+        throw new QueryExecutionException(
+                "Unsupported SQL statement: " + sql
+        );
+    }
+
+    /**
+     * CREATE TABLE SQL metnini CreateTableCommand nesnesine dönüştürür.
      *
-     * Sprint 00-10 kapsamında kayıt silme işlemi
-     * fiziksel Record ID üzerinden yapılır.
+     * Örnek:
+     *
+     * CREATE TABLE users (
+     *     id INT,
+     *     name STRING,
+     *     age INT
+     * )
      */
-    private ExecuteResult executeDelete(
-            DeleteCommand command
-    ) throws IOException {
+    private CreateTableCommand parseCreateTableCommand(
+            String sql
+    ) {
+        int openParenthesisIndex =
+                sql.indexOf('(');
 
-        TableManager activeTableManager =
-                requireTableManager();
+        int closeParenthesisIndex =
+                sql.lastIndexOf(')');
 
-        requireTableExists(
-                activeTableManager,
-                command.getTableName()
-        );
+        if (openParenthesisIndex < 0
+                || closeParenthesisIndex < 0
+                || closeParenthesisIndex
+                <= openParenthesisIndex) {
 
-        if (!command.hasWhereClause()) {
             throw new QueryExecutionException(
-                    "DELETE without WHERE is not supported."
+                    "Invalid CREATE TABLE statement: "
+                            + sql
             );
         }
 
-        long recordId = parseRecordIdCondition(
-                command.getWhereClause()
-        );
+        String tableName = sql.substring(
+                "CREATE TABLE".length(),
+                openParenthesisIndex
+        ).trim();
 
-        RecordManager recordManager =
-                requireRecordManager(
-                        command.getTableName()
+        if (tableName.isBlank()) {
+            throw new QueryExecutionException(
+                    "CREATE TABLE statement must contain a table name."
+            );
+        }
+
+        String columnDefinitionSection =
+                sql.substring(
+                        openParenthesisIndex + 1,
+                        closeParenthesisIndex
+                ).trim();
+
+        if (columnDefinitionSection.isBlank()) {
+            throw new QueryExecutionException(
+                    "CREATE TABLE statement must contain columns."
+            );
+        }
+
+        String remainingText = sql.substring(
+                closeParenthesisIndex + 1
+        ).trim();
+
+        if (!remainingText.isEmpty()) {
+            throw new QueryExecutionException(
+                    "Unexpected text after CREATE TABLE definition: "
+                            + remainingText
+            );
+        }
+
+        List<Column> columns =
+                parseColumnDefinitions(
+                        columnDefinitionSection
                 );
 
-        recordManager.delete(recordId);
-
-        return ExecuteResult.success(
-                "Record deleted successfully. "
-                        + "Table: "
-                        + command.getTableName()
-                        + ", record ID: "
-                        + recordId,
-                1
+        return new CreateTableCommand(
+                tableName,
+                columns
         );
     }
 
     /**
-     * INSERT değer sayısı ile tablo sütun sayısını karşılaştırır.
+     * CREATE TABLE içindeki sütun tanımlarını ayrıştırır.
      */
-    private void validateInsertValueCount(
-            Table table,
-            InsertCommand command
+    private List<Column> parseColumnDefinitions(
+            String columnDefinitionSection
     ) {
-        int expectedColumnCount =
-                table.getColumnCount();
+        List<Column> columns =
+                new ArrayList<>();
 
-        int actualValueCount =
-                command.getValueCount();
+        String[] definitions =
+                columnDefinitionSection.split(",");
 
-        if (expectedColumnCount != actualValueCount) {
-            throw new QueryExecutionException(
-                    "INSERT value count does not match table column count. "
-                            + "Expected: "
-                            + expectedColumnCount
-                            + ", received: "
-                            + actualValueCount
-                            + "."
-            );
-        }
-    }
+        for (String definition : definitions) {
+            String normalizedDefinition =
+                    definition.trim();
 
-    /**
-     * Row mevcut sürümde null desteklemediği için
-     * null değerleri yürütme öncesinde engeller.
-     */
-    private void validateNoNullValues(
-            List<Object> values
-    ) {
-        for (int index = 0; index < values.size(); index++) {
-            if (values.get(index) == null) {
+            if (normalizedDefinition.isBlank()) {
                 throw new QueryExecutionException(
-                        "NULL values are not supported by Row yet. "
-                                + "Value index: "
-                                + index
-                                + "."
+                        "Column definition cannot be blank."
                 );
             }
-        }
-    }
 
-    /**
-     * WHERE koşulundan Record ID değerini çıkarır.
-     */
-    private long parseRecordIdCondition(
-            String whereClause
-    ) {
-        Matcher matcher =
-                RECORD_ID_CONDITION_PATTERN.matcher(
-                        whereClause.trim()
+            String[] parts =
+                    normalizedDefinition.split("\\s+");
+
+            if (parts.length != 2) {
+                throw new QueryExecutionException(
+                        "Invalid column definition: "
+                                + normalizedDefinition
                 );
+            }
 
-        if (!matcher.matches()) {
-            throw new QueryExecutionException(
-                    "Sprint 00-10 DELETE condition must use "
-                            + "record_id = <number>. Received: "
-                            + whereClause
-            );
-        }
+            String columnName = parts[0];
 
-        try {
-            return Long.parseLong(
-                    matcher.group(2)
-            );
-
-        } catch (NumberFormatException exception) {
-            throw new QueryExecutionException(
-                    "Invalid record ID in DELETE condition: "
-                            + matcher.group(2),
-                    exception
-            );
-        }
-    }
-
-    /**
-     * Belirtilen tabloya bağlı RecordManager nesnesini
-     * döndürür veya oluşturur.
-     */
-    private RecordManager requireRecordManager(
-            String tableName
-    ) throws IOException {
-
-        Database currentDatabase =
-                requireCurrentDatabase();
-
-        String normalizedTableName =
-                normalizeTableName(tableName);
-
-        RecordManager existingManager =
-                recordManagers.get(normalizedTableName);
-
-        if (existingManager != null) {
-            return existingManager;
-        }
-
-        Path dataFilePath =
-                currentDatabase
-                        .getDatabasePath()
-                        .resolve(
-                                normalizedTableName
-                                        + TABLE_DATA_FILE_EXTENSION
-                        );
-
-        DataFile dataFile =
-                new DataFile(dataFilePath);
-
-        dataFile.open();
-
-        try {
-            initializeDataFileHeader(dataFile);
-
-            PageManager pageManager =
-                    new PageManager(dataFile);
-
-            RecordManager recordManager =
-                    new RecordManager(
-                            pageManager,
-                            PageType.DATA
+            DataType dataType =
+                    parseDataType(
+                            parts[1]
                     );
 
-            openDataFiles.put(
-                    normalizedTableName,
-                    dataFile
+            columns.add(
+                    new Column(
+                            columnName,
+                            dataType
+                    )
             );
-
-            recordManagers.put(
-                    normalizedTableName,
-                    recordManager
-            );
-
-            return recordManager;
-
-        } catch (IOException | RuntimeException exception) {
-            dataFile.close();
-            throw exception;
-        }
-    }
-
-    /**
-     * Yeni oluşturulan boş veri dosyasına YEKDB header yazar.
-     */
-    private void initializeDataFileHeader(
-            DataFile dataFile
-    ) throws IOException {
-
-        long fileSize = dataFile.size();
-
-        if (fileSize == 0) {
-            DatabaseHeader databaseHeader =
-                    new DatabaseHeader();
-
-            dataFile.write(
-                    0,
-                    databaseHeader.toBytes()
-            );
-
-            dataFile.sync();
-            return;
         }
 
-        if (fileSize < DatabaseHeader.HEADER_SIZE) {
+        if (columns.isEmpty()) {
             throw new QueryExecutionException(
-                    "Table data file is smaller than the YEKDB header: "
-                            + dataFile.getFilePath()
+                    "CREATE TABLE statement must contain valid columns."
             );
         }
 
-        byte[] headerBytes =
-                dataFile.read(
-                        0,
-                        DatabaseHeader.HEADER_SIZE
-                );
-
-        DatabaseHeader.fromBytes(headerBytes);
+        return List.copyOf(columns);
     }
 
     /**
-     * Tablo işlemlerinden önce aktif veritabanının
-     * bulunmasını zorunlu kılar.
+     * SQL veri tipini YEKDB DataType değerine dönüştürür.
      */
-    private TableManager requireTableManager() {
-        Database currentDatabase =
-                requireCurrentDatabase();
+    private DataType parseDataType(String value) {
+        String normalizedType = value
+                .trim()
+                .toUpperCase(Locale.ROOT);
 
-        if (tableManager == null) {
-            tableManager = new TableManager(
-                    currentDatabase.getDatabasePath()
+        return switch (normalizedType) {
+            case "INT", "INTEGER" ->
+                    DataType.INT;
+
+            case "LONG", "BIGINT" ->
+                    DataType.LONG;
+
+            case "DOUBLE", "FLOAT", "REAL" ->
+                    DataType.DOUBLE;
+
+            case "BOOLEAN", "BOOL" ->
+                    DataType.BOOLEAN;
+
+            case "STRING", "TEXT", "VARCHAR" ->
+                    DataType.STRING;
+
+            default -> throw new QueryExecutionException(
+                    "Unsupported data type: " + value
             );
-        }
-
-        return tableManager;
+        };
     }
 
     /**
-     * Aktif veritabanını döndürür.
+     * Belirtilen SQL anahtar kelimesinden sonraki değeri döndürür.
      */
-    private Database requireCurrentDatabase() {
-        Database currentDatabase =
-                databaseManager.getCurrentDatabase();
-
-        if (currentDatabase == null) {
-            throw new QueryExecutionException(
-                    "No database selected. "
-                            + "Execute USE DATABASE first."
-            );
-        }
-
-        return currentDatabase;
-    }
-
-    /**
-     * Tablo mevcut değilse yürütmeyi durdurur.
-     */
-    private void requireTableExists(
-            TableManager activeTableManager,
-            String tableName
+    private String extractValueAfterKeyword(
+            String sql,
+            String keyword
     ) {
-        if (!activeTableManager.exists(tableName)) {
+        String value = sql.substring(
+                keyword.length()
+        ).trim();
+
+        if (value.isBlank()) {
             throw new QueryExecutionException(
-                    "Table not found: " + tableName
+                    keyword + " statement requires a name."
             );
         }
+
+        if (value.contains(" ")) {
+            throw new QueryExecutionException(
+                    "Invalid value after "
+                            + keyword
+                            + ": "
+                            + value
+            );
+        }
+
+        return value;
+    }
+
+    /**
+     * SQL sonundaki noktalı virgülleri kaldırır.
+     */
+    private String removeTrailingSemicolon(
+            String sql
+    ) {
+        String result = sql.trim();
+
+        while (result.endsWith(";")) {
+            result = result.substring(
+                    0,
+                    result.length() - 1
+            ).trim();
+        }
+
+        if (result.isBlank()) {
+            throw new QueryExecutionException(
+                    "SQL statement cannot be empty."
+            );
+        }
+
+        return result;
+    }
+
+    /**
+     * Henüz yürütme katmanına bağlanmamış kayıt işlemleri
+     * için açıklayıcı hata üretir.
+     */
+    private ExecuteResult unsupportedRecordOperation(
+            String operationName
+    ) {
+        throw new QueryExecutionException(
+                operationName
+                        + " execution is not implemented yet."
+        );
     }
 
     /**
      * QueryExecutor oluşturulurken aktif bir veritabanı
-     * varsa TableManager bağlantısını hazırlar.
+     * bulunuyorsa TableManager bağlantısını hazırlar.
      */
     private void initializeTableManager() {
         Database currentDatabase =
@@ -746,103 +694,49 @@ public final class QueryExecutor implements AutoCloseable {
     }
 
     /**
-     * Belirli tabloya ait açık veri kaynağını kapatır.
+     * Tablo işlemlerinden önce aktif veritabanı
+     * bulunmasını zorunlu kılar.
      */
-    private void closeTableRecordResources(
-            String tableName
-    ) throws IOException {
-
-        String normalizedTableName =
-                normalizeTableName(tableName);
-
-        recordManagers.remove(
-                normalizedTableName
-        );
-
-        DataFile dataFile =
-                openDataFiles.remove(
-                        normalizedTableName
-                );
-
-        if (dataFile != null) {
-            dataFile.close();
-        }
-    }
-
-    /**
-     * Bütün açık tablo veri dosyalarını kapatır.
-     */
-    private void closeRecordResources()
-            throws IOException {
-
-        IOException firstException = null;
-
-        for (DataFile dataFile : openDataFiles.values()) {
-            try {
-                dataFile.close();
-
-            } catch (IOException exception) {
-                if (firstException == null) {
-                    firstException = exception;
-                } else {
-                    firstException.addSuppressed(
-                            exception
-                    );
-                }
-            }
-        }
-
-        openDataFiles.clear();
-        recordManagers.clear();
-
-        if (firstException != null) {
-            throw firstException;
-        }
-    }
-
-    /**
-     * DROP TABLE işleminde tabloya ait binary veri
-     * dosyasını siler.
-     */
-    private void deleteTableDataFile(
-            String tableName
-    ) throws IOException {
-
+    private TableManager requireTableManager() {
         Database currentDatabase =
-                requireCurrentDatabase();
+                databaseManager.getCurrentDatabase();
 
-        Path dataFilePath =
-                currentDatabase
-                        .getDatabasePath()
-                        .resolve(
-                                normalizeTableName(tableName)
-                                        + TABLE_DATA_FILE_EXTENSION
-                        );
-
-        java.nio.file.Files.deleteIfExists(
-                dataFilePath
-        );
-    }
-
-    private String normalizeTableName(
-            String tableName
-    ) {
-        if (tableName == null || tableName.isBlank()) {
+        if (currentDatabase == null) {
             throw new QueryExecutionException(
-                    "Table name cannot be null or blank."
+                    "No database selected. "
+                            + "Execute USE DATABASE first."
             );
         }
 
-        return tableName
-                .trim()
-                .toLowerCase(Locale.ROOT);
+        if (tableManager == null) {
+            tableManager = new TableManager(
+                    currentDatabase.getDatabasePath()
+            );
+        }
+
+        return tableManager;
     }
 
     /**
-     * Executor tarafından açılan fiziksel veri dosyalarını kapatır.
+     * SELECT işlemlerinden önce QueryDataSource
+     * bulunmasını zorunlu kılar.
+     */
+    private QueryDataSource requireQueryDataSource() {
+        if (queryDataSource == null) {
+            throw new QueryExecutionException(
+                    "SELECT execution requires a QueryDataSource."
+            );
+        }
+
+        return queryDataSource;
+    }
+
+    /**
+     * QueryExecutor tarafından tutulan geçici
+     * yönetici referanslarını temizler.
      */
     @Override
-    public void close() throws IOException {
-        closeRecordResources();
+    public void close() {
+        tableManager = null;
     }
 }

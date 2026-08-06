@@ -1,282 +1,319 @@
 # YEKDB
-## Yet Another Embedded Key Database
+### Yet Another Embedded Key Database
 
-> A lightweight relational database management system written entirely in Java.
+> Sprint 00-11 – Query Execution Engine
 
 ![Java](https://img.shields.io/badge/Java-21-orange)
 ![Maven](https://img.shields.io/badge/Maven-3.x-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-green)
+![JUnit](https://img.shields.io/badge/JUnit-506%20Tests-success)
 ![Status](https://img.shields.io/badge/Status-Development-yellow)
-![Tests](https://img.shields.io/badge/Tests-15%20Passed-brightgreen)
-![Current Sprint](https://img.shields.io/badge/Sprint-00--10-success)
 
 ---
 
 # 📖 About
 
-YEKDB (Yet Another Embedded Key Database) is a relational database management system (RDBMS) written completely from scratch in Java.
+Sprint 00-11 introduces the first fully functional **Query Execution Engine** inside YEKDB.
 
-Unlike educational database projects built on existing engines, YEKDB independently implements every major subsystem including:
+This sprint adds the infrastructure required to evaluate SQL WHERE clauses, build logical expression trees, execute SELECT statements, perform table scans and return query results.
 
-- Physical Storage Engine
-- Record Management
-- Database Management
-- Table Management
-- Index Management
-- SQL Query Execution
-
-The primary objective of the project is to understand how modern relational database systems work internally while building a fully functional database engine from the ground up.
+The system now supports complete execution of basic SELECT queries with filtering using AND, OR and NOT logical operators.
 
 ---
 
 # ✨ Features
 
-## Storage Engine
+## Query Execution Engine
 
-- Physical Page Management
-- Binary DataFile Format
-- Database Header
-- Page Header
-- Record Storage
-- Record Serialization
+- SQL Query Execution
+- Query Dispatcher
+- Query Result Generation
+- Execution Statistics
 
 ---
 
-## Database Engine
+## Expression Engine
 
-- Database Management
-- Table Management
-- Record Management
-- Index Management
+- ComparisonExpression
+- LogicalExpression
+- NotExpression
+
+Supported Operators
+
+- =
+- !=
+- >
+- >=
+- <
+- <=
+
+Logical Operators
+
+- AND
+- OR
+- NOT
 
 ---
 
-## Query Engine
+## WHERE Engine
 
-Sprint 00-10 introduces the first complete query execution infrastructure.
-
-Implemented components:
-
-- SQL Tokenizer
-- SQL Parser
-- Statement Model
-- Statement → Command Mapper
-- Query Executor
-- Execute Result Model
+- WHERE Evaluation
+- Predicate Evaluation
+- Boolean Expression Tree
+- Nested Logical Expressions
 
 ---
 
-# Supported Operations
+## Table Scan
 
-## SQL Statements
+- Sequential Scan
+- Row Filtering
+- Expression Matching
+- Result Collection
+
+---
+
+## Select Executor
+
+Supported
 
 ```sql
-INSERT INTO employees VALUES (1,'Emre',21);
+SELECT * FROM users;
 
-SELECT * FROM employees;
+SELECT * FROM users
+WHERE age > 18;
 
-DELETE FROM employees
-WHERE record_id = 0;
+SELECT * FROM users
+WHERE age > 18
+AND city = 'Malatya';
+
+SELECT * FROM users
+WHERE city = 'Ankara'
+OR city = 'Istanbul';
+
+SELECT * FROM users
+WHERE NOT active = true;
 ```
-
----
-
-## Management Commands
-
-Currently supported through the internal command system.
-
-- CREATE DATABASE
-- USE DATABASE
-- CREATE TABLE
-- DROP TABLE
-- DROP DATABASE
-
----
-
-# Query Execution Architecture
-
-```
-                    SQL Statement
-                          │
-                          ▼
-                  SQL Tokenizer
-                          │
-                          ▼
-                    SQL Parser
-                          │
-                          ▼
-                 Statement Objects
-                          │
-                          ▼
-             StatementCommandMapper
-                          │
-                          ▼
-                     Command Objects
-                          │
-                          ▼
-                    QueryExecutor
-              ┌───────────┼───────────┐
-              ▼           ▼           ▼
-      DatabaseManager  TableManager  RecordManager
-                                      │
-                                      ▼
-                                 PageManager
-                                      │
-                                      ▼
-                                   DataFile
-                                      │
-                                      ▼
-                                Physical Storage
-```
-
----
-
-# 📸 Screenshots
-
-## Query Execution Architecture
-
-<p align="center">
-<img src="docs/screenshots/Query_Execution_Architecture.png" width="900">
-</p>
-
----
-
-## QueryExecutor Internal Workflow
-
-<p align="center">
-<img src="docs/screenshots/QueryExecutor_Internal_Workflow.png" width="900">
-</p>
-
----
-
-## Query Execution Demo
-
-<p align="center">
-<img src="docs/screenshots/demo1.png" width="900">
-</p>
-
-<p align="center">
-<img src="docs/screenshots/demo2.png" width="900">
-</p>
-
----
-
-## QueryExecutor Tests
-
-<p align="center">
-<img src="docs/screenshots/QueryExecutorTest.png" width="900">
-</p>
-
----
-
-## ExecuteResult Tests
-
-<p align="center">
-<img src="docs/screenshots/ExecuteResultTest.png" width="900">
-</p>
-
----
-
-## Integration Test
-
-<p align="center">
-<img src="docs/screenshots/QueryExecutorIntegrationTest.png" width="900">
-</p>
 
 ---
 
 # 🧪 Testing
 
-| Test Suite | Result |
-|------------|:------:|
-| QueryExecutorTest | ✅ 8 / 8 |
-| ExecuteResultTest | ✅ 6 / 6 |
-| QueryExecutorIntegrationTest | ✅ 1 / 1 |
+Sprint 00-11 includes comprehensive unit and integration tests.
 
-**Total**
+### Successfully Tested
+
+- QueryExecutor
+- QueryExecutorIntegration
+- PredicateEvaluator
+- Expression
+- WhereEvaluator
+- RowValueProvider
+- QueryResult
+- SelectCommand
+- SelectExecutor
+- TableScanExecutor
+
+Current project status
 
 ```
-15 Tests Passed
+506 JUnit Tests Passed
+```
+
+Verified using
+
+```bash
+mvn clean test
 ```
 
 ---
 
-# 📂 Project Structure
+# 📂 Package Structure
 
 ```
-YEKDB
+query
 │
-├── config
-├── data
-├── docs
-│   ├── screenshots
-│   └── documentation
-├── logs
-├── src
-│   ├── catalog
-│   ├── config
-│   ├── database
-│   ├── exception
-│   ├── index
-│   ├── logging
-│   ├── query
-│   ├── storage
-│   ├── table
-│   └── util
-└── pom.xml
+├── command
+├── datasource
+├── evaluator
+├── executor
+├── expression
+├── mapper
+├── optimizer
+├── parser
+├── result
+└── statement
 ```
 
 ---
 
-# 📈 Development Progress
+# 📸 Demo Screenshots
 
-| Sprint | Status |
-|----------|:------:|
-| 00-01 | ✅ |
-| 00-02 | ✅ |
-| 00-03 | ✅ |
-| 00-04 | ✅ |
-| 00-05 | ✅ |
-| 00-06 | ✅ |
-| 00-07 | ✅ |
-| 00-08 | ✅ |
-| 00-09 | ✅ |
-| **00-10 Query Execution Foundation** | ✅ |
+## Query Execution Demo
+
+![](docs/screenshots/00-11/demo1.png)
 
 ---
 
-# 🚀 Next Sprint
+## Query Execution Demo (WHERE)
 
-Sprint 00-11
-
-Planned features:
-
-- UPDATE Execution
-- WHERE Expression Engine
-- Predicate Evaluation
-- Expression Tree
-- Query Optimization Foundation
+![](docs/screenshots/00-11/demo2.png)
 
 ---
 
-# ⚙ Requirements
+## Expression Demo
 
-- Java 21
-- Maven 3.x
-- IntelliJ IDEA
+![](docs/screenshots/00-11/ExpressionDemo.png)
 
 ---
 
-# 📄 License
+## Predicate Evaluator Demo
 
-This project is licensed under the MIT License.
+![](docs/screenshots/00-11/PredicateEvaluatorDemo.png)
 
 ---
 
-# 👨‍💻 Author
+## Row WHERE Evaluator Demo
+
+![](docs/screenshots/00-11/RowWhereEvaluatorDemo.png)
+
+---
+
+## Select Executor Demo
+
+![](docs/screenshots/00-11/SelectExecutorDemo.png)
+
+---
+
+## Table Scan Executor Demo
+
+![](docs/screenshots/00-11/TableScanExecutorDemo.png)
+
+---
+
+# 🧪 Unit Tests
+
+## Expression Tests
+
+![](docs/screenshots/00-11/ExpressionTest.png)
+
+---
+
+## PredicateEvaluator Tests
+
+![](docs/screenshots/00-11/PredicateEvaluatorTest.png)
+
+---
+
+## Query Executor Integration Tests
+
+![](docs/screenshots/00-11/QueryExecutorIntegrationTest.png)
+
+---
+
+## Query Result Tests
+
+![](docs/screenshots/00-11/QueryResultTest.png)
+
+---
+
+## RowValueProvider Tests
+
+![](docs/screenshots/00-11/RowValueProviderTest.png)
+
+---
+
+## Select Command Tests
+
+![](docs/screenshots/00-11/SelectCommandTest.png)
+
+---
+
+## Select Executor Tests
+
+![](docs/screenshots/00-11/SelectExecutorTest.png)
+
+---
+
+## Table Scan Executor Tests
+
+![](docs/screenshots/00-11/TableScanExecutorTest.png)
+
+---
+
+## Where Evaluator Tests
+
+![](docs/screenshots/00-11/WhereEvaluatorTest.png)
+
+---
+
+## Generic Project Tests
+
+### Maven Build
+
+![](docs/screenshots/00-11/geneltest1.png)
+
+---
+
+### Maven Clean Test
+
+![](docs/screenshots/00-11/geneltest2.png)
+
+---
+
+### InMemoryQueryDataSource Tests
+
+![](docs/screenshots/00-11/InMemoryQueryDataSourceTest.png)
+
+---
+
+# 📚 Documentation
+
+Sprint documentation
+
+- YEKDB_Developer_Notes_00-11.pdf
+- YEKDB_00-11_Query_Execution_Engine.pdf
+
+---
+
+# 🚀 Completed Modules
+
+- ✅ Core Engine
+- ✅ Physical Storage Engine
+- ✅ Database Management
+- ✅ Table Management
+- ✅ Record Management
+- ✅ Index Management
+- ✅ Query Execution Engine
+
+---
+
+# 🔜 Next Sprint
+
+Sprint 00-12
+
+Planned features
+
+- SQL Parser Improvements
+- Projection (SELECT column1, column2)
+- ORDER BY
+- LIMIT
+- Query Optimizer
+- Index Scan
+- Execution Plan
+
+---
+
+# 👨‍💻 Developer
 
 **Yunus Emre KUL**
 
 Computer Engineering Student
 
-Developing a relational database management system completely from scratch in Java.
+YEKDB is developed completely from scratch for educational and research purposes to understand the internal architecture of modern relational database systems.
+
+---
+
+# License
+
+MIT License

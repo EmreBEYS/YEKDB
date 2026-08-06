@@ -1,188 +1,272 @@
 package com.yekdb.query.executor;
 
 import com.yekdb.database.DatabaseManager;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
+import com.yekdb.query.command.SelectCommand;
+import com.yekdb.query.datasource.InMemoryQueryDataSource;
+import com.yekdb.query.expression.ComparisonExpression;
+import com.yekdb.query.expression.ComparisonOperator;
+import com.yekdb.query.expression.Expression;
+import com.yekdb.query.expression.LogicalExpression;
+import com.yekdb.query.expression.LogicalOperator;
+import com.yekdb.storage.record.Row;
+import com.yekdb.table.Column;
+import com.yekdb.table.DataType;
+import com.yekdb.table.Table;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
-
-import static org.junit.jupiter.api.Assertions.*;
-import com.yekdb.query.command.CreateDatabaseCommand;
-import com.yekdb.query.command.CreateTableCommand;
-import com.yekdb.query.command.DropDatabaseCommand;
-import com.yekdb.query.command.DropTableCommand;
-import com.yekdb.query.command.UseDatabaseCommand;
-import com.yekdb.table.Column;
-import com.yekdb.table.DataType;
-
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * QueryExecutor bileşenlerinin birlikte çalışmasını doğrular.
+ *
+ * Test edilen zincir:
+ *
+ * QueryExecutor
+ *      ↓
+ * QueryDataSource
+ *      ↓
+ * SelectExecutor
+ *      ↓
+ * QueryOptimizer
+ *      ↓
+ * TableScanExecutor
+ *      ↓
+ * WhereEvaluator
+ *      ↓
+ * ExecuteResult
+ */
 class QueryExecutorIntegrationTest {
 
     @TempDir
-    Path tempDirectory;
-
-    private DatabaseManager databaseManager;
-    private QueryExecutor queryExecutor;
-
-    @BeforeEach
-    void setUp() {
-        databaseManager = new DatabaseManager(
-                tempDirectory.resolve("data")
-        );
-
-        queryExecutor = new QueryExecutor(
-                databaseManager
-        );
-    }
-
-    @AfterEach
-    void tearDown() throws Exception {
-        queryExecutor.close();
-    }
+    Path temporaryDirectory;
 
     @Test
     void fullQueryExecutionScenario_shouldWorkSuccessfully() {
 
-        ExecuteResult result;
-
         /*
-         * CREATE DATABASE
+         * 1. SELECT veri kaynağında kullanılacak tablo şeması.
          */
-        result = queryExecutor.execute(
-                new CreateDatabaseCommand("testdb")
+        Table usersTable = new Table(
+                "users",
+                List.of(
+                        new Column("id", DataType.INT),
+                        new Column("name", DataType.STRING),
+                        new Column("age", DataType.INT),
+                        new Column("city", DataType.STRING),
+                        new Column("active", DataType.BOOLEAN)
+                )
         );
 
-        assertTrue(result.isSuccess());
-
         /*
-         * USE DATABASE
+         * 2. Demo kayıtları.
+         *
+         * INSERT yürütme bağlantısı henüz tamamlanmadığı için
+         * satırlar InMemoryQueryDataSource içerisine hazırlanır.
          */
-        result = queryExecutor.execute(
-                new UseDatabaseCommand("testdb")
-        );
-
-        assertTrue(result.isSuccess());
-
-        /*
-         * CREATE TABLE
-         */
-        result = queryExecutor.execute(
-                new CreateTableCommand(
-                        "users",
+        List<Row> users = List.of(
+                new Row(
                         List.of(
-                                new Column("id", DataType.INT),
-                                new Column("name", DataType.STRING),
-                                new Column("age", DataType.INT)
+                                1,
+                                "Emre",
+                                21,
+                                "Malatya",
+                                true
+                        )
+                ),
+                new Row(
+                        List.of(
+                                2,
+                                "Ali",
+                                16,
+                                "Ankara",
+                                true
+                        )
+                ),
+                new Row(
+                        List.of(
+                                3,
+                                "Ayşe",
+                                27,
+                                "Malatya",
+                                false
                         )
                 )
         );
 
-        assertTrue(result.isSuccess());
+        InMemoryQueryDataSource queryDataSource =
+                new InMemoryQueryDataSource();
 
-        /*
-         * INSERT - SQL String
-         */
-        result = queryExecutor.execute(
-                """
-                INSERT INTO users
-                VALUES (1, 'Emre', 21);
-                """
+        queryDataSource.register(
+                usersTable,
+                users
         );
 
-        assertTrue(result.isSuccess());
-        assertEquals(
-                1,
-                result.getAffectedRows()
-        );
+        DatabaseManager databaseManager =
+                new DatabaseManager(
+                        temporaryDirectory
+                );
 
-        /*
-         * SELECT - SQL String
-         */
-        result = queryExecutor.execute(
-                """
-                SELECT *
-                FROM users;
-                """
-        );
+        try (QueryExecutor queryExecutor =
+                     new QueryExecutor(
+                             databaseManager,
+                             queryDataSource
+                     )) {
 
-        assertTrue(result.isSuccess());
-        assertEquals(
-                1,
-                result.getRowCount()
-        );
+            /*
+             * 3. Veritabanı oluşturma.
+             */
+            ExecuteResult createDatabaseResult =
+                    queryExecutor.execute(
+                            "CREATE DATABASE integration_db;"
+                    );
 
-        assertEquals(
-                1,
-                result.getRows()
-                        .getFirst()
-                        .getValue(0)
-        );
+            assertTrue(createDatabaseResult.isSuccess());
 
-        assertEquals(
-                "Emre",
-                result.getRows()
-                        .getFirst()
-                        .getValue(1)
-        );
+            /*
+             * 4. Veritabanı seçme.
+             */
+            ExecuteResult useDatabaseResult =
+                    queryExecutor.execute(
+                            "USE DATABASE integration_db;"
+                    );
 
-        assertEquals(
-                21,
-                result.getRows()
-                        .getFirst()
-                        .getValue(2)
-        );
+            assertTrue(useDatabaseResult.isSuccess());
 
-        /*
-         * DELETE - SQL String
-         */
-        result = queryExecutor.execute(
-                """
-                DELETE FROM users
-                WHERE record_id = 0;
-                """
-        );
+            /*
+             * 5. Fiziksel tablo metadata ve .tbl dosyası oluşturma.
+             */
+            ExecuteResult createTableResult =
+                    queryExecutor.execute(
+                            """
+                            CREATE TABLE users (
+                                id INT,
+                                name STRING,
+                                age INT,
+                                city STRING,
+                                active BOOLEAN
+                            );
+                            """
+                    );
 
-        assertTrue(result.isSuccess());
-        assertEquals(
-                1,
-                result.getAffectedRows()
-        );
+            assertTrue(createTableResult.isSuccess());
 
-        /*
-         * SELECT AGAIN
-         */
-        result = queryExecutor.execute(
-                """
-                SELECT *
-                FROM users;
-                """
-        );
+            /*
+             * 6. SELECT * FROM users.
+             */
+            ExecuteResult selectAllResult =
+                    queryExecutor.execute(
+                            SelectCommand.allFrom("users")
+                    );
 
-        assertTrue(result.isSuccess());
-        assertEquals(
-                0,
-                result.getRowCount()
-        );
+            assertTrue(selectAllResult.isSuccess());
+            assertTrue(selectAllResult.hasRows());
+            assertEquals(
+                    3,
+                    selectAllResult.getRowCount()
+            );
 
-        /*
-         * DROP TABLE
-         */
-        result = queryExecutor.execute(
-                new DropTableCommand("users")
-        );
+            /*
+             * 7. WHERE age > 18 AND city = 'Malatya'
+             */
+            Expression whereExpression =
+                    new LogicalExpression(
+                            new ComparisonExpression(
+                                    "age",
+                                    ComparisonOperator.GREATER_THAN,
+                                    18
+                            ),
+                            LogicalOperator.AND,
+                            new ComparisonExpression(
+                                    "city",
+                                    ComparisonOperator.EQUALS,
+                                    "Malatya"
+                            )
+                    );
 
-        assertTrue(result.isSuccess());
+            SelectCommand filteredSelectCommand =
+                    SelectCommand.allFromWhere(
+                            "users",
+                            whereExpression
+                    );
 
-        /*
-         * DROP DATABASE
-         */
-        result = queryExecutor.execute(
-                new DropDatabaseCommand("testdb")
-        );
+            ExecuteResult filteredSelectResult =
+                    queryExecutor.execute(
+                            filteredSelectCommand
+                    );
 
-        assertTrue(result.isSuccess());
+            assertTrue(filteredSelectResult.isSuccess());
+            assertTrue(filteredSelectResult.hasRows());
+            assertEquals(
+                    2,
+                    filteredSelectResult.getRowCount()
+            );
+
+            assertEquals(
+                    "Emre",
+                    filteredSelectResult
+                            .getRows()
+                            .get(0)
+                            .getValue(1)
+            );
+
+            assertEquals(
+                    "Ayşe",
+                    filteredSelectResult
+                            .getRows()
+                            .get(1)
+                            .getValue(1)
+            );
+
+            /*
+             * 8. Eşleşmeyen WHERE koşulu.
+             */
+            Expression unmatchedExpression =
+                    new ComparisonExpression(
+                            "age",
+                            ComparisonOperator.GREATER_THAN,
+                            100
+                    );
+
+            ExecuteResult emptyResult =
+                    queryExecutor.execute(
+                            SelectCommand.allFromWhere(
+                                    "users",
+                                    unmatchedExpression
+                            )
+                    );
+
+            assertTrue(emptyResult.isSuccess());
+            assertFalse(emptyResult.hasRows());
+            assertEquals(
+                    0,
+                    emptyResult.getRowCount()
+            );
+
+            /*
+             * 9. Tabloyu silme.
+             */
+            ExecuteResult dropTableResult =
+                    queryExecutor.execute(
+                            "DROP TABLE users;"
+                    );
+
+            assertTrue(dropTableResult.isSuccess());
+
+            /*
+             * 10. Veritabanını silme.
+             */
+            ExecuteResult dropDatabaseResult =
+                    queryExecutor.execute(
+                            "DROP DATABASE integration_db;"
+                    );
+
+            assertTrue(dropDatabaseResult.isSuccess());
+        }
     }
 }

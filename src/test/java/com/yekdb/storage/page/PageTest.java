@@ -1,7 +1,5 @@
 package com.yekdb.storage.page;
 
-import com.yekdb.storage.page.Page;
-import com.yekdb.storage.page.PageType;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -26,8 +24,13 @@ class PageTest {
         );
 
         assertEquals(
-                4096,
+                Page.PAYLOAD_SIZE,
                 page.getFreeSpace()
+        );
+
+        assertEquals(
+                0,
+                page.getHeader().getRecordCount()
         );
     }
 }

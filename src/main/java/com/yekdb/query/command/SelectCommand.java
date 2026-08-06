@@ -1,13 +1,18 @@
 package com.yekdb.query.command;
 
+import com.yekdb.query.expression.Expression;
+
 import java.util.List;
 import java.util.Objects;
 
 /**
  * SELECT SQL komutunu temsil eder.
  *
- * <p>Hem tüm sütunların hem de belirli sütunların
- * seçilmesini destekler.</p>
+ * Desteklenen kullanımlar:
+ *
+ * SELECT * FROM table
+ * SELECT * FROM table WHERE ...
+ * SELECT column1, column2 FROM table
  */
 public final class SelectCommand implements Command {
 
@@ -28,13 +33,22 @@ public final class SelectCommand implements Command {
      */
     private final boolean selectAll;
 
+    /**
+     * WHERE koşulunu temsil eden expression ağacı.
+     *
+     * WHERE bulunmuyorsa null değerindedir.
+     */
+    private final Expression whereExpression;
+
     private SelectCommand(
             String tableName,
             List<String> selectedColumns,
-            boolean selectAll
+            boolean selectAll,
+            Expression whereExpression
     ) {
         this.tableName = validateTableName(tableName);
         this.selectAll = selectAll;
+        this.whereExpression = whereExpression;
 
         Objects.requireNonNull(
                 selectedColumns,
@@ -60,24 +74,36 @@ public final class SelectCommand implements Command {
 
     /**
      * SELECT * FROM table komutu oluşturur.
-     *
-     * @param tableName hedef tablo adı
-     * @return SELECT komutu
      */
     public static SelectCommand allFrom(String tableName) {
         return new SelectCommand(
                 tableName,
                 List.of(),
-                true
+                true,
+                null
+        );
+    }
+
+    /**
+     * SELECT * FROM table WHERE ... komutu oluşturur.
+     */
+    public static SelectCommand allFromWhere(
+            String tableName,
+            Expression whereExpression
+    ) {
+        return new SelectCommand(
+                tableName,
+                List.of(),
+                true,
+                Objects.requireNonNull(
+                        whereExpression,
+                        "WHERE expression cannot be null."
+                )
         );
     }
 
     /**
      * Belirli sütunları seçen SELECT komutu oluşturur.
-     *
-     * @param tableName       hedef tablo adı
-     * @param selectedColumns seçilecek sütunlar
-     * @return SELECT komutu
      */
     public static SelectCommand columnsFrom(
             String tableName,
@@ -86,7 +112,27 @@ public final class SelectCommand implements Command {
         return new SelectCommand(
                 tableName,
                 selectedColumns,
-                false
+                false,
+                null
+        );
+    }
+
+    /**
+     * Belirli sütunları WHERE koşuluyla seçen komut oluşturur.
+     */
+    public static SelectCommand columnsFromWhere(
+            String tableName,
+            List<String> selectedColumns,
+            Expression whereExpression
+    ) {
+        return new SelectCommand(
+                tableName,
+                selectedColumns,
+                false,
+                Objects.requireNonNull(
+                        whereExpression,
+                        "WHERE expression cannot be null."
+                )
         );
     }
 
@@ -102,6 +148,14 @@ public final class SelectCommand implements Command {
         return selectAll;
     }
 
+    public Expression getWhereExpression() {
+        return whereExpression;
+    }
+
+    public boolean hasWhereExpression() {
+        return whereExpression != null;
+    }
+
     private static String validateTableName(String tableName) {
         String normalizedName = Objects.requireNonNull(
                 tableName,
@@ -111,14 +165,6 @@ public final class SelectCommand implements Command {
         if (normalizedName.isBlank()) {
             throw new IllegalArgumentException(
                     "Table name cannot be blank."
-            );
-        }
-
-        if (!normalizedName.matches(
-                "[A-Za-z_][A-Za-z0-9_]*"
-        )) {
-            throw new IllegalArgumentException(
-                    "Invalid table name: " + tableName
             );
         }
 
@@ -137,14 +183,6 @@ public final class SelectCommand implements Command {
             );
         }
 
-        if (!normalizedName.matches(
-                "[A-Za-z_][A-Za-z0-9_]*"
-        )) {
-            throw new IllegalArgumentException(
-                    "Invalid column name: " + columnName
-            );
-        }
-
         return normalizedName;
     }
 
@@ -154,6 +192,7 @@ public final class SelectCommand implements Command {
                 "tableName='" + tableName + '\'' +
                 ", selectedColumns=" + selectedColumns +
                 ", selectAll=" + selectAll +
+                ", whereExpression=" + whereExpression +
                 '}';
     }
 }

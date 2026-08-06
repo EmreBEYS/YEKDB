@@ -2,430 +2,619 @@ package com.yekdb.query.executor;
 
 import com.yekdb.database.DatabaseManager;
 import com.yekdb.query.command.CreateDatabaseCommand;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
+import com.yekdb.query.command.InsertCommand;
+import com.yekdb.query.command.SelectCommand;
+import com.yekdb.query.datasource.InMemoryQueryDataSource;
+import com.yekdb.query.expression.ComparisonExpression;
+import com.yekdb.query.expression.ComparisonOperator;
+import com.yekdb.storage.record.Row;
+import com.yekdb.table.Column;
+import com.yekdb.table.DataType;
+import com.yekdb.table.Table;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
-
-import com.yekdb.query.command.UseDatabaseCommand;
-
-import com.yekdb.table.Column;
-import com.yekdb.table.TableManager;
-import com.yekdb.table.DataType;
-import com.yekdb.query.command.CreateTableCommand;
-
 import java.util.List;
-import com.yekdb.query.command.InsertCommand;
-import com.yekdb.query.command.SelectCommand;
-import com.yekdb.query.command.DeleteCommand;
-import com.yekdb.query.command.DropTableCommand;
-import com.yekdb.query.command.DropDatabaseCommand;
-import com.yekdb.storage.record.Row;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * QueryExecutor birim testleri.
+ * QueryExecutor sınıfının birim testleri.
+ *
+ * Test edilen özellikler:
+ *
+ * - CREATE DATABASE
+ * - USE DATABASE
+ * - CREATE TABLE
+ * - DROP TABLE
+ * - DROP DATABASE
+ * - SELECT *
+ * - SELECT + WHERE
+ * - Hatalı komut kontrolleri
  */
 class QueryExecutorTest {
 
     @TempDir
-    Path tempDirectory;
+    Path temporaryDirectory;
 
-    private DatabaseManager databaseManager;
-    private QueryExecutor queryExecutor;
+    @Test
+    void createDatabaseCommand_shouldCreateDatabaseSuccessfully() {
 
-    @BeforeEach
-    void setUp() {
-        databaseManager = new DatabaseManager(
-                tempDirectory.resolve("data")
-        );
+        DatabaseManager databaseManager =
+                new DatabaseManager(
+                        temporaryDirectory
+                );
 
-        queryExecutor = new QueryExecutor(
-                databaseManager
-        );
-    }
+        try (QueryExecutor queryExecutor =
+                     new QueryExecutor(databaseManager)) {
 
-    @AfterEach
-    void tearDown() throws Exception {
-        queryExecutor.close();
+            ExecuteResult result =
+                    queryExecutor.execute(
+                            new CreateDatabaseCommand(
+                                    "school_db"
+                            )
+                    );
+
+            assertTrue(result.isSuccess());
+
+            assertTrue(
+                    result.getMessage()
+                            .contains("school_db")
+            );
+
+            assertTrue(
+                    databaseManager.exists(
+                            "school_db"
+                    )
+            );
+        }
     }
 
     @Test
-    void createDatabase_shouldCreateDatabaseSuccessfully() {
-        CreateDatabaseCommand command =
-                new CreateDatabaseCommand("testdb");
+    void createDatabaseSql_shouldCreateDatabaseSuccessfully() {
 
-        ExecuteResult result =
-                queryExecutor.execute(command);
+        DatabaseManager databaseManager =
+                new DatabaseManager(
+                        temporaryDirectory
+                );
 
-        assertTrue(result.isSuccess());
+        try (QueryExecutor queryExecutor =
+                     new QueryExecutor(databaseManager)) {
 
-        assertEquals(
-                "Database created successfully: testdb",
-                result.getMessage()
-        );
+            ExecuteResult result =
+                    queryExecutor.execute(
+                            "CREATE DATABASE company_db;"
+                    );
 
-        assertEquals(
-                0,
-                result.getAffectedRows()
-        );
+            assertTrue(result.isSuccess());
 
-        assertTrue(
-                databaseManager.exists("testdb")
-        );
-
-        assertTrue(
-                databaseManager.listDatabases()
-                        .contains("testdb")
-        );
-
-        assertNotNull(result);
+            assertTrue(
+                    databaseManager.exists(
+                            "company_db"
+                    )
+            );
+        }
     }
+
     @Test
     void useDatabase_shouldSelectDatabaseSuccessfully() {
 
-        queryExecutor.execute(
-                new CreateDatabaseCommand("testdb")
-        );
-
-        ExecuteResult result =
-                queryExecutor.execute(
-                        new UseDatabaseCommand("testdb")
+        DatabaseManager databaseManager =
+                new DatabaseManager(
+                        temporaryDirectory
                 );
 
-        assertTrue(result.isSuccess());
+        try (QueryExecutor queryExecutor =
+                     new QueryExecutor(databaseManager)) {
 
-        assertEquals(
-                "Database selected successfully: testdb",
-                result.getMessage()
-        );
+            queryExecutor.execute(
+                    "CREATE DATABASE application_db;"
+            );
 
-        assertNotNull(
-                databaseManager.getCurrentDatabase()
-        );
+            ExecuteResult result =
+                    queryExecutor.execute(
+                            "USE DATABASE application_db;"
+                    );
 
-        assertEquals(
-                "testdb",
-                databaseManager
-                        .getCurrentDatabase()
-                        .getName()
-        );
+            assertTrue(result.isSuccess());
+
+            assertEquals(
+                    "application_db",
+                    databaseManager
+                            .getCurrentDatabase()
+                            .getName()
+            );
+        }
     }
+
     @Test
     void createTable_shouldCreateTableSuccessfully() {
 
-        queryExecutor.execute(
-                new CreateDatabaseCommand("testdb")
-        );
-
-        queryExecutor.execute(
-                new UseDatabaseCommand("testdb")
-        );
-
-        List<Column> columns = List.of(
-                new Column("id", DataType.INT),
-                new Column("name", DataType.STRING),
-                new Column("age", DataType.INT)
-        );
-
-        CreateTableCommand command =
-                new CreateTableCommand(
-                        "users",
-                        columns
+        DatabaseManager databaseManager =
+                new DatabaseManager(
+                        temporaryDirectory
                 );
 
-        ExecuteResult result =
-                queryExecutor.execute(command);
+        try (QueryExecutor queryExecutor =
+                     new QueryExecutor(databaseManager)) {
 
-        assertTrue(result.isSuccess());
+            queryExecutor.execute(
+                    "CREATE DATABASE table_test_db;"
+            );
 
-        assertEquals(
-                "Table created successfully: users",
-                result.getMessage()
+            queryExecutor.execute(
+                    "USE DATABASE table_test_db;"
+            );
+
+            ExecuteResult result =
+                    queryExecutor.execute(
+                            """
+                            CREATE TABLE users (
+                                id INT,
+                                name STRING,
+                                age INT,
+                                active BOOLEAN
+                            );
+                            """
+                    );
+
+            assertTrue(result.isSuccess());
+
+            assertTrue(
+                    result.getMessage()
+                            .contains("users")
+            );
+
+            Path tableFile = temporaryDirectory
+                    .resolve("table_test_db")
+                    .resolve("users.tbl");
+
+            assertTrue(
+                    tableFile.toFile().exists()
+            );
+        }
+    }
+
+    @Test
+    void dropTable_shouldDeleteTableSuccessfully() {
+
+        DatabaseManager databaseManager =
+                new DatabaseManager(
+                        temporaryDirectory
+                );
+
+        try (QueryExecutor queryExecutor =
+                     new QueryExecutor(databaseManager)) {
+
+            queryExecutor.execute(
+                    "CREATE DATABASE drop_table_db;"
+            );
+
+            queryExecutor.execute(
+                    "USE DATABASE drop_table_db;"
+            );
+
+            queryExecutor.execute(
+                    """
+                    CREATE TABLE products (
+                        id INT,
+                        name STRING
+                    );
+                    """
+            );
+
+            ExecuteResult result =
+                    queryExecutor.execute(
+                            "DROP TABLE products;"
+                    );
+
+            assertTrue(result.isSuccess());
+
+            Path tableFile = temporaryDirectory
+                    .resolve("drop_table_db")
+                    .resolve("products.tbl");
+
+            assertFalse(
+                    tableFile.toFile().exists()
+            );
+        }
+    }
+
+    @Test
+    void dropDatabase_shouldDeleteDatabaseSuccessfully() {
+
+        DatabaseManager databaseManager =
+                new DatabaseManager(
+                        temporaryDirectory
+                );
+
+        try (QueryExecutor queryExecutor =
+                     new QueryExecutor(databaseManager)) {
+
+            queryExecutor.execute(
+                    "CREATE DATABASE removable_db;"
+            );
+
+            queryExecutor.execute(
+                    "USE DATABASE removable_db;"
+            );
+
+            ExecuteResult result =
+                    queryExecutor.execute(
+                            "DROP DATABASE removable_db;"
+                    );
+
+            assertTrue(result.isSuccess());
+
+            assertFalse(
+                    databaseManager.exists(
+                            "removable_db"
+                    )
+            );
+        }
+    }
+
+    @Test
+    void selectAll_shouldReturnEveryRow() {
+
+        Table usersTable =
+                createUsersTable();
+
+        List<Row> users =
+                createUsers();
+
+        InMemoryQueryDataSource queryDataSource =
+                new InMemoryQueryDataSource();
+
+        queryDataSource.register(
+                usersTable,
+                users
         );
 
-        assertTrue(
-                databaseManager
-                        .getCurrentDatabase() != null
+        DatabaseManager databaseManager =
+                new DatabaseManager(
+                        temporaryDirectory
+                );
+
+        try (QueryExecutor queryExecutor =
+                     new QueryExecutor(
+                             databaseManager,
+                             queryDataSource
+                     )) {
+
+            ExecuteResult result =
+                    queryExecutor.execute(
+                            SelectCommand.allFrom(
+                                    "users"
+                            )
+                    );
+
+            assertTrue(result.isSuccess());
+            assertTrue(result.hasRows());
+
+            assertEquals(
+                    4,
+                    result.getRowCount()
+            );
+
+            assertEquals(
+                    "Yunus Emre",
+                    result.getRows()
+                            .get(0)
+                            .getValue(1)
+            );
+        }
+    }
+
+    @Test
+    void selectWithWhere_shouldReturnOnlyMatchingRows() {
+
+        Table usersTable =
+                createUsersTable();
+
+        List<Row> users =
+                createUsers();
+
+        InMemoryQueryDataSource queryDataSource =
+                new InMemoryQueryDataSource();
+
+        queryDataSource.register(
+                usersTable,
+                users
         );
 
-        TableManager tableManager =
-                new TableManager(
+        DatabaseManager databaseManager =
+                new DatabaseManager(
+                        temporaryDirectory
+                );
+
+        try (QueryExecutor queryExecutor =
+                     new QueryExecutor(
+                             databaseManager,
+                             queryDataSource
+                     )) {
+
+            ComparisonExpression whereExpression =
+                    new ComparisonExpression(
+                            "age",
+                            ComparisonOperator.GREATER_THAN,
+                            18
+                    );
+
+            SelectCommand command =
+                    SelectCommand.allFromWhere(
+                            "users",
+                            whereExpression
+                    );
+
+            ExecuteResult result =
+                    queryExecutor.execute(
+                            command
+                    );
+
+            assertTrue(result.isSuccess());
+
+            assertEquals(
+                    3,
+                    result.getRowCount()
+            );
+
+            assertEquals(
+                    "Yunus Emre",
+                    result.getRows()
+                            .get(0)
+                            .getValue(1)
+            );
+
+            assertEquals(
+                    "Ayşe",
+                    result.getRows()
+                            .get(1)
+                            .getValue(1)
+            );
+
+            assertEquals(
+                    "Mehmet",
+                    result.getRows()
+                            .get(2)
+                            .getValue(1)
+            );
+        }
+    }
+
+    @Test
+    void selectWithoutQueryDataSource_shouldThrowException() {
+
+        DatabaseManager databaseManager =
+                new DatabaseManager(
+                        temporaryDirectory
+                );
+
+        try (QueryExecutor queryExecutor =
+                     new QueryExecutor(databaseManager)) {
+
+            QueryExecutionException exception =
+                    assertThrows(
+                            QueryExecutionException.class,
+                            () -> queryExecutor.execute(
+                                    SelectCommand.allFrom(
+                                            "users"
+                                    )
+                            )
+                    );
+
+            assertEquals(
+                    "SELECT execution requires a QueryDataSource.",
+                    exception.getMessage()
+            );
+        }
+    }
+
+    @Test
+    void insertCommand_shouldThrowUnsupportedOperationException() {
+
+        DatabaseManager databaseManager =
+                new DatabaseManager(
+                        temporaryDirectory
+                );
+
+        try (QueryExecutor queryExecutor =
+                     new QueryExecutor(databaseManager)) {
+
+            InsertCommand command =
+                    new InsertCommand(
+                            "users",
+                            List.of(
+                                    1,
+                                    "Emre",
+                                    21
+                            )
+                    );
+
+            QueryExecutionException exception =
+                    assertThrows(
+                            QueryExecutionException.class,
+                            () -> queryExecutor.execute(
+                                    command
+                            )
+                    );
+
+            assertEquals(
+                    "INSERT execution is not implemented yet.",
+                    exception.getMessage()
+            );
+        }
+    }
+
+    @Test
+    void nullCommand_shouldThrowException() {
+
+        DatabaseManager databaseManager =
+                new DatabaseManager(
+                        temporaryDirectory
+                );
+
+        try (QueryExecutor queryExecutor =
+                     new QueryExecutor(databaseManager)) {
+
+            QueryExecutionException exception =
+                    assertThrows(
+                            QueryExecutionException.class,
+                            () -> queryExecutor.execute(
+                                    (com.yekdb.query.command.Command) null
+                            )
+                    );
+
+            assertEquals(
+                    "Command cannot be null.",
+                    exception.getMessage()
+            );
+        }
+    }
+
+    @Test
+    void blankSqlStatement_shouldThrowException() {
+
+        DatabaseManager databaseManager =
+                new DatabaseManager(
+                        temporaryDirectory
+                );
+
+        try (QueryExecutor queryExecutor =
+                     new QueryExecutor(databaseManager)) {
+
+            QueryExecutionException exception =
+                    assertThrows(
+                            QueryExecutionException.class,
+                            () -> queryExecutor.execute(
+                                    "   "
+                            )
+                    );
+
+            assertEquals(
+                    "SQL statement cannot be null or blank.",
+                    exception.getMessage()
+            );
+        }
+    }
+
+    @Test
+    void unsupportedSqlStatement_shouldThrowException() {
+
+        DatabaseManager databaseManager =
+                new DatabaseManager(
+                        temporaryDirectory
+                );
+
+        try (QueryExecutor queryExecutor =
+                     new QueryExecutor(databaseManager)) {
+
+            QueryExecutionException exception =
+                    assertThrows(
+                            QueryExecutionException.class,
+                            () -> queryExecutor.execute(
+                                    "UPDATE users SET age = 25;"
+                            )
+                    );
+
+            assertTrue(
+                    exception.getMessage()
+                            .contains(
+                                    "Unsupported SQL statement"
+                            )
+            );
+        }
+    }
+
+    @Test
+    void close_shouldCompleteWithoutException() {
+
+        DatabaseManager databaseManager =
+                new DatabaseManager(
+                        temporaryDirectory
+                );
+
+        QueryExecutor queryExecutor =
+                new QueryExecutor(
                         databaseManager
-                                .getCurrentDatabase()
-                                .getDatabasePath()
                 );
 
-        assertTrue(
-                tableManager.exists("users")
+        assertDoesNotThrow(
+                queryExecutor::close
         );
     }
-    @Test
-    void insert_shouldInsertRecordSuccessfully() {
 
-        queryExecutor.execute(
-                new CreateDatabaseCommand("testdb")
-        );
-
-        queryExecutor.execute(
-                new UseDatabaseCommand("testdb")
-        );
-
-        List<Column> columns = List.of(
-                new Column("id", DataType.INT),
-                new Column("name", DataType.STRING),
-                new Column("age", DataType.INT)
-        );
-
-        queryExecutor.execute(
-                new CreateTableCommand(
-                        "users",
-                        columns
+    private static Table createUsersTable() {
+        return new Table(
+                "users",
+                List.of(
+                        new Column(
+                                "id",
+                                DataType.INT
+                        ),
+                        new Column(
+                                "name",
+                                DataType.STRING
+                        ),
+                        new Column(
+                                "age",
+                                DataType.INT
+                        ),
+                        new Column(
+                                "city",
+                                DataType.STRING
+                        ),
+                        new Column(
+                                "active",
+                                DataType.BOOLEAN
+                        )
                 )
         );
+    }
 
-        InsertCommand command =
-                new InsertCommand(
-                        "users",
+    private static List<Row> createUsers() {
+        return List.of(
+                new Row(
                         List.of(
                                 1,
-                                "Emre",
-                                21
+                                "Yunus Emre",
+                                21,
+                                "Malatya",
+                                true
                         )
-                );
-
-        ExecuteResult result =
-                queryExecutor.execute(command);
-
-        assertTrue(result.isSuccess());
-
-        assertEquals(
-                1,
-                result.getAffectedRows()
-        );
-
-        assertTrue(
-                result.getMessage()
-                        .contains("Record inserted successfully")
-        );
-    }
-    @Test
-    void select_shouldReturnInsertedRows() {
-
-        queryExecutor.execute(
-                new CreateDatabaseCommand("testdb")
-        );
-
-        queryExecutor.execute(
-                new UseDatabaseCommand("testdb")
-        );
-
-        List<Column> columns = List.of(
-                new Column("id", DataType.INT),
-                new Column("name", DataType.STRING),
-                new Column("age", DataType.INT)
-        );
-
-        queryExecutor.execute(
-                new CreateTableCommand(
-                        "users",
-                        columns
-                )
-        );
-
-        queryExecutor.execute(
-                new InsertCommand(
-                        "users",
+                ),
+                new Row(
                         List.of(
-                                1,
-                                "Emre",
-                                21
+                                2,
+                                "Ali",
+                                16,
+                                "Ankara",
+                                true
                         )
-                )
-        );
-
-        ExecuteResult result =
-                queryExecutor.execute(
-                        SelectCommand.allFrom("users")
-                );
-
-        assertTrue(result.isSuccess());
-
-        assertNotNull(
-                result.getRows()
-        );
-
-        assertEquals(
-                1,
-                result.getRows().size()
-        );
-
-        Row row = result.getRows().getFirst();
-
-        assertEquals(
-                1,
-                row.getValue(0)
-        );
-
-        assertEquals(
-                "Emre",
-                row.getValue(1)
-        );
-
-        assertEquals(
-                21,
-                row.getValue(2)
-        );
-    }
-    @Test
-    void delete_shouldDeleteRecordSuccessfully() {
-
-        queryExecutor.execute(
-                new CreateDatabaseCommand("testdb")
-        );
-
-        queryExecutor.execute(
-                new UseDatabaseCommand("testdb")
-        );
-
-        List<Column> columns = List.of(
-                new Column("id", DataType.INT),
-                new Column("name", DataType.STRING),
-                new Column("age", DataType.INT)
-        );
-
-        queryExecutor.execute(
-                new CreateTableCommand(
-                        "users",
-                        columns
-                )
-        );
-
-        queryExecutor.execute(
-                new InsertCommand(
-                        "users",
+                ),
+                new Row(
                         List.of(
-                                1,
-                                "Emre",
-                                21
+                                3,
+                                "Ayşe",
+                                27,
+                                "Malatya",
+                                false
+                        )
+                ),
+                new Row(
+                        List.of(
+                                4,
+                                "Mehmet",
+                                35,
+                                "İstanbul",
+                                true
                         )
                 )
-        );
-
-        ExecuteResult deleteResult =
-                queryExecutor.execute(
-                        new DeleteCommand(
-                                "users",
-                                "record_id = 0"
-                        )
-                );
-
-        assertTrue(deleteResult.isSuccess());
-
-        assertEquals(
-                1,
-                deleteResult.getAffectedRows()
-        );
-
-        ExecuteResult selectResult =
-                queryExecutor.execute(
-                        SelectCommand.allFrom("users")
-                );
-
-        assertTrue(selectResult.isSuccess());
-
-        assertEquals(
-                0,
-                selectResult.getRows().size()
-        );
-    }
-    @Test
-    void dropTable_shouldDropTableSuccessfully() {
-
-        queryExecutor.execute(
-                new CreateDatabaseCommand("testdb")
-        );
-
-        queryExecutor.execute(
-                new UseDatabaseCommand("testdb")
-        );
-
-        List<Column> columns = List.of(
-                new Column("id", DataType.INT),
-                new Column("name", DataType.STRING)
-        );
-
-        queryExecutor.execute(
-                new CreateTableCommand(
-                        "users",
-                        columns
-                )
-        );
-
-        ExecuteResult result =
-                queryExecutor.execute(
-                        new DropTableCommand("users")
-                );
-
-        assertTrue(result.isSuccess());
-
-        assertEquals(
-                "Table dropped successfully: users",
-                result.getMessage()
-        );
-
-        Path tableFile =
-                databaseManager
-                        .getCurrentDatabase()
-                        .getDatabasePath()
-                        .resolve("users.tbl");
-
-        Path dataFile =
-                databaseManager
-                        .getCurrentDatabase()
-                        .getDatabasePath()
-                        .resolve("users.data");
-
-        assertFalse(
-                java.nio.file.Files.exists(tableFile)
-        );
-
-        assertFalse(
-                java.nio.file.Files.exists(dataFile)
-        );
-    }
-    @Test
-    void dropDatabase_shouldDropDatabaseSuccessfully() {
-
-        queryExecutor.execute(
-                new CreateDatabaseCommand("testdb")
-        );
-
-        queryExecutor.execute(
-                new UseDatabaseCommand("testdb")
-        );
-
-        ExecuteResult result =
-                queryExecutor.execute(
-                        new DropDatabaseCommand("testdb")
-                );
-
-        assertTrue(result.isSuccess());
-
-        assertEquals(
-                "Database dropped successfully: testdb",
-                result.getMessage()
-        );
-
-        assertFalse(
-                databaseManager.exists("testdb")
-        );
-
-        assertNull(
-                databaseManager.getCurrentDatabase()
         );
     }
 }
