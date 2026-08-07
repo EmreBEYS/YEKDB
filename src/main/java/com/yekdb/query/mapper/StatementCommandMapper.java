@@ -4,6 +4,7 @@ import com.yekdb.query.command.Command;
 import com.yekdb.query.command.DeleteCommand;
 import com.yekdb.query.command.InsertCommand;
 import com.yekdb.query.command.SelectCommand;
+import com.yekdb.query.command.UpdateCommand;
 import com.yekdb.query.executor.QueryExecutionException;
 import com.yekdb.query.statement.DeleteStatement;
 import com.yekdb.query.statement.InsertStatement;
@@ -54,10 +55,8 @@ public final class StatementCommandMapper {
             return mapDelete(deleteStatement);
         }
 
-        if (statement instanceof UpdateStatement) {
-            throw new QueryExecutionException(
-                    "UPDATE command is not supported yet."
-            );
+        if (statement instanceof UpdateStatement updateStatement) {
+            return mapUpdate(updateStatement);
         }
 
         throw new QueryExecutionException(
@@ -75,6 +74,7 @@ public final class StatementCommandMapper {
     ) {
         return new InsertCommand(
                 statement.getTableName(),
+                statement.getColumns(),
                 statement.getValues()
         );
     }
@@ -105,9 +105,25 @@ public final class StatementCommandMapper {
     private static DeleteCommand mapDelete(
             DeleteStatement statement
     ) {
-        return new DeleteCommand(
-                statement.getTableName(),
-                statement.getWhereClause()
+        return new DeleteMapper().map(
+                statement
         );
     }
+
+    /**
+     * UpdateStatement nesnesini UpdateCommand
+     * nesnesine dönüştürür.
+     *
+     * WHERE metni UpdateMapper içerisinde
+     * ExpressionParser kullanılarak Expression
+     * nesnesine çevrilir.
+     */
+    private static UpdateCommand mapUpdate(
+            UpdateStatement statement
+    ) {
+        return new UpdateMapper().map(
+                statement
+        );
+    }
+
 }

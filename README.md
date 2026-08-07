@@ -1,126 +1,500 @@
 # YEKDB
 ### Yet Another Embedded Key Database
 
-> Sprint 00-11 – Query Execution Engine
+> An educational relational database management system built from scratch in Java 21, with its own physical storage and query execution architecture.
 
 ![Java](https://img.shields.io/badge/Java-21-orange)
 ![Maven](https://img.shields.io/badge/Maven-3.x-blue)
-![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-green)
-![JUnit](https://img.shields.io/badge/JUnit-506%20Tests-success)
+![JUnit](https://img.shields.io/badge/JUnit-5-green)
+![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 ![Status](https://img.shields.io/badge/Status-Development-yellow)
 
 ---
 
-# 📖 About
+# 📖 About the Project
 
-Sprint 00-11 introduces the first fully functional **Query Execution Engine** inside YEKDB.
+**YEKDB** is an educational relational database management system developed without relying on an existing database engine in the background.
 
-This sprint adds the infrastructure required to evaluate SQL WHERE clauses, build logical expression trees, execute SELECT statements, perform table scans and return query results.
+The project is not based on the source code or storage engine of systems such as:
 
-The system now supports complete execution of basic SELECT queries with filtering using AND, OR and NOT logical operators.
+- PostgreSQL
+- MySQL
+- SQLite
 
----
+The main goal is to understand how modern database systems work internally by designing and implementing their core components independently.
 
-# ✨ Features
+The project focuses on areas such as:
 
-## Query Execution Engine
+- Physical Storage Engine
+- Page Management
+- Record Management
+- Table Management
+- Index Management
+- SQL Parser
+- Expression Engine
+- Query Execution Engine
+- CRUD Operations
+- Transaction Management
+- Client / Server Architecture
 
-- SQL Query Execution
-- Query Dispatcher
-- Query Result Generation
-- Execution Statistics
-
----
-
-## Expression Engine
-
-- ComparisonExpression
-- LogicalExpression
-- NotExpression
-
-Supported Operators
-
-- =
-- !=
-- >
-- >=
-- <
-- <=
-
-Logical Operators
-
-- AND
-- OR
-- NOT
+YEKDB can currently store records in its own physical `.data` files and persistently execute INSERT, UPDATE, and DELETE operations starting directly from SQL text.
 
 ---
 
-## WHERE Engine
+# 🚀 Sprint 00-12 Status
 
-- WHERE Evaluation
-- Predicate Evaluation
-- Boolean Expression Tree
-- Nested Logical Expressions
+Sprint 00-12 completes the fundamental data mutation layer of YEKDB.
+
+## Completed CRUD Capabilities
+
+| Feature | Status |
+|---|---|
+| INSERT | ✅ |
+| UPDATE | ✅ |
+| DELETE | ✅ |
+| WHERE-based mutations | ✅ |
+| SQL Parser integration | ✅ |
+| Statement → Command mapping | ✅ |
+| Physical persistence | ✅ |
+| Logical DELETE | ✅ |
+| Integration tests | ✅ |
+| CRUD mutation demo | ✅ |
 
 ---
 
-## Table Scan
+# 🧠 Current Query Architecture
 
-- Sequential Scan
-- Row Filtering
-- Expression Matching
-- Result Collection
+SQL statements are not sent directly to the storage layer.
+
+They pass through the following execution pipeline:
+
+```text
+SQL
+ │
+ ▼
+SqlTokenizer
+ │
+ ▼
+SqlParser
+ │
+ ▼
+Statement
+ │
+ ▼
+StatementCommandMapper
+ │
+ ▼
+Command
+ │
+ ▼
+QueryExecutor
+ │
+ ├── InsertExecutor
+ ├── UpdateExecutor
+ ├── DeleteExecutor
+ └── SelectExecutor
+ │
+ ▼
+RecordManager
+ │
+ ▼
+PageManager
+ │
+ ▼
+StorageEngine
+ │
+ ▼
+.data File
+```
+
+This architecture keeps SQL parsing, query execution, and physical storage responsibilities separated from each other.
 
 ---
 
-## Select Executor
+# 🗄️ Physical Storage
 
-Supported
+YEKDB separates table schema information from physical row storage.
+
+Example:
+
+```text
+users.tbl
+users.data
+```
+
+### `.tbl`
+
+Stores table schema information.
+
+Example:
+
+```text
+id INT
+name STRING
+age INT
+active BOOLEAN
+```
+
+### `.data`
+
+Stores physical table records using the page-based storage architecture.
+
+Records are not stored using Java object serialization or an external database engine.
+
+YEKDB uses its own:
+
+- Page
+- Record
+- Row
+- RecordSerializer
+- PageManager
+- RecordManager
+
+infrastructure.
+
+---
+
+# ➕ INSERT
+
+Sprint 00-12 introduces real physical INSERT execution.
+
+Example:
 
 ```sql
-SELECT * FROM users;
-
-SELECT * FROM users
-WHERE age > 18;
-
-SELECT * FROM users
-WHERE age > 18
-AND city = 'Malatya';
-
-SELECT * FROM users
-WHERE city = 'Ankara'
-OR city = 'Istanbul';
-
-SELECT * FROM users
-WHERE NOT active = true;
+INSERT INTO users
+(id, name, age, active)
+VALUES
+(1, 'Emre', 21, true);
 ```
+
+Execution flow:
+
+```text
+INSERT SQL
+   ↓
+InsertStatement
+   ↓
+InsertCommand
+   ↓
+InsertExecutor
+   ↓
+Row
+   ↓
+RecordManager.insert()
+   ↓
+users.data
+```
+
+INSERT execution validates:
+
+- target table
+- column names
+- duplicate columns
+- value types
+- physical schema order
+
+before writing the row into storage.
+
+---
+
+# ✏️ UPDATE
+
+YEKDB can update persisted records directly through SQL.
+
+Example:
+
+```sql
+UPDATE users
+SET age = 22,
+    active = false
+WHERE id = 1;
+```
+
+Execution flow:
+
+```text
+UPDATE SQL
+   ↓
+UpdateStatement
+   ↓
+UpdateMapper
+   ↓
+ExpressionParser
+   ↓
+UpdateCommand
+   ↓
+UpdateExecutor
+   ↓
+WHERE Evaluation
+   ↓
+RecordManager.update()
+   ↓
+users.data
+```
+
+UPDATE operations are not limited to in-memory changes.
+
+Updated rows are written back to the physical `.data` file, and the new values remain available after the Storage Engine is closed and reopened.
+
+---
+
+# 🗑️ DELETE
+
+DELETE operations use a **logical delete** strategy.
+
+Example:
+
+```sql
+DELETE FROM users
+WHERE id = 2;
+```
+
+Execution flow:
+
+```text
+DELETE SQL
+   ↓
+DeleteStatement
+   ↓
+DeleteMapper
+   ↓
+ExpressionParser
+   ↓
+DeleteCommand
+   ↓
+DeleteExecutor
+   ↓
+WHERE Evaluation
+   ↓
+RecordManager.delete()
+```
+
+Deleted records are not immediately removed from the physical data file.
+
+Instead, the record is marked as deleted and is no longer returned by:
+
+```java
+recordManager.getActiveRecords()
+```
+
+This approach provides a foundation for future systems such as:
+
+- Transactions
+- Rollback
+- MVCC
+- Vacuum / Compaction
+
+---
+
+# 🔍 WHERE Expression Engine
+
+UPDATE and DELETE reuse the WHERE expression infrastructure.
+
+Examples:
+
+```sql
+WHERE id = 1
+```
+
+```sql
+WHERE age > 18
+```
+
+```sql
+WHERE score >= 75.5
+```
+
+```sql
+WHERE active = true
+```
+
+Currently supported comparison operators:
+
+```text
+=
+!=
+>
+<
+>=
+<=
+```
+
+The expression layer prevents the execution engine from depending directly on raw SQL text.
+
+---
+
+# 🧪 CRUD Mutation Demo
+
+At the end of Sprint 00-12, an end-to-end CRUD mutation demo was completed successfully.
+
+Demo flow:
+
+```text
+CREATE DATABASE
+       ↓
+USE DATABASE
+       ↓
+CREATE TABLE
+       ↓
+INSERT × 3
+       ↓
+UPDATE
+       ↓
+DELETE
+       ↓
+Storage Engine Shutdown
+       ↓
+Storage Engine Reopen
+       ↓
+Physical Persistence Verification
+```
+
+The demo creates three records:
+
+```text
+Record ID: 0
+Record ID: 1
+Record ID: 2
+```
+
+Then executes:
+
+```sql
+UPDATE users
+SET age = 22,
+    active = false
+WHERE id = 1;
+```
+
+Result:
+
+```text
+Updated row count: 1
+```
+
+After that:
+
+```sql
+DELETE FROM users
+WHERE id = 2;
+```
+
+Result:
+
+```text
+Deleted row count: 1
+```
+
+After reopening the physical storage file:
+
+```text
+Active record count: 2
+```
+
+This confirms that INSERT, UPDATE, and DELETE operations are persisted through the physical storage layer.
+
+---
+
+# 🖼️ Sprint 00-12 Architecture Visuals
+
+The following diagrams document the internal CRUD mutation architecture introduced in Sprint 00-12.
+
+## CRUD Mutation Architecture
+
+This diagram shows the complete mutation pipeline from SQL input to physical `.data` storage.
+
+![CRUD Mutation Architecture](docs/screenshots/00-12/CRUD Mutation Architecture.png)
+
+---
+
+## Statement → Command Mapping
+
+This diagram shows how parser-generated Statement objects are transformed into execution-ready Command objects.
+
+![Statement Command Mapping](docs/screenshots/00-12/Statement Command Mapping.png)
+
+---
+
+## INSERT Execution Flow
+
+This diagram explains how an INSERT statement is parsed, validated, converted into a Row, and written to the physical storage layer.
+
+![INSERT Execution Flow](docs/screenshots/00-12/Insert Execution Flow.png)
+
+---
+
+## UPDATE Execution Flow
+
+This diagram shows how UPDATE reuses the Expression infrastructure for WHERE evaluation before modifying the persisted record.
+
+![UPDATE Execution Flow](docs/screenshots/00-12/Update Execution Flow.png)
+
+---
+
+## Logical DELETE Structure
+
+This diagram explains YEKDB's logical delete strategy, where deleted records remain physically stored but are filtered out from active record views.
+
+![Logical DELETE Structure](docs/screenshots/00-12/Logical Delete Structure.png)
 
 ---
 
 # 🧪 Testing
 
-Sprint 00-11 includes comprehensive unit and integration tests.
+YEKDB uses **JUnit 5**.
 
-### Successfully Tested
+Tests cover both component-level behavior and physical persistence.
 
-- QueryExecutor
-- QueryExecutorIntegration
-- PredicateEvaluator
-- Expression
-- WhereEvaluator
-- RowValueProvider
-- QueryResult
-- SelectCommand
-- SelectExecutor
-- TableScanExecutor
+Sprint 00-12 includes the following scenarios:
 
-Current project status
+### INSERT
 
-```
-506 JUnit Tests Passed
+```text
+SQL INSERT
+→ Record creation
+→ Write to .data file
 ```
 
-Verified using
+### UPDATE
+
+```text
+INSERT
+→ UPDATE
+→ Close Storage Engine
+→ Reopen Storage Engine
+→ Verify updated Row
+```
+
+### DELETE with WHERE
+
+```text
+INSERT
+→ DELETE WHERE
+→ Reopen Storage Engine
+→ Active records = 0
+```
+
+### DELETE with no matching row
+
+```text
+DELETE WHERE id = 999
+→ Deleted row count = 0
+→ Existing row remains active
+```
+
+### DELETE ALL
+
+```sql
+DELETE FROM users;
+```
+
+Expected result:
+
+```text
+Active records = 0
+```
+
+Run all tests with:
 
 ```bash
 mvn clean test
@@ -128,179 +502,348 @@ mvn clean test
 
 ---
 
-# 📂 Package Structure
+# 🏗️ Main Modules
 
-```
-query
+The current project structure includes the following major modules:
+
+```text
+com.yekdb
 │
-├── command
-├── datasource
-├── evaluator
-├── executor
-├── expression
-├── mapper
-├── optimizer
-├── parser
-├── result
-└── statement
+├── core
+├── database
+├── table
+├── storage
+│   ├── page
+│   └── record
+│
+├── index
+│
+└── query
+    ├── command
+    ├── datasource
+    ├── evaluator
+    ├── executor
+    ├── expression
+    ├── mapper
+    ├── optimizer
+    ├── parser
+    ├── result
+    └── statement
 ```
 
 ---
 
-# 📸 Demo Screenshots
+# 📦 Query Layer
 
-## Query Execution Demo
+The query layer is separated by responsibility.
 
-![](docs/screenshots/00-11/demo1.png)
+## command
 
----
+Contains executable query models.
 
-## Query Execution Demo (WHERE)
+```text
+InsertCommand
+UpdateCommand
+DeleteCommand
+SelectCommand
+```
 
-![](docs/screenshots/00-11/demo2.png)
+## statement
 
----
+Contains SQL models produced by the parser.
 
-## Expression Demo
+```text
+InsertStatement
+UpdateStatement
+DeleteStatement
+SelectStatement
+```
 
-![](docs/screenshots/00-11/ExpressionDemo.png)
+## parser
 
----
+Processes SQL text.
 
-## Predicate Evaluator Demo
+```text
+SqlTokenizer
+SqlParser
+ExpressionParser
+```
 
-![](docs/screenshots/00-11/PredicateEvaluatorDemo.png)
+## mapper
 
----
+Transforms Statement objects into execution-ready Command objects.
 
-## Row WHERE Evaluator Demo
+```text
+StatementCommandMapper
+InsertMapper
+UpdateMapper
+DeleteMapper
+SelectMapper
+```
 
-![](docs/screenshots/00-11/RowWhereEvaluatorDemo.png)
+## executor
 
----
+Contains the actual execution logic.
 
-## Select Executor Demo
+```text
+QueryExecutor
+InsertExecutor
+UpdateExecutor
+DeleteExecutor
+SelectExecutor
+TableScanExecutor
+```
 
-![](docs/screenshots/00-11/SelectExecutorDemo.png)
+## expression
 
----
+Contains the execution model used by WHERE conditions.
 
-## Table Scan Executor Demo
-
-![](docs/screenshots/00-11/TableScanExecutorDemo.png)
-
----
-
-# 🧪 Unit Tests
-
-## Expression Tests
-
-![](docs/screenshots/00-11/ExpressionTest.png)
-
----
-
-## PredicateEvaluator Tests
-
-![](docs/screenshots/00-11/PredicateEvaluatorTest.png)
-
----
-
-## Query Executor Integration Tests
-
-![](docs/screenshots/00-11/QueryExecutorIntegrationTest.png)
-
----
-
-## Query Result Tests
-
-![](docs/screenshots/00-11/QueryResultTest.png)
-
----
-
-## RowValueProvider Tests
-
-![](docs/screenshots/00-11/RowValueProviderTest.png)
-
----
-
-## Select Command Tests
-
-![](docs/screenshots/00-11/SelectCommandTest.png)
+```text
+Expression
+ComparisonExpression
+ComparisonOperator
+LogicalExpression
+LogicalOperator
+NotExpression
+```
 
 ---
 
-## Select Executor Tests
+# 📚 Sprint History
 
-![](docs/screenshots/00-11/SelectExecutorTest.png)
+## Sprint 00-01
+- Initial architecture
+- Java 21
+- Maven
+- Git / GitHub
+- Initial package structure
+
+## Sprint 00-02
+- Core Engine
+- Storage Engine architecture
+
+## Sprint 00-03
+- Configuration
+- Logger
+- Page structure
+
+## Sprint 00-04
+- Page Serialization
+- Page Manager
+- Record foundation
+
+## Sprint 00-05
+- Physical Storage Engine
+- DataFile
+- DatabaseHeader
+- Page persistence
+
+## Sprint 00-06
+- Database Management
+- Database metadata
+- Database lifecycle
+
+## Sprint 00-07
+- Table Management
+- Column
+- DataType
+- TableCatalog
+- TableManager
+
+## Sprint 00-08
+- Row
+- RowSerializer
+- RecordManager
+
+## Sprint 00-09
+- Index foundation
+- RecordPointer
+- IndexMetadata
+- Index
+- IndexManager
+
+## Sprint 00-10
+- Query Execution Foundation
+- Command infrastructure
+- ExecuteResult
+- QueryExecutor foundation
+
+## Sprint 00-11
+- SELECT execution
+- WHERE expression infrastructure
+- Query evaluation
+- Table scan
+- Query optimizer foundation
+
+## Sprint 00-12
+- INSERT execution
+- UPDATE execution
+- DELETE execution
+- SQL Parser integration
+- Statement → Command mapping
+- WHERE-based mutations
+- Physical persistence
+- Logical delete
+- CRUD integration tests
+- CRUD mutation demo
+- Architecture documentation
 
 ---
 
-## Table Scan Executor Tests
+# 🛣️ Roadmap
 
-![](docs/screenshots/00-11/TableScanExecutorTest.png)
+YEKDB is still under active development.
+
+## Query Engine
+
+- [x] SQL Tokenizer
+- [x] SQL Parser
+- [x] SELECT foundation
+- [x] INSERT
+- [x] UPDATE
+- [x] DELETE
+- [x] Basic WHERE
+- [ ] AND / OR / NOT extensions
+- [ ] ORDER BY
+- [ ] LIMIT
+- [ ] Aggregate Functions
+- [ ] JOIN
+
+## Storage Engine
+
+- [x] Page-based storage
+- [x] Record persistence
+- [x] Physical INSERT
+- [x] Physical UPDATE
+- [x] Logical DELETE
+- [ ] Free Space Manager
+- [ ] Deleted record compaction
+- [ ] Buffer Pool
+
+## Index
+
+- [x] Index foundation
+- [x] RecordPointer
+- [x] Index metadata
+- [ ] B+ Tree
+- [ ] Index-assisted SELECT
+- [ ] Index-assisted UPDATE / DELETE
+
+## Transaction System
+
+- [ ] BEGIN
+- [ ] COMMIT
+- [ ] ROLLBACK
+- [ ] Write Ahead Logging
+- [ ] Crash Recovery
+- [ ] Isolation
+- [ ] MVCC
+
+## Database Features
+
+- [ ] Constraints
+- [ ] Primary Key
+- [ ] Unique
+- [ ] Foreign Key
+- [ ] Views
+- [ ] Triggers
+- [ ] Stored Procedures
+- [ ] Backup / Restore
+
+## Client / Server
+
+- [ ] TCP Server
+- [ ] Multi-user architecture
+- [ ] Authentication
+- [ ] Role management
+- [ ] Desktop client
+- [ ] Remote connections
 
 ---
 
-## Where Evaluator Tests
+# ⚙️ Requirements
 
-![](docs/screenshots/00-11/WhereEvaluatorTest.png)
+Recommended environment:
 
----
-
-## Generic Project Tests
-
-### Maven Build
-
-![](docs/screenshots/00-11/geneltest1.png)
+```text
+JDK 21+
+Apache Maven 3.x
+Git
+```
 
 ---
 
-### Maven Clean Test
+# 🔨 Build
 
-![](docs/screenshots/00-11/geneltest2.png)
+Clone the repository:
 
----
+```bash
+git clone https://github.com/EmreBEYS/YEKDB.git
+```
 
-### InMemoryQueryDataSource Tests
+Enter the project directory:
 
-![](docs/screenshots/00-11/InMemoryQueryDataSourceTest.png)
+```bash
+cd YEKDB
+```
 
----
+Run tests:
 
-# 📚 Documentation
+```bash
+mvn clean test
+```
 
-Sprint documentation
+Build the project:
 
-- YEKDB_Developer_Notes_00-11.pdf
-- YEKDB_00-11_Query_Execution_Engine.pdf
-
----
-
-# 🚀 Completed Modules
-
-- ✅ Core Engine
-- ✅ Physical Storage Engine
-- ✅ Database Management
-- ✅ Table Management
-- ✅ Record Management
-- ✅ Index Management
-- ✅ Query Execution Engine
+```bash
+mvn clean package
+```
 
 ---
 
-# 🔜 Next Sprint
+# 🎯 Project Goal
 
-Sprint 00-12
+The goal of YEKDB is not to use an existing database engine, but to implement and understand the complete database execution path:
 
-Planned features
+```text
+SQL
+↓
+Parser
+↓
+Execution Engine
+↓
+Record Manager
+↓
+Page Manager
+↓
+Storage Engine
+↓
+Disk
+```
 
-- SQL Parser Improvements
-- Projection (SELECT column1, column2)
-- ORDER BY
-- LIMIT
-- Query Optimizer
-- Index Scan
-- Execution Plan
+The project therefore focuses heavily on:
+
+- data structures
+- file systems
+- algorithms
+- query execution
+- disk management
+- indexing
+- transaction systems
+
+---
+
+# 📄 License
+
+This project is developed for educational and research purposes.
+
+See:
+
+```text
+LICENSE
+```
+
+for license information.
 
 ---
 
@@ -308,12 +851,12 @@ Planned features
 
 **Yunus Emre KUL**
 
-Computer Engineering Student
+Computer Engineering
 
-YEKDB is developed completely from scratch for educational and research purposes to understand the internal architecture of modern relational database systems.
+GitHub:
+
+**EmreBEYS**
 
 ---
 
-# License
-
-MIT License
+> YEKDB is built from scratch to understand how database management systems work internally.

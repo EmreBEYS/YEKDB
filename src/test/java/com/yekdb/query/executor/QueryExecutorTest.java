@@ -13,6 +13,16 @@ import com.yekdb.table.DataType;
 import com.yekdb.table.Table;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import com.yekdb.storage.StorageEngine;
+import com.yekdb.storage.page.PageType;
+import com.yekdb.storage.record.Record;
+import com.yekdb.storage.record.RecordManager;
+
+import com.yekdb.storage.StorageEngine;
+import com.yekdb.storage.page.PageType;
+import com.yekdb.storage.record.Record;
+import com.yekdb.storage.record.RecordManager;
+
 
 import java.nio.file.Path;
 import java.util.List;
@@ -35,6 +45,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * - DROP DATABASE
  * - SELECT *
  * - SELECT + WHERE
+ * - INSERT
  * - Hatalı komut kontrolleri
  */
 class QueryExecutorTest {
@@ -416,7 +427,7 @@ class QueryExecutorTest {
     }
 
     @Test
-    void insertCommand_shouldThrowUnsupportedOperationException() {
+    void insertCommand_shouldInsertRowSuccessfully() {
 
         DatabaseManager databaseManager =
                 new DatabaseManager(
@@ -426,9 +437,32 @@ class QueryExecutorTest {
         try (QueryExecutor queryExecutor =
                      new QueryExecutor(databaseManager)) {
 
+            queryExecutor.execute(
+                    "CREATE DATABASE insert_test_db;"
+            );
+
+            queryExecutor.execute(
+                    "USE DATABASE insert_test_db;"
+            );
+
+            queryExecutor.execute(
+                    """
+                    CREATE TABLE users (
+                        id INT,
+                        name STRING,
+                        age INT
+                    );
+                    """
+            );
+
             InsertCommand command =
                     new InsertCommand(
                             "users",
+                            List.of(
+                                    "id",
+                                    "name",
+                                    "age"
+                            ),
                             List.of(
                                     1,
                                     "Emre",
@@ -436,17 +470,46 @@ class QueryExecutorTest {
                             )
                     );
 
-            QueryExecutionException exception =
-                    assertThrows(
-                            QueryExecutionException.class,
-                            () -> queryExecutor.execute(
-                                    command
-                            )
+            ExecuteResult result =
+                    queryExecutor.execute(
+                            command
                     );
 
-            assertEquals(
-                    "INSERT execution is not implemented yet.",
-                    exception.getMessage()
+            assertTrue(
+                    result.isSuccess()
+            );
+
+            assertTrue(
+                    result.getMessage()
+                            .contains(
+                                    "Row inserted successfully"
+                            )
+            );
+
+            assertTrue(
+                    result.getMessage()
+                            .contains(
+                                    "users"
+                            )
+            );
+
+            Path dataFile =
+                    temporaryDirectory
+                            .resolve(
+                                    "insert_test_db"
+                            )
+                            .resolve(
+                                    "users.data"
+                            );
+
+            assertTrue(
+                    dataFile.toFile()
+                            .exists()
+            );
+
+            assertTrue(
+                    dataFile.toFile()
+                            .length() > 0
             );
         }
     }
@@ -512,13 +575,15 @@ class QueryExecutorTest {
                 );
 
         try (QueryExecutor queryExecutor =
-                     new QueryExecutor(databaseManager)) {
+                     new QueryExecutor(
+                             databaseManager
+                     )) {
 
             QueryExecutionException exception =
                     assertThrows(
                             QueryExecutionException.class,
                             () -> queryExecutor.execute(
-                                    "UPDATE users SET age = 25;"
+                                    "ALTER TABLE users ADD COLUMN city STRING;"
                             )
                     );
 
@@ -616,5 +681,481 @@ class QueryExecutorTest {
                         )
                 )
         );
+    }
+    @Test
+    void updateSql_shouldUpdatePersistedRowSuccessfully()
+            throws Exception {
+
+        DatabaseManager databaseManager =
+                new DatabaseManager(
+                        temporaryDirectory
+                );
+
+        /*
+         * 1. Veritabanını, tabloyu ve ilk kaydı oluştur.
+         * 2. UPDATE sorgusunu gerçek SQL metni üzerinden çalıştır.
+         */
+        try (QueryExecutor queryExecutor =
+                     new QueryExecutor(
+                             databaseManager
+                     )) {
+
+            queryExecutor.execute(
+                    "CREATE DATABASE update_test_db;"
+            );
+
+            queryExecutor.execute(
+                    "USE DATABASE update_test_db;"
+            );
+
+            queryExecutor.execute(
+                    """
+                    CREATE TABLE users (
+                        id INT,
+                        name STRING,
+                        age INT
+                    );
+                    """
+            );
+
+            ExecuteResult insertResult =
+                    queryExecutor.execute(
+                            """
+                            INSERT INTO users
+                            (id, name, age)
+                            VALUES (1, 'Emre', 21);
+                            """
+                    );
+
+            assertTrue(
+                    insertResult.isSuccess()
+            );
+
+            ExecuteResult updateResult =
+                    queryExecutor.execute(
+                            """
+                            UPDATE users
+                            SET age = 22
+                            WHERE id = 1;
+                            """
+                    );
+
+            assertTrue(
+                    updateResult.isSuccess()
+            );
+
+            assertTrue(
+                    updateResult.getMessage()
+                            .contains(
+                                    "Updated row count: 1"
+                            )
+            );
+        }
+
+        /*
+         * QueryExecutor kapandıktan sonra fiziksel .data
+         * dosyasını yeniden açıyoruz.
+         *
+         * Böylece yalnızca RAM'deki değeri değil,
+         * diske gerçekten yazılmış UPDATE sonucunu
+         * doğrulamış oluyoruz.
+         */
+        Path dataFile =
+                temporaryDirectory
+                        .resolve(
+                                "update_test_db"
+                        )
+                        .resolve(
+                                "users.data"
+                        );
+
+        assertTrue(
+                dataFile.toFile().exists()
+        );
+
+        StorageEngine storageEngine =
+                new StorageEngine(
+                        dataFile
+                );
+
+        try {
+
+            storageEngine.initialize();
+
+            RecordManager recordManager =
+                    new RecordManager(
+                            storageEngine.getPageManager(),
+                            PageType.DATA
+                    );
+
+            List<Record> records =
+                    recordManager.getActiveRecords();
+
+            assertEquals(
+                    1,
+                    records.size()
+            );
+
+            Record record =
+                    records.get(0);
+
+            Row persistedRow =
+                    recordManager.getRow(
+                            record.getRecordId()
+                    );
+
+            /*
+             * users kolon sırası:
+             *
+             * 0 -> id
+             * 1 -> name
+             * 2 -> age
+             */
+            assertEquals(
+                    1,
+                    persistedRow.getValue(0)
+            );
+
+            assertEquals(
+                    "Emre",
+                    persistedRow.getValue(1)
+            );
+
+            assertEquals(
+                    22,
+                    persistedRow.getValue(2)
+            );
+
+        } finally {
+
+            if (storageEngine.isInitialized()) {
+                storageEngine.shutdown();
+            }
+        }
+    }
+    @Test
+    void deleteSqlWithWhere_shouldDeletePersistedRowSuccessfully()
+            throws Exception {
+
+        DatabaseManager databaseManager =
+                new DatabaseManager(
+                        temporaryDirectory
+                );
+
+        try (QueryExecutor queryExecutor =
+                     new QueryExecutor(
+                             databaseManager
+                     )) {
+
+            queryExecutor.execute(
+                    "CREATE DATABASE delete_test_db;"
+            );
+
+            queryExecutor.execute(
+                    "USE DATABASE delete_test_db;"
+            );
+
+            queryExecutor.execute(
+                    """
+                    CREATE TABLE users (
+                        id INT,
+                        name STRING,
+                        age INT
+                    );
+                    """
+            );
+
+            ExecuteResult insertResult =
+                    queryExecutor.execute(
+                            """
+                            INSERT INTO users
+                            (id, name, age)
+                            VALUES (1, 'Emre', 21);
+                            """
+                    );
+
+            assertTrue(
+                    insertResult.isSuccess()
+            );
+
+            ExecuteResult deleteResult =
+                    queryExecutor.execute(
+                            """
+                            DELETE FROM users
+                            WHERE id = 1;
+                            """
+                    );
+
+            assertTrue(
+                    deleteResult.isSuccess()
+            );
+
+            assertTrue(
+                    deleteResult.getMessage()
+                            .contains(
+                                    "Deleted row count: 1"
+                            )
+            );
+        }
+
+        Path dataFile =
+                temporaryDirectory
+                        .resolve(
+                                "delete_test_db"
+                        )
+                        .resolve(
+                                "users.data"
+                        );
+
+        assertTrue(
+                dataFile.toFile().exists()
+        );
+
+        StorageEngine storageEngine =
+                new StorageEngine(
+                        dataFile
+                );
+
+        try {
+
+            storageEngine.initialize();
+
+            RecordManager recordManager =
+                    new RecordManager(
+                            storageEngine.getPageManager(),
+                            PageType.DATA
+                    );
+
+            /*
+             * Logical delete sonrası kayıt fiziksel dosyada
+             * bulunabilir fakat ACTIVE kayıt listesinde
+             * kesinlikle görünmemelidir.
+             */
+            assertEquals(
+                    0,
+                    recordManager
+                            .getActiveRecords()
+                            .size()
+            );
+
+        } finally {
+
+            if (storageEngine.isInitialized()) {
+                storageEngine.shutdown();
+            }
+        }
+    }
+    @Test
+    void deleteSqlWithNonMatchingWhere_shouldDeleteZeroRows()
+            throws Exception {
+
+        DatabaseManager databaseManager =
+                new DatabaseManager(
+                        temporaryDirectory
+                );
+
+        try (QueryExecutor queryExecutor =
+                     new QueryExecutor(
+                             databaseManager
+                     )) {
+
+            queryExecutor.execute(
+                    "CREATE DATABASE delete_no_match_db;"
+            );
+
+            queryExecutor.execute(
+                    "USE DATABASE delete_no_match_db;"
+            );
+
+            queryExecutor.execute(
+                    """
+                    CREATE TABLE users (
+                        id INT,
+                        name STRING,
+                        age INT
+                    );
+                    """
+            );
+
+            queryExecutor.execute(
+                    """
+                    INSERT INTO users
+                    (id, name, age)
+                    VALUES (1, 'Emre', 21);
+                    """
+            );
+
+            ExecuteResult deleteResult =
+                    queryExecutor.execute(
+                            """
+                            DELETE FROM users
+                            WHERE id = 999;
+                            """
+                    );
+
+            assertTrue(
+                    deleteResult.isSuccess()
+            );
+
+            assertTrue(
+                    deleteResult.getMessage()
+                            .contains(
+                                    "Deleted row count: 0"
+                            )
+            );
+        }
+
+        Path dataFile =
+                temporaryDirectory
+                        .resolve(
+                                "delete_no_match_db"
+                        )
+                        .resolve(
+                                "users.data"
+                        );
+
+        StorageEngine storageEngine =
+                new StorageEngine(
+                        dataFile
+                );
+
+        try {
+
+            storageEngine.initialize();
+
+            RecordManager recordManager =
+                    new RecordManager(
+                            storageEngine.getPageManager(),
+                            PageType.DATA
+                    );
+
+            /*
+             * id = 999 bulunamadığı için
+             * id = 1 kaydı hâlâ aktif olmalıdır.
+             */
+            assertEquals(
+                    1,
+                    recordManager
+                            .getActiveRecords()
+                            .size()
+            );
+
+        } finally {
+
+            if (storageEngine.isInitialized()) {
+                storageEngine.shutdown();
+            }
+        }
+    }
+    @Test
+    void deleteSqlWithoutWhere_shouldDeleteAllActiveRows()
+            throws Exception {
+
+        DatabaseManager databaseManager =
+                new DatabaseManager(
+                        temporaryDirectory
+                );
+
+        try (QueryExecutor queryExecutor =
+                     new QueryExecutor(
+                             databaseManager
+                     )) {
+
+            queryExecutor.execute(
+                    "CREATE DATABASE delete_all_db;"
+            );
+
+            queryExecutor.execute(
+                    "USE DATABASE delete_all_db;"
+            );
+
+            queryExecutor.execute(
+                    """
+                    CREATE TABLE users (
+                        id INT,
+                        name STRING,
+                        age INT
+                    );
+                    """
+            );
+
+            queryExecutor.execute(
+                    """
+                    INSERT INTO users
+                    (id, name, age)
+                    VALUES (1, 'Emre', 21);
+                    """
+            );
+
+            queryExecutor.execute(
+                    """
+                    INSERT INTO users
+                    (id, name, age)
+                    VALUES (2, 'Ali', 24);
+                    """
+            );
+
+            queryExecutor.execute(
+                    """
+                    INSERT INTO users
+                    (id, name, age)
+                    VALUES (3, 'Ayse', 26);
+                    """
+            );
+
+            ExecuteResult deleteResult =
+                    queryExecutor.execute(
+                            "DELETE FROM users;"
+                    );
+
+            assertTrue(
+                    deleteResult.isSuccess()
+            );
+
+            assertTrue(
+                    deleteResult.getMessage()
+                            .contains(
+                                    "Deleted row count: 3"
+                            )
+            );
+        }
+
+        Path dataFile =
+                temporaryDirectory
+                        .resolve(
+                                "delete_all_db"
+                        )
+                        .resolve(
+                                "users.data"
+                        );
+
+        StorageEngine storageEngine =
+                new StorageEngine(
+                        dataFile
+                );
+
+        try {
+
+            storageEngine.initialize();
+
+            RecordManager recordManager =
+                    new RecordManager(
+                            storageEngine.getPageManager(),
+                            PageType.DATA
+                    );
+
+            assertEquals(
+                    0,
+                    recordManager
+                            .getActiveRecords()
+                            .size()
+            );
+
+        } finally {
+
+            if (storageEngine.isInitialized()) {
+                storageEngine.shutdown();
+            }
+        }
     }
 }

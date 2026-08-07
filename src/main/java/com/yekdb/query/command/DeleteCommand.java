@@ -1,79 +1,58 @@
 package com.yekdb.query.command;
 
+import com.yekdb.query.expression.Expression;
+
 import java.util.Objects;
 
 /**
- * DELETE SQL komutunu temsil eder.
+ * DELETE SQL komutunu execution katmanında temsil eder.
  *
- * <p>Komut, hedef tablo adını ve isteğe bağlı
- * WHERE koşulunu taşır.</p>
+ * Örnek:
  *
- * <p>WHERE koşulunun değerlendirilmesi
- * QueryExecutor katmanında gerçekleştirilecektir.</p>
+ * DELETE FROM users WHERE id = 1;
+ * DELETE FROM users;
+ *
+ * WHERE koşulu parser/mapper zincirinde Expression
+ * nesnesine dönüştürülür.
  */
 public final class DeleteCommand implements Command {
 
-    /**
-     * Kayıtların silineceği tablo adı.
-     */
     private final String tableName;
+    private final Expression whereExpression;
 
-    /**
-     * DELETE işleminde kullanılacak WHERE koşulu.
-     *
-     * Koşulsuz DELETE sorgularında null olabilir.
-     */
-    private final String whereClause;
-
-    /**
-     * Yeni DELETE komutu oluşturur.
-     *
-     * @param tableName  hedef tablo adı
-     * @param whereClause WHERE koşulu
-     */
     public DeleteCommand(
             String tableName,
-            String whereClause
+            Expression whereExpression
     ) {
-        this.tableName = validateTableName(tableName);
-        this.whereClause = normalizeWhereClause(whereClause);
+        this.tableName =
+                validateTableName(
+                        tableName
+                );
+
+        this.whereExpression =
+                whereExpression;
     }
 
-    /**
-     * Hedef tablo adını döndürür.
-     *
-     * @return tablo adı
-     */
     public String getTableName() {
         return tableName;
     }
 
-    /**
-     * WHERE koşulunu döndürür.
-     *
-     * @return koşul veya null
-     */
-    public String getWhereClause() {
-        return whereClause;
+    public Expression getWhereExpression() {
+        return whereExpression;
     }
 
-    /**
-     * Komutta WHERE koşulu bulunup bulunmadığını döndürür.
-     *
-     * @return koşul varsa true
-     */
-    public boolean hasWhereClause() {
-        return whereClause != null;
+    public boolean hasWhereExpression() {
+        return whereExpression != null;
     }
 
-    /**
-     * Tablo adını doğrular ve temizler.
-     */
-    private String validateTableName(String tableName) {
-        String normalizedName = Objects.requireNonNull(
-                tableName,
-                "Table name cannot be null."
-        ).trim();
+    private String validateTableName(
+            String tableName
+    ) {
+        String normalizedName =
+                Objects.requireNonNull(
+                        tableName,
+                        "Table name cannot be null."
+                ).trim();
 
         if (normalizedName.isBlank()) {
             throw new IllegalArgumentException(
@@ -85,32 +64,19 @@ public final class DeleteCommand implements Command {
                 "[A-Za-z_][A-Za-z0-9_]*"
         )) {
             throw new IllegalArgumentException(
-                    "Invalid table name: " + tableName
+                    "Invalid table name: "
+                            + tableName
             );
         }
 
         return normalizedName;
     }
 
-    /**
-     * WHERE koşulunu temizler.
-     */
-    private String normalizeWhereClause(
-            String whereClause
-    ) {
-        if (whereClause == null
-                || whereClause.isBlank()) {
-            return null;
-        }
-
-        return whereClause.trim();
-    }
-
     @Override
     public String toString() {
         return "DeleteCommand{" +
                 "tableName='" + tableName + '\'' +
-                ", whereClause='" + whereClause + '\'' +
+                ", whereExpression=" + whereExpression +
                 '}';
     }
 }

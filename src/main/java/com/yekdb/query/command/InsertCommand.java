@@ -1,47 +1,46 @@
 package com.yekdb.query.command;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
 /**
- * INSERT INTO SQL komutunu temsil eder.
+ * INSERT SQL komutunun execution katmanındaki temsilidir.
  *
- * <p>Komut, hedef tablo adını ve tabloya eklenecek
- * değerleri taşır.</p>
+ * Örnek:
  *
- * <p>Fiziksel Row nesnesinin oluşturulması
- * QueryExecutor katmanında gerçekleştirilecektir.</p>
+ * INSERT INTO users (id, name, age)
+ * VALUES (1, 'Emre', 21);
  */
 public final class InsertCommand implements Command {
 
-    /**
-     * Kaydın ekleneceği tablo adı.
-     */
     private final String tableName;
 
-    /**
-     * INSERT sorgusunda belirtilen değerler.
-     */
+    private final List<String> columns;
+
     private final List<Object> values;
 
-    /**
-     * Yeni INSERT komutu oluşturur.
-     *
-     * @param tableName hedef tablo adı
-     * @param values    eklenecek değerler
-     */
     public InsertCommand(
             String tableName,
+            List<String> columns,
             List<Object> values
     ) {
         this.tableName = validateTableName(tableName);
 
         Objects.requireNonNull(
-                values,
-                "Values cannot be null."
+                columns,
+                "Column list cannot be null."
         );
+
+        Objects.requireNonNull(
+                values,
+                "Value list cannot be null."
+        );
+
+        if (columns.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "INSERT command must contain at least one column."
+            );
+        }
 
         if (values.isEmpty()) {
             throw new IllegalArgumentException(
@@ -49,46 +48,33 @@ public final class InsertCommand implements Command {
             );
         }
 
-        /*
-         * List.copyOf null eleman kabul etmediği için
-         * ArrayList ve unmodifiableList kullanılır.
-         */
-        this.values = Collections.unmodifiableList(
-                new ArrayList<>(values)
-        );
+        if (columns.size() != values.size()) {
+            throw new IllegalArgumentException(
+                    "Column count and value count must be equal."
+            );
+        }
+
+        this.columns = columns.stream()
+                .map(InsertCommand::validateColumnName)
+                .toList();
+
+        this.values = List.copyOf(values);
     }
 
-    /**
-     * Hedef tablo adını döndürür.
-     *
-     * @return tablo adı
-     */
     public String getTableName() {
         return tableName;
     }
 
-    /**
-     * Eklenecek değerleri döndürür.
-     *
-     * @return değiştirilemez değer listesi
-     */
+    public List<String> getColumns() {
+        return columns;
+    }
+
     public List<Object> getValues() {
         return values;
     }
 
-    /**
-     * Eklenecek değer sayısını döndürür.
-     *
-     * @return değer sayısı
-     */
-    public int getValueCount() {
-        return values.size();
-    }
+    private static String validateTableName(String tableName) {
 
-    /**
-     * Tablo adını doğrular ve temizler.
-     */
-    private String validateTableName(String tableName) {
         String normalizedName = Objects.requireNonNull(
                 tableName,
                 "Table name cannot be null."
@@ -100,11 +86,19 @@ public final class InsertCommand implements Command {
             );
         }
 
-        if (!normalizedName.matches(
-                "[A-Za-z_][A-Za-z0-9_]*"
-        )) {
+        return normalizedName;
+    }
+
+    private static String validateColumnName(String columnName) {
+
+        String normalizedName = Objects.requireNonNull(
+                columnName,
+                "Column name cannot be null."
+        ).trim();
+
+        if (normalizedName.isBlank()) {
             throw new IllegalArgumentException(
-                    "Invalid table name: " + tableName
+                    "Column name cannot be blank."
             );
         }
 
@@ -115,6 +109,7 @@ public final class InsertCommand implements Command {
     public String toString() {
         return "InsertCommand{" +
                 "tableName='" + tableName + '\'' +
+                ", columns=" + columns +
                 ", values=" + values +
                 '}';
     }

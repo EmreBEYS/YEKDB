@@ -10,8 +10,12 @@ import com.yekdb.query.command.DropDatabaseCommand;
 import com.yekdb.query.command.DropTableCommand;
 import com.yekdb.query.command.InsertCommand;
 import com.yekdb.query.command.SelectCommand;
+import com.yekdb.query.command.UpdateCommand;
 import com.yekdb.query.command.UseDatabaseCommand;
 import com.yekdb.query.datasource.QueryDataSource;
+import com.yekdb.query.mapper.StatementCommandMapper;
+import com.yekdb.query.parser.SqlParser;
+import com.yekdb.query.statement.Statement;
 import com.yekdb.query.result.QueryResult;
 import com.yekdb.storage.record.Row;
 import com.yekdb.table.Column;
@@ -19,6 +23,13 @@ import com.yekdb.table.DataType;
 import com.yekdb.table.Table;
 import com.yekdb.table.TableManager;
 import com.yekdb.table.TableMetadata;
+import com.yekdb.storage.StorageEngine;
+import com.yekdb.storage.page.PageType;
+import com.yekdb.storage.record.Record;
+import com.yekdb.storage.record.RecordManager;
+
+import java.io.IOException;
+import java.nio.file.Path;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -36,6 +47,9 @@ import java.util.Objects;
  * - DropDatabaseCommand
  * - CreateTableCommand
  * - DropTableCommand
+ * - InsertCommand
+ * - UpdateCommand
+ * - DeleteCommand
  * - SelectCommand
  *
  * Eski testler ve istemciler için execute(String) desteği de bulunur.
@@ -62,6 +76,28 @@ public final class QueryExecutor implements AutoCloseable {
     private final SelectExecutor selectExecutor;
 
     /**
+     * INSERT komutlarını tablo şeması ve fiziksel
+     * RecordManager üzerinden çalıştırır.
+     *
+     * Sprint 00-12 kapsamında eklenmiştir.
+     */
+    private final InsertExecutor insertExecutor;
+
+    /**
+     * UPDATE komutlarını fiziksel kayıtlar üzerinde çalıştırır.
+     *
+     * Sprint 00-12 kapsamında eklenmiştir.
+     */
+    private final UpdateExecutor updateExecutor;
+
+    /**
+     * DELETE komutlarını fiziksel kayıtlar üzerinde çalıştırır.
+     *
+     * Sprint 00-12 kapsamında eklenmiştir.
+     */
+    private final DeleteExecutor deleteExecutor;
+
+    /**
      * Aktif veritabanına bağlı tablo yöneticisidir.
      */
     private TableManager tableManager;
@@ -78,7 +114,10 @@ public final class QueryExecutor implements AutoCloseable {
         this(
                 databaseManager,
                 null,
-                new SelectExecutor()
+                new SelectExecutor(),
+                new InsertExecutor(),
+                new UpdateExecutor(),
+                new DeleteExecutor()
         );
     }
 
@@ -95,12 +134,16 @@ public final class QueryExecutor implements AutoCloseable {
         this(
                 databaseManager,
                 queryDataSource,
-                new SelectExecutor()
+                new SelectExecutor(),
+                new InsertExecutor(),
+                new UpdateExecutor(),
+                new DeleteExecutor()
         );
     }
 
     /**
-     * Bütün bağımlılıkların dışarıdan verilebildiği constructor.
+     * Eski testler ve istemciler için üç parametreli
+     * constructor korunur.
      *
      * @param databaseManager veritabanı yöneticisi
      * @param queryDataSource sorgu veri kaynağı
@@ -110,6 +153,84 @@ public final class QueryExecutor implements AutoCloseable {
             DatabaseManager databaseManager,
             QueryDataSource queryDataSource,
             SelectExecutor selectExecutor
+    ) {
+        this(
+                databaseManager,
+                queryDataSource,
+                selectExecutor,
+                new InsertExecutor(),
+                new UpdateExecutor(),
+                new DeleteExecutor()
+        );
+    }
+
+    /**
+     * Eski dört parametreli constructor korunur.
+     *
+     * @param databaseManager veritabanı yöneticisi
+     * @param queryDataSource sorgu veri kaynağı
+     * @param selectExecutor SELECT yürütücüsü
+     * @param insertExecutor INSERT yürütücüsü
+     */
+    public QueryExecutor(
+            DatabaseManager databaseManager,
+            QueryDataSource queryDataSource,
+            SelectExecutor selectExecutor,
+            InsertExecutor insertExecutor
+    ) {
+        this(
+                databaseManager,
+                queryDataSource,
+                selectExecutor,
+                insertExecutor,
+                new UpdateExecutor(),
+                new DeleteExecutor()
+        );
+    }
+
+    /**
+     * Eski beş parametreli constructor korunur.
+     *
+     * @param databaseManager veritabanı yöneticisi
+     * @param queryDataSource sorgu veri kaynağı
+     * @param selectExecutor SELECT yürütücüsü
+     * @param insertExecutor INSERT yürütücüsü
+     * @param updateExecutor UPDATE yürütücüsü
+     */
+    public QueryExecutor(
+            DatabaseManager databaseManager,
+            QueryDataSource queryDataSource,
+            SelectExecutor selectExecutor,
+            InsertExecutor insertExecutor,
+            UpdateExecutor updateExecutor
+    ) {
+        this(
+                databaseManager,
+                queryDataSource,
+                selectExecutor,
+                insertExecutor,
+                updateExecutor,
+                new DeleteExecutor()
+        );
+    }
+
+    /**
+     * Bütün bağımlılıkların dışarıdan verilebildiği constructor.
+     *
+     * @param databaseManager veritabanı yöneticisi
+     * @param queryDataSource sorgu veri kaynağı
+     * @param selectExecutor SELECT yürütücüsü
+     * @param insertExecutor INSERT yürütücüsü
+     * @param updateExecutor UPDATE yürütücüsü
+     * @param deleteExecutor DELETE yürütücüsü
+     */
+    public QueryExecutor(
+            DatabaseManager databaseManager,
+            QueryDataSource queryDataSource,
+            SelectExecutor selectExecutor,
+            InsertExecutor insertExecutor,
+            UpdateExecutor updateExecutor,
+            DeleteExecutor deleteExecutor
     ) {
         this.databaseManager = Objects.requireNonNull(
                 databaseManager,
@@ -121,6 +242,21 @@ public final class QueryExecutor implements AutoCloseable {
         this.selectExecutor = Objects.requireNonNull(
                 selectExecutor,
                 "SelectExecutor cannot be null."
+        );
+
+        this.insertExecutor = Objects.requireNonNull(
+                insertExecutor,
+                "InsertExecutor cannot be null."
+        );
+
+        this.updateExecutor = Objects.requireNonNull(
+                updateExecutor,
+                "UpdateExecutor cannot be null."
+        );
+
+        this.deleteExecutor = Objects.requireNonNull(
+                deleteExecutor,
+                "DeleteExecutor cannot be null."
         );
 
         initializeTableManager();
@@ -139,6 +275,10 @@ public final class QueryExecutor implements AutoCloseable {
      * DROP DATABASE database_name
      * CREATE TABLE table_name (...)
      * DROP TABLE table_name
+     * INSERT INTO table_name (...) VALUES (...)
+     * SELECT ...
+     * UPDATE table_name SET ... [WHERE ...]
+     * DELETE FROM table_name [WHERE ...]
      *
      * @param sql çalıştırılacak SQL metni
      * @return yürütme sonucu
@@ -154,9 +294,71 @@ public final class QueryExecutor implements AutoCloseable {
                 sql.trim()
         );
 
-        Command command = parseSqlCommand(
-                normalizedSql
+        String upperSql = normalizedSql.toUpperCase(
+                Locale.ROOT
         );
+
+        /*
+         * Kayıt işlemleri yeni SQL parser zincirinden geçer:
+         *
+         * SQL
+         *   -> SqlParser
+         *   -> Statement
+         *   -> StatementCommandMapper
+         *   -> Command
+         *   -> QueryExecutor
+         *
+         * Yönetim komutları ise mevcut geriye uyumlu
+         * parseSqlCommand(...) yolu üzerinden yürütülür.
+         */
+        if (upperSql.startsWith("INSERT ")
+                || upperSql.startsWith("SELECT ")
+                || upperSql.startsWith("UPDATE ")
+                || upperSql.startsWith("DELETE ")) {
+
+            Statement statement;
+
+            try {
+                statement =
+                        new SqlParser().parse(
+                                normalizedSql
+                        );
+
+            } catch (RuntimeException exception) {
+                throw new QueryExecutionException(
+                        "SQL parsing failed: "
+                                + exception.getMessage(),
+                        exception
+                );
+            }
+
+            Command command;
+
+            try {
+                command =
+                        StatementCommandMapper.map(
+                                statement
+                        );
+
+            } catch (RuntimeException exception) {
+                if (exception instanceof QueryExecutionException queryExecutionException) {
+                    throw queryExecutionException;
+                }
+
+                throw new QueryExecutionException(
+                        "Statement mapping failed: "
+                                + exception.getMessage(),
+                        exception
+                );
+            }
+
+            return execute(command);
+        }
+
+        Command command =
+                parseSqlCommand(
+                        normalizedSql
+                );
 
         return execute(command);
     }
@@ -195,20 +397,20 @@ public final class QueryExecutor implements AutoCloseable {
                 return executeDropTable(value);
             }
 
-            if (command instanceof InsertCommand) {
-                return unsupportedRecordOperation(
-                        "INSERT"
-                );
+            if (command instanceof InsertCommand value) {
+                return executeInsert(value);
+            }
+
+            if (command instanceof UpdateCommand value) {
+                return executeUpdate(value);
             }
 
             if (command instanceof SelectCommand value) {
                 return executeSelect(value);
             }
 
-            if (command instanceof DeleteCommand) {
-                return unsupportedRecordOperation(
-                        "DELETE"
-                );
+            if (command instanceof DeleteCommand value) {
+                return executeDelete(value);
             }
 
             throw new QueryExecutionException(
@@ -333,6 +535,234 @@ public final class QueryExecutor implements AutoCloseable {
                 "Table dropped successfully: "
                         + command.getTableName()
         );
+    }
+
+    /**
+     * INSERT komutunu çalıştırır.
+     *
+     * .tbl dosyası tablo şemasını tuttuğu için fiziksel kayıtlar
+     * tablo adına ait ayrı bir .data dosyasında saklanır.
+     */
+    private ExecuteResult executeInsert(
+            InsertCommand command
+    ) {
+        TableManager activeTableManager =
+                requireTableManager();
+
+        Table table = activeTableManager.getTable(
+                command.getTableName()
+        );
+
+        Path tableDataFile =
+                activeTableManager
+                        .getDatabaseDirectory()
+                        .resolve(
+                                table.getTableName()
+                                        .toLowerCase(Locale.ROOT)
+                                        + ".data"
+                        );
+
+        StorageEngine storageEngine =
+                new StorageEngine(tableDataFile);
+
+        try {
+            storageEngine.initialize();
+
+            RecordManager recordManager =
+                    new RecordManager(
+                            storageEngine.getPageManager(),
+                            PageType.DATA
+                    );
+
+            Record insertedRecord =
+                    insertExecutor.execute(
+                            table,
+                            command,
+                            recordManager
+                    );
+
+            return ExecuteResult.success(
+                    "Row inserted successfully into table '"
+                            + table.getTableName()
+                            + "'. Record ID: "
+                            + insertedRecord.getRecordId()
+            );
+
+        } catch (IOException exception) {
+            throw new QueryExecutionException(
+                    "INSERT storage operation failed for table: "
+                            + table.getTableName(),
+                    exception
+            );
+
+        } finally {
+            if (storageEngine.isInitialized()) {
+                try {
+                    storageEngine.shutdown();
+                } catch (IOException exception) {
+                    throw new QueryExecutionException(
+                            "Failed to close storage engine for table: "
+                                    + table.getTableName(),
+                            exception
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * UPDATE komutunu fiziksel storage katmanında çalıştırır.
+     *
+     * .tbl dosyası tablo şemasını tuttuğu için fiziksel kayıtlar
+     * tablo adına ait ayrı .data dosyasından okunur ve güncellenir.
+     */
+    private ExecuteResult executeUpdate(
+            UpdateCommand command
+    ) {
+        TableManager activeTableManager =
+                requireTableManager();
+
+        Table table =
+                activeTableManager.getTable(
+                        command.getTableName()
+                );
+
+        Path tableDataFile =
+                activeTableManager
+                        .getDatabaseDirectory()
+                        .resolve(
+                                table.getTableName()
+                                        .toLowerCase(Locale.ROOT)
+                                        + ".data"
+                        );
+
+        StorageEngine storageEngine =
+                new StorageEngine(
+                        tableDataFile
+                );
+
+        try {
+            storageEngine.initialize();
+
+            RecordManager recordManager =
+                    new RecordManager(
+                            storageEngine.getPageManager(),
+                            PageType.DATA
+                    );
+
+            int updatedRowCount =
+                    updateExecutor.execute(
+                            table,
+                            command,
+                            recordManager
+                    );
+
+            return ExecuteResult.success(
+                    "UPDATE executed successfully on table '"
+                            + table.getTableName()
+                            + "'. Updated row count: "
+                            + updatedRowCount
+            );
+
+        } catch (IOException exception) {
+            throw new QueryExecutionException(
+                    "UPDATE storage operation failed for table: "
+                            + table.getTableName(),
+                    exception
+            );
+
+        } finally {
+            if (storageEngine.isInitialized()) {
+                try {
+                    storageEngine.shutdown();
+                } catch (IOException exception) {
+                    throw new QueryExecutionException(
+                            "Failed to close storage engine for table: "
+                                    + table.getTableName(),
+                            exception
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * DELETE komutunu fiziksel storage katmanında çalıştırır.
+     *
+     * .tbl dosyası tablo şemasını tuttuğu için fiziksel kayıtlar
+     * tablo adına ait ayrı .data dosyasından okunur.
+     *
+     * Silme işlemi RecordManager.delete(recordId) üzerinden
+     * logical delete olarak gerçekleştirilir.
+     */
+    private ExecuteResult executeDelete(
+            DeleteCommand command
+    ) {
+        TableManager activeTableManager =
+                requireTableManager();
+
+        Table table =
+                activeTableManager.getTable(
+                        command.getTableName()
+                );
+
+        Path tableDataFile =
+                activeTableManager
+                        .getDatabaseDirectory()
+                        .resolve(
+                                table.getTableName()
+                                        .toLowerCase(Locale.ROOT)
+                                        + ".data"
+                        );
+
+        StorageEngine storageEngine =
+                new StorageEngine(
+                        tableDataFile
+                );
+
+        try {
+            storageEngine.initialize();
+
+            RecordManager recordManager =
+                    new RecordManager(
+                            storageEngine.getPageManager(),
+                            PageType.DATA
+                    );
+
+            int deletedRowCount =
+                    deleteExecutor.execute(
+                            table,
+                            command,
+                            recordManager
+                    );
+
+            return ExecuteResult.success(
+                    "DELETE executed successfully on table '"
+                            + table.getTableName()
+                            + "'. Deleted row count: "
+                            + deletedRowCount
+            );
+
+        } catch (IOException exception) {
+            throw new QueryExecutionException(
+                    "DELETE storage operation failed for table: "
+                            + table.getTableName(),
+                    exception
+            );
+
+        } finally {
+            if (storageEngine.isInitialized()) {
+                try {
+                    storageEngine.shutdown();
+                } catch (IOException exception) {
+                    throw new QueryExecutionException(
+                            "Failed to close storage engine for table: "
+                                    + table.getTableName(),
+                            exception
+                    );
+                }
+            }
+        }
     }
 
     /**
