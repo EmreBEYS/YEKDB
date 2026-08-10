@@ -1,7 +1,7 @@
 package com.yekdb.query.executor;
 
 import com.yekdb.query.command.DeleteCommand;
-import com.yekdb.query.result.QueryResult;
+import com.yekdb.query.evaluator.WhereEvaluator;
 import com.yekdb.storage.record.Record;
 import com.yekdb.storage.record.RecordManager;
 import com.yekdb.storage.record.Row;
@@ -14,10 +14,21 @@ import java.util.Objects;
 /**
  * DELETE komutlarını fiziksel kayıtlar üzerinde çalıştırır.
  *
- * Sprint 00-12 kapsamında DELETE işlemi logical delete
- * yaklaşımıyla uygulanır. Record fiziksel olarak sayfadan
- * kaldırılmaz; RecordManager.delete(recordId) üzerinden
- * deleted flag değeri işaretlenir.
+ * Sprint 00-13 kapsamında gelişmiş WHERE Expression Engine
+ * ile entegre edilmiştir.
+ *
+ * Desteklenen WHERE yapıları:
+ *
+ * - Comparison
+ * - AND
+ * - OR
+ * - NOT
+ * - Parentheses
+ * - Operator precedence
+ *
+ * DELETE işlemi logical delete yaklaşımıyla uygulanır.
+ * Record fiziksel olarak sayfadan kaldırılmaz;
+ * RecordManager.delete(recordId) üzerinden deleted flag işaretlenir.
  */
 public final class DeleteExecutor {
 
@@ -115,8 +126,8 @@ public final class DeleteExecutor {
     /**
      * WHERE yoksa bütün aktif kayıtlar eşleşir.
      *
-     * WHERE varsa mevcut TableScanExecutor altyapısı
-     * tek satırlık liste üzerinde kullanılır.
+     * WHERE varsa Sprint 00-13 Expression Engine
+     * doğrudan WhereEvaluator üzerinden kullanılır.
      */
     private boolean matchesWhere(
             Table table,
@@ -128,13 +139,10 @@ public final class DeleteExecutor {
             return true;
         }
 
-        QueryResult result =
-                TableScanExecutor.execute(
-                        table,
-                        List.of(row),
-                        command.getWhereExpression()
-                );
-
-        return !result.getRows().isEmpty();
+        return WhereEvaluator.evaluate(
+                command.getWhereExpression(),
+                row,
+                table
+        );
     }
 }

@@ -1,7 +1,7 @@
 package com.yekdb.query.executor;
 
 import com.yekdb.query.command.UpdateCommand;
-import com.yekdb.query.result.QueryResult;
+import com.yekdb.query.evaluator.WhereEvaluator;
 import com.yekdb.storage.record.Record;
 import com.yekdb.storage.record.RecordManager;
 import com.yekdb.storage.record.Row;
@@ -17,21 +17,33 @@ import java.util.Objects;
 /**
  * UPDATE komutlarını fiziksel kayıtlar üzerinde çalıştırır.
  *
+ * Sprint 00-13 kapsamında gelişmiş WHERE Expression Engine
+ * ile entegre edilmiştir.
+ *
+ * Desteklenen WHERE yapıları:
+ *
+ * - Comparison
+ * - AND
+ * - OR
+ * - NOT
+ * - Parentheses
+ * - Operator precedence
+ *
  * İşlem akışı:
  *
  * UpdateCommand
  *      ↓
- * aktif Record listesi
+ * Active Records
  *      ↓
  * Record -> Row
  *      ↓
- * WHERE kontrolü
+ * WhereEvaluator
+ *      ↓
+ * ExpressionEvaluator
  *      ↓
  * SET değerlerini Row üzerine uygula
  *      ↓
  * RecordManager.update(...)
- *
- * Sprint 00-12
  */
 public final class UpdateExecutor {
 
@@ -89,11 +101,19 @@ public final class UpdateExecutor {
                             recordId
                     );
 
+            /*
+             * Sprint 00-13:
+             *
+             * WHERE expression artık doğrudan
+             * WhereEvaluator üzerinden merkezi
+             * ExpressionEvaluator motoruna gönderilir.
+             */
             if (!matchesWhere(
                     table,
                     currentRow,
                     command
             )) {
+
                 continue;
             }
 
@@ -180,10 +200,12 @@ public final class UpdateExecutor {
     }
 
     /**
-     * WHERE yoksa bütün satırlar eşleşir.
+     * WHERE ifadesini değerlendirir.
      *
-     * WHERE varsa mevcut TableScanExecutor
-     * altyapısını kullanarak tek satırlık tarama yapılır.
+     * WHERE yoksa tüm aktif satırlar eşleşir.
+     *
+     * WHERE varsa yeni Sprint 00-13
+     * Expression Engine kullanılır.
      */
     private boolean matchesWhere(
             Table table,
@@ -192,17 +214,15 @@ public final class UpdateExecutor {
     ) {
 
         if (!command.hasWhereExpression()) {
+
             return true;
         }
 
-        QueryResult result =
-                TableScanExecutor.execute(
-                        table,
-                        List.of(row),
-                        command.getWhereExpression()
-                );
-
-        return !result.getRows().isEmpty();
+        return WhereEvaluator.evaluate(
+                command.getWhereExpression(),
+                row,
+                table
+        );
     }
 
     /**
@@ -246,6 +266,8 @@ public final class UpdateExecutor {
 
     /**
      * Fiziksel Row sırasındaki kolon indeksini bulur.
+     *
+     * Column isimleri case-insensitive karşılaştırılır.
      */
     private int findColumnIndex(
             List<Column> columns,
@@ -285,6 +307,7 @@ public final class UpdateExecutor {
     ) {
 
         if (value == null) {
+
             throw new IllegalArgumentException(
                     "NULL values are not supported yet for column: "
                             + column.getName()
@@ -314,6 +337,7 @@ public final class UpdateExecutor {
                 };
 
         if (!valid) {
+
             throw new IllegalArgumentException(
                     "Invalid value type for column '"
                             + column.getName()
