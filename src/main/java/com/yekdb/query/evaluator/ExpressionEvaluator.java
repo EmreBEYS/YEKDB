@@ -1,26 +1,38 @@
 package com.yekdb.query.evaluator;
 
-
+import com.yekdb.query.expression.BetweenExpression;
 import com.yekdb.query.expression.ComparisonExpression;
 import com.yekdb.query.expression.Expression;
+import com.yekdb.query.expression.InExpression;
+import com.yekdb.query.expression.LikeExpression;
+import com.yekdb.query.expression.LikeOperator;
 import com.yekdb.query.expression.LogicalExpression;
 import com.yekdb.query.expression.NotExpression;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 /**
  * Expression ağacını bir satırdaki sütun değerlerine karşı değerlendirir.
  *
- * Desteklenen expression türleri:
+ * <p>Desteklenen expression türleri:</p>
  *
- * - ComparisonExpression
- * - LogicalExpression
- * - NotExpression
+ * <ul>
+ *     <li>ComparisonExpression</li>
+ *     <li>BetweenExpression</li>
+ *     <li>InExpression</li>
+ *     <li>LikeExpression</li>
+ *     <li>LogicalExpression</li>
+ *     <li>NotExpression</li>
+ * </ul>
  *
- * Örnek:
- *
- * age > 18 AND city = 'Malatya'
+ * Sprint 00-14:
+ * BETWEEN / NOT BETWEEN
+ * IN / NOT IN
+ * LIKE / NOT LIKE
+ * ILIKE / NOT ILIKE
+ * desteği eklenmiştir.
  */
 public final class ExpressionEvaluator {
 
@@ -50,6 +62,30 @@ public final class ExpressionEvaluator {
 
             return evaluateComparison(
                     comparisonExpression,
+                    rowValues
+            );
+        }
+
+        if (expression instanceof BetweenExpression betweenExpression) {
+
+            return evaluateBetween(
+                    betweenExpression,
+                    rowValues
+            );
+        }
+
+        if (expression instanceof InExpression inExpression) {
+
+            return evaluateIn(
+                    inExpression,
+                    rowValues
+            );
+        }
+
+        if (expression instanceof LikeExpression likeExpression) {
+
+            return evaluateLike(
+                    likeExpression,
                     rowValues
             );
         }
@@ -90,7 +126,8 @@ public final class ExpressionEvaluator {
         if (!rowValues.containsKey(columnName)) {
 
             throw new IllegalArgumentException(
-                    "Column not found: " + columnName
+                    "Column not found: "
+                            + columnName
             );
         }
 
@@ -141,6 +178,185 @@ public final class ExpressionEvaluator {
     }
 
     /**
+     * BETWEEN / NOT BETWEEN expression'ını değerlendirir.
+     *
+     * <p>BETWEEN sınırları inclusive'dir.</p>
+     *
+     * <pre>
+     * age BETWEEN 18 AND 30
+     *
+     * age >= 18 AND age <= 30
+     * </pre>
+     */
+    private boolean evaluateBetween(
+            BetweenExpression expression,
+            Map<String, Object> rowValues
+    ) {
+
+        String columnName =
+                expression.getColumnName();
+
+        if (!rowValues.containsKey(columnName)) {
+
+            throw new IllegalArgumentException(
+                    "Column not found: "
+                            + columnName
+            );
+        }
+
+        Object actualValue =
+                rowValues.get(columnName);
+
+        Object lowerBound =
+                expression.getLowerBound();
+
+        Object upperBound =
+                expression.getUpperBound();
+
+        boolean result =
+                compare(
+                        actualValue,
+                        lowerBound
+                ) >= 0
+                        &&
+                        compare(
+                                actualValue,
+                                upperBound
+                        ) <= 0;
+
+        return expression.isNegated()
+                ? !result
+                : result;
+    }
+
+    /**
+     * IN / NOT IN expression'ını değerlendirir.
+     *
+     * <pre>
+     * department IN ('IT', 'HR')
+     * department NOT IN ('IT', 'HR')
+     * </pre>
+     */
+    private boolean evaluateIn(
+            InExpression expression,
+            Map<String, Object> rowValues
+    ) {
+
+        String columnName =
+                expression.getColumnName();
+
+        if (!rowValues.containsKey(columnName)) {
+
+            throw new IllegalArgumentException(
+                    "Column not found: "
+                            + columnName
+            );
+        }
+
+        Object actualValue =
+                rowValues.get(columnName);
+
+        boolean result =
+                expression.getValues()
+                        .stream()
+                        .anyMatch(
+                                expectedValue ->
+                                        valuesEqual(
+                                                actualValue,
+                                                expectedValue
+                                        )
+                        );
+
+        return expression.isNegated()
+                ? !result
+                : result;
+    }
+
+    /**
+     * LIKE / NOT LIKE / ILIKE / NOT ILIKE
+     * expression'ını değerlendirir.
+     *
+     * <p>SQL wildcard desteği:</p>
+     *
+     * <ul>
+     *     <li>% -> sıfır veya daha fazla karakter</li>
+     *     <li>_ -> tam olarak bir karakter</li>
+     * </ul>
+     */
+    private boolean evaluateLike(
+            LikeExpression expression,
+            Map<String, Object> rowValues
+    ) {
+
+        String columnName =
+                expression.getColumnName();
+
+        if (!rowValues.containsKey(columnName)) {
+
+            throw new IllegalArgumentException(
+                    "Column not found: "
+                            + columnName
+            );
+        }
+
+        Object actualValue =
+                rowValues.get(columnName);
+
+        if (actualValue == null) {
+            return false;
+        }
+
+        String actualText =
+                String.valueOf(actualValue);
+
+        String regex =
+                toLikeRegex(
+                        expression.getPattern()
+                );
+
+        LikeOperator operator =
+                expression.getOperator();
+
+        boolean caseInsensitive =
+                operator == LikeOperator.ILIKE
+                        ||
+                        operator == LikeOperator.NOT_ILIKE;
+
+        boolean negated =
+                operator == LikeOperator.NOT_LIKE
+                        ||
+                        operator == LikeOperator.NOT_ILIKE;
+
+        Pattern pattern;
+
+        if (caseInsensitive) {
+
+            pattern =
+                    Pattern.compile(
+                            regex,
+                            Pattern.CASE_INSENSITIVE
+                                    | Pattern.UNICODE_CASE
+                    );
+
+        } else {
+
+            pattern =
+                    Pattern.compile(
+                            regex
+                    );
+        }
+
+        boolean result =
+                pattern.matcher(
+                        actualText
+                ).matches();
+
+        return negated
+                ? !result
+                : result;
+    }
+
+    /**
      * AND / OR expression'larını değerlendirir.
      */
     private boolean evaluateLogical(
@@ -186,6 +402,104 @@ public final class ExpressionEvaluator {
                 expression.expression(),
                 rowValues
         );
+    }
+
+    /**
+     * IN karşılaştırmalarında değer eşitliğini kontrol eder.
+     *
+     * <p>Farklı Number türleri ortak sayısal değer
+     * üzerinden karşılaştırılır.</p>
+     */
+    private boolean valuesEqual(
+            Object actualValue,
+            Object expectedValue
+    ) {
+
+        if (actualValue == null
+                || expectedValue == null) {
+
+            return Objects.equals(
+                    actualValue,
+                    expectedValue
+            );
+        }
+
+        if (actualValue instanceof Number actualNumber
+                && expectedValue instanceof Number expectedNumber) {
+
+            return Double.compare(
+                    actualNumber.doubleValue(),
+                    expectedNumber.doubleValue()
+            ) == 0;
+        }
+
+        return Objects.equals(
+                actualValue,
+                expectedValue
+        );
+    }
+
+    /**
+     * SQL LIKE pattern'ini Java regex pattern'ine dönüştürür.
+     *
+     * <p>
+     * % -> .*
+     * _ -> .
+     * </p>
+     *
+     * <p>Regex özel karakterleri literal olarak korunur.</p>
+     */
+    private String toLikeRegex(
+            String sqlPattern
+    ) {
+
+        StringBuilder regex =
+                new StringBuilder();
+
+        regex.append("^");
+
+        for (int i = 0;
+             i < sqlPattern.length();
+             i++) {
+
+            char character =
+                    sqlPattern.charAt(i);
+
+            switch (character) {
+
+                case '%' ->
+                        regex.append(".*");
+
+                case '_' ->
+                        regex.append(".");
+
+                case '\\',
+                     '.',
+                     '^',
+                     '$',
+                     '|',
+                     '?',
+                     '*',
+                     '+',
+                     '(',
+                     ')',
+                     '[',
+                     ']',
+                     '{',
+                     '}' -> {
+
+                    regex.append("\\")
+                            .append(character);
+                }
+
+                default ->
+                        regex.append(character);
+            }
+        }
+
+        regex.append("$");
+
+        return regex.toString();
     }
 
     /**

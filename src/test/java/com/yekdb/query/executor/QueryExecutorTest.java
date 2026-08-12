@@ -1158,4 +1158,99 @@ class QueryExecutorTest {
             }
         }
     }
+    @Test
+    void multilineSelectSql_shouldUseParserPipeline() {
+
+        Table employees =
+                new Table(
+                        "employees",
+                        List.of(
+                                new Column(
+                                        "id",
+                                        DataType.INT
+                                ),
+                                new Column(
+                                        "department",
+                                        DataType.STRING
+                                )
+                        )
+                );
+
+        List<Row> rows =
+                List.of(
+                        new Row(
+                                List.of(
+                                        1,
+                                        "IT"
+                                )
+                        ),
+                        new Row(
+                                List.of(
+                                        2,
+                                        "IT"
+                                )
+                        ),
+                        new Row(
+                                List.of(
+                                        3,
+                                        "HR"
+                                )
+                        )
+                );
+
+        InMemoryQueryDataSource dataSource =
+                new InMemoryQueryDataSource();
+
+        dataSource.register(
+                employees,
+                rows
+        );
+
+        DatabaseManager databaseManager =
+                new DatabaseManager(
+                        temporaryDirectory
+                );
+
+        try (QueryExecutor executor =
+                     new QueryExecutor(
+                             databaseManager,
+                             dataSource
+                     )) {
+
+            ExecuteResult result =
+                    executor.execute(
+                            """
+                            SELECT
+                                department,
+                                COUNT(*) AS employee_count
+                            FROM employees
+                            GROUP BY department
+                            ORDER BY employee_count DESC;
+                            """
+                    );
+
+            assertTrue(
+                    result.isSuccess()
+            );
+
+            assertEquals(
+                    2,
+                    result.getRowCount()
+            );
+
+            assertEquals(
+                    "IT",
+                    result.getRows()
+                            .get(0)
+                            .getValue(0)
+            );
+
+            assertEquals(
+                    2L,
+                    result.getRows()
+                            .get(0)
+                            .getValue(1)
+            );
+        }
+    }
 }

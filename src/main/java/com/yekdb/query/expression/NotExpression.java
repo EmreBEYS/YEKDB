@@ -5,15 +5,23 @@ import java.util.Objects;
 /**
  * Bir expression sonucunu tersine çeviren NOT ifadesini temsil eder.
  *
- * Örnek:
+ * <p>Örnek:</p>
  *
+ * <pre>
  * NOT age > 18
+ * </pre>
  *
  * @param expression tersine çevrilecek expression
  */
+public record NotExpression(
+        Expression expression
+) implements Expression {
 
-public record NotExpression(Expression expression) implements Expression {
-    public NotExpression{
-        Objects.requireNonNull(expression,"The content of the expression 'NOT' cannot be null.");
+    public NotExpression {
+
+        Objects.requireNonNull(
+                expression,
+                "NOT expression cannot be null."
+        );
     }
 }

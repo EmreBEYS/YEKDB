@@ -5,19 +5,37 @@ import java.util.Objects;
 /**
  * İki expression nesnesini AND veya OR operatörüyle birleştirir.
  *
- * Örnek:
+ * <p>Örnek:</p>
  *
+ * <pre>
  * age > 18 AND city = "Malatya"
+ * </pre>
  *
- * @param leftExpression sol taraftaki expression
- * @param operator mantıksal operatör
+ * @param leftExpression  sol taraftaki expression
+ * @param operator        mantıksal operatör
  * @param rightExpression sağ taraftaki expression
  */
+public record LogicalExpression(
+        Expression leftExpression,
+        LogicalOperator operator,
+        Expression rightExpression
+) implements Expression {
 
-public record LogicalExpression(Expression leftExpression, LogicalOperator operator, Expression rightExpression) implements Expression {
-    public LogicalExpression{
-        Objects.requireNonNull(leftExpression,"The left expression cannot be null.");
-        Objects.requireNonNull(operator,"A logical operator cannot be null.");
-        Objects.requireNonNull(rightExpression,"The right expression cannot be null.");
+    public LogicalExpression {
+
+        Objects.requireNonNull(
+                leftExpression,
+                "Left expression cannot be null."
+        );
+
+        Objects.requireNonNull(
+                operator,
+                "Logical operator cannot be null."
+        );
+
+        Objects.requireNonNull(
+                rightExpression,
+                "Right expression cannot be null."
+        );
     }
 }

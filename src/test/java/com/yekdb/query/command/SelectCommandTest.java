@@ -2,58 +2,58 @@ package com.yekdb.query.command;
 
 import com.yekdb.query.expression.ComparisonExpression;
 import com.yekdb.query.expression.ComparisonOperator;
-import com.yekdb.query.expression.Expression;
+import com.yekdb.query.statement.FetchClause;
+import com.yekdb.query.statement.GroupByClause;
+import com.yekdb.query.statement.HavingClause;
+import com.yekdb.query.statement.LimitClause;
+import com.yekdb.query.statement.OrderByItem;
+import com.yekdb.query.statement.SelectItem;
+import com.yekdb.query.statement.SelectStatement;
+import com.yekdb.query.statement.SortDirection;
+import com.yekdb.query.statement.TableReference;
 import org.junit.jupiter.api.Test;
 
-import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * SelectCommand sınıfının birim testleri.
- */
 class SelectCommandTest {
 
+    // ==================================================
+    // LEGACY FACTORIES
+    // ==================================================
+
     @Test
-    void allFrom_shouldCreateSelectAllCommand() {
+    void allFrom_shouldCreateSelectCommand() {
+
         SelectCommand command =
                 SelectCommand.allFrom(
                         "users"
                 );
 
+        assertNotNull(
+                command
+        );
+
         assertEquals(
                 "users",
                 command.getTableName()
         );
 
-        assertTrue(command.isSelectAll());
-        assertTrue(command.getSelectedColumns().isEmpty());
-
-        assertFalse(command.hasWhereExpression());
-        assertNull(command.getWhereExpression());
-    }
-
-    @Test
-    void allFrom_shouldTrimTableName() {
-        SelectCommand command =
-                SelectCommand.allFrom(
-                        "  users  "
-                );
+        assertNotNull(
+                command.getStatement()
+        );
 
         assertEquals(
-                "users",
-                command.getTableName()
+                List.of("*"),
+                command.getSelectedColumns()
         );
     }
 
     @Test
-    void allFromWhere_shouldCreateSelectAllCommandWithWhere() {
-        Expression expression =
+    void allFromWhere_shouldPreserveWhereExpression() {
+
+        ComparisonExpression where =
                 new ComparisonExpression(
                         "age",
                         ComparisonOperator.GREATER_THAN,
@@ -63,7 +63,7 @@ class SelectCommandTest {
         SelectCommand command =
                 SelectCommand.allFromWhere(
                         "users",
-                        expression
+                        where
                 );
 
         assertEquals(
@@ -71,19 +71,19 @@ class SelectCommandTest {
                 command.getTableName()
         );
 
-        assertTrue(command.isSelectAll());
-        assertTrue(command.getSelectedColumns().isEmpty());
-
-        assertTrue(command.hasWhereExpression());
-
-        assertEquals(
-                expression,
+        assertSame(
+                where,
                 command.getWhereExpression()
+        );
+
+        assertTrue(
+                command.hasWhereExpression()
         );
     }
 
     @Test
-    void columnsFrom_shouldCreateSelectedColumnsCommand() {
+    void columnsFrom_shouldPreserveSelectedColumns() {
+
         SelectCommand command =
                 SelectCommand.columnsFrom(
                         "users",
@@ -95,13 +95,6 @@ class SelectCommandTest {
                 );
 
         assertEquals(
-                "users",
-                command.getTableName()
-        );
-
-        assertFalse(command.isSelectAll());
-
-        assertEquals(
                 List.of(
                         "id",
                         "name",
@@ -110,39 +103,20 @@ class SelectCommandTest {
                 command.getSelectedColumns()
         );
 
-        assertFalse(command.hasWhereExpression());
-        assertNull(command.getWhereExpression());
-    }
-
-    @Test
-    void columnsFrom_shouldTrimSelectedColumnNames() {
-        SelectCommand command =
-                SelectCommand.columnsFrom(
-                        "users",
-                        List.of(
-                                "  id  ",
-                                " name ",
-                                "age"
-                        )
-                );
-
         assertEquals(
-                List.of(
-                        "id",
-                        "name",
-                        "age"
-                ),
-                command.getSelectedColumns()
+                3,
+                command.getSelectItems().size()
         );
     }
 
     @Test
-    void columnsFromWhere_shouldCreateCommandWithWhere() {
-        Expression expression =
+    void columnsFromWhere_shouldPreserveColumnsAndWhere() {
+
+        ComparisonExpression where =
                 new ComparisonExpression(
-                        "city",
+                        "active",
                         ComparisonOperator.EQUALS,
-                        "Malatya"
+                        true
                 );
 
         SelectCommand command =
@@ -152,10 +126,8 @@ class SelectCommandTest {
                                 "id",
                                 "name"
                         ),
-                        expression
+                        where
                 );
-
-        assertFalse(command.isSelectAll());
 
         assertEquals(
                 List.of(
@@ -165,171 +137,701 @@ class SelectCommandTest {
                 command.getSelectedColumns()
         );
 
-        assertTrue(command.hasWhereExpression());
-
-        assertEquals(
-                expression,
+        assertSame(
+                where,
                 command.getWhereExpression()
         );
-    }
 
-    @Test
-    void selectedColumns_shouldBeImmutableCopy() {
-        List<String> mutableColumns =
-                new ArrayList<>(
-                        List.of(
-                                "id",
-                                "name"
-                        )
-                );
-
-        SelectCommand command =
-                SelectCommand.columnsFrom(
-                        "users",
-                        mutableColumns
-                );
-
-        mutableColumns.clear();
-
-        assertEquals(
-                2,
-                command.getSelectedColumns().size()
-        );
-
-        assertThrows(
-                UnsupportedOperationException.class,
-                () -> command
-                        .getSelectedColumns()
-                        .clear()
+        assertTrue(
+                command.hasWhereExpression()
         );
     }
 
     @Test
-    void allFrom_shouldRejectNullTableName() {
+    void allFromWhere_shouldRejectNullWhereExpression() {
+
         assertThrows(
                 NullPointerException.class,
-                () -> SelectCommand.allFrom(
-                        null
-                )
-        );
-    }
-
-    @Test
-    void allFrom_shouldRejectBlankTableName() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> SelectCommand.allFrom(
-                        "   "
-                )
+                () ->
+                        SelectCommand.allFromWhere(
+                                "users",
+                                null
+                        )
         );
     }
 
     @Test
     void columnsFrom_shouldRejectNullColumnList() {
+
         assertThrows(
                 NullPointerException.class,
-                () -> SelectCommand.columnsFrom(
-                        "users",
-                        null
-                )
-        );
-    }
-
-    @Test
-    void columnsFrom_shouldRejectEmptyColumnList() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> SelectCommand.columnsFrom(
-                        "users",
-                        List.of()
-                )
-        );
-    }
-
-    @Test
-    void columnsFrom_shouldRejectBlankColumnName() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> SelectCommand.columnsFrom(
-                        "users",
-                        List.of(
-                                "id",
-                                "   "
+                () ->
+                        SelectCommand.columnsFrom(
+                                "users",
+                                null
                         )
-                )
         );
     }
 
     @Test
-    void columnsFrom_shouldRejectNullColumnName() {
-        List<String> columns =
-                new ArrayList<>();
-
-        columns.add("id");
-        columns.add(null);
+    void columnsFromWhere_shouldRejectNullWhereExpression() {
 
         assertThrows(
                 NullPointerException.class,
-                () -> SelectCommand.columnsFrom(
-                        "users",
-                        columns
-                )
+                () ->
+                        SelectCommand.columnsFromWhere(
+                                "users",
+                                List.of(
+                                        "id"
+                                ),
+                                null
+                        )
         );
     }
 
-    @Test
-    void allFromWhere_shouldRejectNullExpression() {
-        assertThrows(
-                NullPointerException.class,
-                () -> SelectCommand.allFromWhere(
-                        "users",
-                        null
-                )
-        );
-    }
+    // ==================================================
+    // FROM STATEMENT
+    // ==================================================
 
     @Test
-    void columnsFromWhere_shouldRejectNullExpression() {
-        assertThrows(
-                NullPointerException.class,
-                () -> SelectCommand.columnsFromWhere(
-                        "users",
-                        List.of(
-                                "id",
-                                "name"
+    void fromStatement_shouldPreserveStatementInstance() {
+
+        SelectStatement statement =
+                new SelectStatement(
+                        new TableReference(
+                                "users"
                         ),
+                        List.of(
+                                new SelectItem("*")
+                        ),
+                        null,
+                        null,
+                        null,
+                        List.of(),
+                        null,
                         null
-                )
-        );
-    }
-
-    @Test
-    void toString_shouldContainCommandSummary() {
-        Expression expression =
-                new ComparisonExpression(
-                        "age",
-                        ComparisonOperator.GREATER_THAN,
-                        18
                 );
 
         SelectCommand command =
-                SelectCommand.allFromWhere(
-                        "users",
-                        expression
+                SelectCommand.fromStatement(
+                        statement
                 );
 
-        String value = command.toString();
+        assertSame(
+                statement,
+                command.getStatement()
+        );
+    }
 
-        assertTrue(
-                value.contains("users")
+    @Test
+    void fromStatement_shouldRejectNullStatement() {
+
+        assertThrows(
+                NullPointerException.class,
+                () ->
+                        SelectCommand.fromStatement(
+                                null
+                        )
+        );
+    }
+
+    // ==================================================
+    // TABLE
+    // ==================================================
+
+    @Test
+    void shouldExposeTableReference() {
+
+        TableReference table =
+                new TableReference(
+                        "employees",
+                        "e"
+                );
+
+        SelectStatement statement =
+                new SelectStatement(
+                        table,
+                        List.of(
+                                new SelectItem("*")
+                        ),
+                        null,
+                        null,
+                        null,
+                        List.of(),
+                        null,
+                        null
+                );
+
+        SelectCommand command =
+                SelectCommand.fromStatement(
+                        statement
+                );
+
+        assertSame(
+                table,
+                command.getTable()
+        );
+
+        assertEquals(
+                "employees",
+                command.getTableName()
+        );
+
+        assertEquals(
+                "e",
+                command.getTableAlias()
         );
 
         assertTrue(
-                value.contains("selectAll=true")
+                command.hasTableAlias()
+        );
+    }
+
+    @Test
+    void shouldReportNoTableAlias() {
+
+        SelectCommand command =
+                SelectCommand.allFrom(
+                        "users"
+                );
+
+        assertFalse(
+                command.hasTableAlias()
+        );
+    }
+
+    // ==================================================
+    // SELECT ITEMS
+    // ==================================================
+
+    @Test
+    void shouldExposeSelectItems() {
+
+        SelectStatement statement =
+                new SelectStatement(
+                        new TableReference(
+                                "employees"
+                        ),
+                        List.of(
+                                new SelectItem(
+                                        "department"
+                                ),
+                                new SelectItem(
+                                        "COUNT(*)",
+                                        "employee_count"
+                                )
+                        ),
+                        null,
+                        null,
+                        null,
+                        List.of(),
+                        null,
+                        null
+                );
+
+        SelectCommand command =
+                SelectCommand.fromStatement(
+                        statement
+                );
+
+        assertEquals(
+                2,
+                command.getSelectItems().size()
+        );
+
+        assertEquals(
+                "department",
+                command.getSelectItems()
+                        .get(0)
+                        .getExpression()
+        );
+
+        assertEquals(
+                "COUNT(*)",
+                command.getSelectItems()
+                        .get(1)
+                        .getExpression()
+        );
+
+        assertEquals(
+                "employee_count",
+                command.getSelectItems()
+                        .get(1)
+                        .getAlias()
+        );
+    }
+
+    // ==================================================
+    // WHERE
+    // ==================================================
+
+    @Test
+    void shouldExposeWhereExpression() {
+
+        ComparisonExpression where =
+                new ComparisonExpression(
+                        "age",
+                        ComparisonOperator.GREATER_THAN_OR_EQUALS,
+                        18
+                );
+
+        SelectStatement statement =
+                new SelectStatement(
+                        new TableReference(
+                                "users"
+                        ),
+                        List.of(
+                                new SelectItem("*")
+                        ),
+                        where,
+                        null,
+                        null,
+                        List.of(),
+                        null,
+                        null
+                );
+
+        SelectCommand command =
+                SelectCommand.fromStatement(
+                        statement
+                );
+
+        assertTrue(
+                command.hasWhereExpression()
+        );
+
+        assertSame(
+                where,
+                command.getWhereExpression()
+        );
+    }
+
+    @Test
+    void shouldReportMissingWhereExpression() {
+
+        SelectCommand command =
+                SelectCommand.allFrom(
+                        "users"
+                );
+
+        assertFalse(
+                command.hasWhereExpression()
+        );
+
+        assertNull(
+                command.getWhereExpression()
+        );
+    }
+
+    // ==================================================
+    // GROUP BY
+    // ==================================================
+
+    @Test
+    void shouldPreserveGroupByClause() {
+
+        GroupByClause groupBy =
+                new GroupByClause(
+                        "department"
+                );
+
+        SelectStatement statement =
+                new SelectStatement(
+                        new TableReference(
+                                "employees"
+                        ),
+                        List.of(
+                                new SelectItem(
+                                        "department"
+                                )
+                        ),
+                        null,
+                        groupBy,
+                        null,
+                        List.of(),
+                        null,
+                        null
+                );
+
+        SelectCommand command =
+                SelectCommand.fromStatement(
+                        statement
+                );
+
+        assertTrue(
+                command.hasGroupBy()
+        );
+
+        assertSame(
+                groupBy,
+                command.getGroupByClause()
+        );
+    }
+
+    // ==================================================
+    // HAVING
+    // ==================================================
+
+    @Test
+    void shouldPreserveHavingClause() {
+
+        GroupByClause groupBy =
+                new GroupByClause(
+                        "department"
+                );
+
+        HavingClause having =
+                new HavingClause(
+                        new ComparisonExpression(
+                                "employee_count",
+                                ComparisonOperator.GREATER_THAN,
+                                2
+                        )
+                );
+
+        SelectStatement statement =
+                new SelectStatement(
+                        new TableReference(
+                                "employees"
+                        ),
+                        List.of(
+                                new SelectItem(
+                                        "department"
+                                ),
+                                new SelectItem(
+                                        "COUNT(*)",
+                                        "employee_count"
+                                )
+                        ),
+                        null,
+                        groupBy,
+                        having,
+                        List.of(),
+                        null,
+                        null
+                );
+
+        SelectCommand command =
+                SelectCommand.fromStatement(
+                        statement
+                );
+
+        assertTrue(
+                command.hasHaving()
+        );
+
+        assertSame(
+                having,
+                command.getHavingClause()
+        );
+    }
+
+    // ==================================================
+    // ORDER BY
+    // ==================================================
+
+    @Test
+    void shouldPreserveOrderByItems() {
+
+        List<OrderByItem> orderBy =
+                List.of(
+                        new OrderByItem(
+                                "age",
+                                SortDirection.DESC
+                        )
+                );
+
+        SelectStatement statement =
+                new SelectStatement(
+                        new TableReference(
+                                "employees"
+                        ),
+                        List.of(
+                                new SelectItem("*")
+                        ),
+                        null,
+                        null,
+                        null,
+                        orderBy,
+                        null,
+                        null
+                );
+
+        SelectCommand command =
+                SelectCommand.fromStatement(
+                        statement
+                );
+
+        assertTrue(
+                command.hasOrderBy()
+        );
+
+        assertEquals(
+                1,
+                command.getOrderByItems().size()
+        );
+
+        assertEquals(
+                "age",
+                command.getOrderByItems()
+                        .get(0)
+                        .getColumnName()
+        );
+
+        assertEquals(
+                SortDirection.DESC,
+                command.getOrderByItems()
+                        .get(0)
+                        .getDirection()
+        );
+    }
+
+    // ==================================================
+    // LIMIT
+    // ==================================================
+
+    @Test
+    void shouldPreserveLimitClause() {
+
+        LimitClause limit =
+                new LimitClause(
+                        10
+                );
+
+        SelectStatement statement =
+                new SelectStatement(
+                        new TableReference(
+                                "employees"
+                        ),
+                        List.of(
+                                new SelectItem("*")
+                        ),
+                        null,
+                        null,
+                        null,
+                        List.of(),
+                        limit,
+                        null
+                );
+
+        SelectCommand command =
+                SelectCommand.fromStatement(
+                        statement
+                );
+
+        assertTrue(
+                command.hasLimit()
+        );
+
+        assertSame(
+                limit,
+                command.getLimitClause()
+        );
+
+        assertEquals(
+                10,
+                command.getLimitClause()
+                        .getRowCount()
+        );
+    }
+
+    // ==================================================
+    // FETCH
+    // ==================================================
+
+    @Test
+    void shouldPreserveFetchClause() {
+
+        FetchClause fetch =
+                new FetchClause(
+                        FetchClause.Mode.FIRST,
+                        5
+                );
+
+        SelectStatement statement =
+                new SelectStatement(
+                        new TableReference(
+                                "employees"
+                        ),
+                        List.of(
+                                new SelectItem("*")
+                        ),
+                        null,
+                        null,
+                        null,
+                        List.of(),
+                        null,
+                        fetch
+                );
+
+        SelectCommand command =
+                SelectCommand.fromStatement(
+                        statement
+                );
+
+        assertTrue(
+                command.hasFetch()
+        );
+
+        assertSame(
+                fetch,
+                command.getFetchClause()
+        );
+
+        assertEquals(
+                FetchClause.Mode.FIRST,
+                command.getFetchClause()
+                        .getMode()
+        );
+
+        assertEquals(
+                5,
+                command.getFetchClause()
+                        .getRowCount()
+        );
+    }
+
+    // ==================================================
+    // COMPLETE STATEMENT
+    // ==================================================
+
+    @Test
+    void shouldPreserveCompleteAdvancedSelectStatement() {
+
+        ComparisonExpression where =
+                new ComparisonExpression(
+                        "active",
+                        ComparisonOperator.EQUALS,
+                        true
+                );
+
+        GroupByClause groupBy =
+                new GroupByClause(
+                        "department"
+                );
+
+        HavingClause having =
+                new HavingClause(
+                        new ComparisonExpression(
+                                "employee_count",
+                                ComparisonOperator.GREATER_THAN,
+                                1
+                        )
+                );
+
+        LimitClause limit =
+                new LimitClause(
+                        3
+                );
+
+        SelectStatement statement =
+                new SelectStatement(
+                        new TableReference(
+                                "employees",
+                                "e"
+                        ),
+                        List.of(
+                                new SelectItem(
+                                        "department"
+                                ),
+                                new SelectItem(
+                                        "COUNT(*)",
+                                        "employee_count"
+                                )
+                        ),
+                        where,
+                        groupBy,
+                        having,
+                        List.of(
+                                new OrderByItem(
+                                        "employee_count",
+                                        SortDirection.DESC
+                                )
+                        ),
+                        limit,
+                        null
+                );
+
+        SelectCommand command =
+                SelectCommand.fromStatement(
+                        statement
+                );
+
+        assertSame(
+                statement,
+                command.getStatement()
+        );
+
+        assertEquals(
+                "employees",
+                command.getTableName()
+        );
+
+        assertEquals(
+                "e",
+                command.getTableAlias()
         );
 
         assertTrue(
-                value.contains("whereExpression")
+                command.hasWhereExpression()
+        );
+
+        assertTrue(
+                command.hasGroupBy()
+        );
+
+        assertTrue(
+                command.hasHaving()
+        );
+
+        assertTrue(
+                command.hasOrderBy()
+        );
+
+        assertTrue(
+                command.hasLimit()
+        );
+
+        assertFalse(
+                command.hasFetch()
+        );
+    }
+
+    // ==================================================
+    // TO STRING
+    // ==================================================
+
+    @Test
+    void toString_shouldContainStatementSummary() {
+
+        SelectCommand command =
+                SelectCommand.allFrom(
+                        "users"
+                );
+
+        String result =
+                command.toString();
+
+        assertNotNull(
+                result
+        );
+
+        assertTrue(
+                result.contains(
+                        "SelectCommand"
+                )
+        );
+
+        assertTrue(
+                result.contains(
+                        "statement="
+                )
+        );
+
+        assertTrue(
+                result.contains(
+                        "users"
+                )
         );
     }
 }

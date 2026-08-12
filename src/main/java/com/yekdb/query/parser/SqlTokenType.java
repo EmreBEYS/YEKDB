@@ -28,6 +28,34 @@ public enum SqlTokenType {
     USE,
 
     /*
+     * Sprint 00-14
+     * Advanced SQL Query Clauses & Aliasing
+     */
+    AS,
+
+    BETWEEN,
+    IN,
+    LIKE,
+    ILIKE,
+    NOT,
+
+    ORDER,
+    BY,
+    ASC,
+    DESC,
+
+    LIMIT,
+    FETCH,
+    FIRST,
+    NEXT,
+    ROW,
+    ROWS,
+    ONLY,
+
+    GROUP,
+    HAVING,
+
+    /*
      * Genel token türleri
      */
     IDENTIFIER,
@@ -50,6 +78,7 @@ public enum SqlTokenType {
      * Noktalama işaretleri
      */
     COMMA,
+    DOT,
     LEFT_PARENTHESIS,
     RIGHT_PARENTHESIS,
     ASTERISK,

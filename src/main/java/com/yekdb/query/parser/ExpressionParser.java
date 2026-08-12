@@ -1,66 +1,69 @@
 package com.yekdb.query.parser;
 
+import com.yekdb.query.expression.BetweenExpression;
 import com.yekdb.query.expression.ComparisonExpression;
 import com.yekdb.query.expression.ComparisonOperator;
 import com.yekdb.query.expression.Expression;
+import com.yekdb.query.expression.InExpression;
+import com.yekdb.query.expression.LikeExpression;
+import com.yekdb.query.expression.LikeOperator;
 import com.yekdb.query.expression.LogicalExpression;
 import com.yekdb.query.expression.LogicalOperator;
 import com.yekdb.query.expression.NotExpression;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
- * WHERE koşullarını Expression AST yapısına dönüştürür.
+ * WHERE / HAVING koşullarını Expression AST yapısına dönüştürür.
  *
- * Sprint 00-13
+ * Sprint 00-13:
  *
- * Desteklenen yapılar:
- *
- * - Comparison expressions
+ * - Comparison
  * - AND
  * - OR
  * - NOT
  * - Parentheses
  * - Operator precedence
  *
+ * Sprint 00-14:
+ *
+ * - BETWEEN
+ * - NOT BETWEEN
+ * - IN
+ * - NOT IN
+ * - LIKE
+ * - NOT LIKE
+ * - ILIKE
+ * - NOT ILIKE
+ *
  * Öncelik:
  *
  * Parentheses
- * Comparison
+ * Predicate / Comparison
  * NOT
  * AND
  * OR
- *
- * Örnekler:
- *
- * age > 18
- *
- * age > 18 AND city = 'Malatya'
- *
- * age > 18 OR city = 'Malatya'
- *
- * NOT active = false
- *
- * (age > 18 AND active = true)
- * OR city = 'Malatya'
  */
 public final class ExpressionParser {
 
     /**
-     * WHERE ifadesini parse eder.
+     * Expression parse eder.
      */
     public Expression parse(
-            String whereClause
+            String expression
     ) {
 
-        if (whereClause == null
-                || whereClause.isBlank()) {
+        if (expression == null
+                || expression.isBlank()) {
 
             throw new ParserException(
-                    "WHERE clause cannot be null or blank."
+                    "Expression cannot be null or blank."
             );
         }
 
         String normalized =
-                whereClause.trim();
+                expression.trim();
 
         validateExpressionStructure(
                 normalized
@@ -71,14 +74,12 @@ public final class ExpressionParser {
         );
     }
 
+    // ==================================================
+    // OR
+    // ==================================================
+
     /**
      * OR en düşük öncelikli logical operatördür.
-     *
-     * Örnek:
-     *
-     * age > 18 AND active = true
-     * OR
-     * city = 'Malatya'
      */
     private Expression parseOr(
             String expression
@@ -108,7 +109,8 @@ public final class ExpressionParser {
 
         String rightPart =
                 normalized.substring(
-                        orIndex + "OR".length()
+                        orIndex
+                                + "OR".length()
                 ).trim();
 
         if (leftPart.isBlank()) {
@@ -142,8 +144,14 @@ public final class ExpressionParser {
         );
     }
 
+    // ==================================================
+    // AND
+    // ==================================================
+
     /**
-     * AND, OR operatöründen daha yüksek önceliğe sahiptir.
+     * AND, OR'dan daha yüksek önceliklidir.
+     *
+     * BETWEEN içerisindeki AND logical AND değildir.
      */
     private Expression parseAnd(
             String expression
@@ -173,7 +181,8 @@ public final class ExpressionParser {
 
         String rightPart =
                 normalized.substring(
-                        andIndex + "AND".length()
+                        andIndex
+                                + "AND".length()
                 ).trim();
 
         if (leftPart.isBlank()) {
@@ -207,14 +216,23 @@ public final class ExpressionParser {
         );
     }
 
+    // ==================================================
+    // NOT
+    // ==================================================
+
     /**
-     * NOT operatörünü işler.
+     * Prefix NOT işlemini parse eder.
      *
-     * Recursive yapı sayesinde:
+     * Örnek:
+     *
+     * NOT active = true
+     *
+     * NOT (age > 18)
      *
      * NOT NOT active = true
      *
-     * gibi ifadeler desteklenir.
+     * NOT BETWEEN / NOT IN / NOT LIKE ise
+     * predicate'in kendi parserı tarafından işlenir.
      */
     private Expression parseNot(
             String expression
@@ -252,12 +270,17 @@ public final class ExpressionParser {
         );
     }
 
+    // ==================================================
+    // PRIMARY
+    // ==================================================
+
     /**
-     * Parentheses yapısını işler.
+     * Predicate veya comparison seçimini yapar.
      *
-     * Örnek:
+     * Önemli:
      *
-     * (age > 18 AND city = 'Malatya')
+     * BETWEEN / IN / LIKE klasik comparison'dan
+     * önce kontrol edilmelidir.
      */
     private Expression parsePrimary(
             String expression
@@ -273,6 +296,9 @@ public final class ExpressionParser {
             );
         }
 
+        /*
+         * Parentheses
+         */
         if (isWrappedByParentheses(
                 normalized
         )) {
@@ -295,17 +321,648 @@ public final class ExpressionParser {
             );
         }
 
+        /*
+         * BETWEEN / NOT BETWEEN
+         */
+        if (containsBetweenPredicate(
+                normalized
+        )) {
+
+            return parseBetween(
+                    normalized
+            );
+        }
+
+        /*
+         * IN / NOT IN
+         */
+        if (containsInPredicate(
+                normalized
+        )) {
+
+            return parseIn(
+                    normalized
+            );
+        }
+
+        /*
+         * LIKE / NOT LIKE
+         * ILIKE / NOT ILIKE
+         */
+        if (containsLikePredicate(
+                normalized
+        )) {
+
+            return parseLike(
+                    normalized
+            );
+        }
+
+        /*
+         * =
+         * !=
+         * >
+         * >=
+         * <
+         * <=
+         */
         return parseComparison(
                 normalized
         );
     }
 
+    // ==================================================
+    // BETWEEN
+    // ==================================================
+
     /**
-     * Tek karşılaştırmalı expression oluşturur.
+     * BETWEEN / NOT BETWEEN parse eder.
+     *
+     * age BETWEEN 18 AND 30
+     *
+     * age NOT BETWEEN 18 AND 30
+     */
+    private Expression parseBetween(
+            String expression
+    ) {
+
+        String normalized =
+                expression.trim();
+
+        int betweenIndex =
+                findKeywordOutsideQuotes(
+                        normalized,
+                        "BETWEEN"
+                );
+
+        if (betweenIndex <= 0) {
+
+            throw new ParserException(
+                    "Invalid BETWEEN expression: "
+                            + expression
+            );
+        }
+
+        String leftPart =
+                normalized.substring(
+                        0,
+                        betweenIndex
+                ).trim();
+
+        boolean negated =
+                false;
+
+        /*
+         * age NOT BETWEEN ...
+         */
+        if (endsWithKeyword(
+                leftPart,
+                "NOT"
+        )) {
+
+            negated =
+                    true;
+
+            leftPart =
+                    leftPart.substring(
+                            0,
+                            leftPart.length()
+                                    - "NOT".length()
+                    ).trim();
+        }
+
+        validateColumnName(
+                leftPart
+        );
+
+        String remaining =
+                normalized.substring(
+                        betweenIndex
+                                + "BETWEEN".length()
+                ).trim();
+
+        int andIndex =
+                findKeywordOutsideQuotes(
+                        remaining,
+                        "AND"
+                );
+
+        if (andIndex < 0) {
+
+            throw new ParserException(
+                    "BETWEEN expression must contain AND."
+            );
+        }
+
+        String lowerRaw =
+                remaining.substring(
+                        0,
+                        andIndex
+                ).trim();
+
+        String upperRaw =
+                remaining.substring(
+                        andIndex
+                                + "AND".length()
+                ).trim();
+
+        if (lowerRaw.isBlank()) {
+
+            throw new ParserException(
+                    "BETWEEN lower bound cannot be empty."
+            );
+        }
+
+        if (upperRaw.isBlank()) {
+
+            throw new ParserException(
+                    "BETWEEN upper bound cannot be empty."
+            );
+        }
+
+        Object lowerBound =
+                parseLiteral(
+                        lowerRaw
+                );
+
+        Object upperBound =
+                parseLiteral(
+                        upperRaw
+                );
+
+        return new BetweenExpression(
+                leftPart,
+                lowerBound,
+                upperBound,
+                negated
+        );
+    }
+
+    private boolean containsBetweenPredicate(
+            String expression
+    ) {
+
+        return findKeywordOutsideQuotes(
+                expression,
+                "BETWEEN"
+        ) > 0;
+    }
+
+    // ==================================================
+    // IN
+    // ==================================================
+
+    /**
+     * IN / NOT IN parse eder.
+     *
+     * city IN ('Malatya', 'Ankara')
+     *
+     * age NOT IN (18, 19, 20)
+     */
+    private Expression parseIn(
+            String expression
+    ) {
+
+        String normalized =
+                expression.trim();
+
+        int inIndex =
+                findKeywordOutsideQuotes(
+                        normalized,
+                        "IN"
+                );
+
+        if (inIndex <= 0) {
+
+            throw new ParserException(
+                    "Invalid IN expression: "
+                            + expression
+            );
+        }
+
+        String leftPart =
+                normalized.substring(
+                        0,
+                        inIndex
+                ).trim();
+
+        boolean negated =
+                false;
+
+        /*
+         * city NOT IN (...)
+         */
+        if (endsWithKeyword(
+                leftPart,
+                "NOT"
+        )) {
+
+            negated =
+                    true;
+
+            leftPart =
+                    leftPart.substring(
+                            0,
+                            leftPart.length()
+                                    - "NOT".length()
+                    ).trim();
+        }
+
+        validateColumnName(
+                leftPart
+        );
+
+        String valuesPart =
+                normalized.substring(
+                        inIndex
+                                + "IN".length()
+                ).trim();
+
+        if (!valuesPart.startsWith("(")
+                || !valuesPart.endsWith(")")) {
+
+            throw new ParserException(
+                    "IN expression values must be enclosed in parentheses."
+            );
+        }
+
+        String innerValues =
+                valuesPart.substring(
+                        1,
+                        valuesPart.length() - 1
+                ).trim();
+
+        if (innerValues.isBlank()) {
+
+            throw new ParserException(
+                    "IN expression must contain at least one value."
+            );
+        }
+
+        List<String> rawValues =
+                splitCommaSeparatedValues(
+                        innerValues
+                );
+
+        List<Object> values =
+                new ArrayList<>();
+
+        for (String rawValue : rawValues) {
+
+            if (rawValue.isBlank()) {
+
+                throw new ParserException(
+                        "IN expression cannot contain an empty value."
+                );
+            }
+
+            values.add(
+                    parseLiteral(
+                            rawValue
+                    )
+            );
+        }
+
+        return new InExpression(
+                leftPart,
+                values,
+                negated
+        );
+    }
+
+    private boolean containsInPredicate(
+            String expression
+    ) {
+
+        return findKeywordOutsideQuotes(
+                expression,
+                "IN"
+        ) > 0;
+    }
+
+    /**
+     * IN listesini virgüllere böler.
+     *
+     * String literal içerisindeki virgüller bölünmez.
      *
      * Örnek:
      *
+     * 'Malatya', 'Ankara'
+     *
+     * 'Kul, Yunus', 'Ali'
+     */
+    private List<String> splitCommaSeparatedValues(
+            String expression
+    ) {
+
+        List<String> values =
+                new ArrayList<>();
+
+        StringBuilder currentValue =
+                new StringBuilder();
+
+        boolean insideSingleQuote =
+                false;
+
+        boolean insideDoubleQuote =
+                false;
+
+        int parenthesesDepth =
+                0;
+
+        for (int i = 0;
+             i < expression.length();
+             i++) {
+
+            char current =
+                    expression.charAt(i);
+
+            if (current == '\''
+                    && !insideDoubleQuote) {
+
+                insideSingleQuote =
+                        !insideSingleQuote;
+
+                currentValue.append(
+                        current
+                );
+
+                continue;
+            }
+
+            if (current == '"'
+                    && !insideSingleQuote) {
+
+                insideDoubleQuote =
+                        !insideDoubleQuote;
+
+                currentValue.append(
+                        current
+                );
+
+                continue;
+            }
+
+            if (!insideSingleQuote
+                    && !insideDoubleQuote) {
+
+                if (current == '(') {
+
+                    parenthesesDepth++;
+
+                } else if (current == ')') {
+
+                    parenthesesDepth--;
+
+                } else if (current == ','
+                        && parenthesesDepth == 0) {
+
+                    values.add(
+                            currentValue
+                                    .toString()
+                                    .trim()
+                    );
+
+                    currentValue.setLength(
+                            0
+                    );
+
+                    continue;
+                }
+            }
+
+            currentValue.append(
+                    current
+            );
+        }
+
+        values.add(
+                currentValue
+                        .toString()
+                        .trim()
+        );
+
+        return values;
+    }
+
+    // ==================================================
+    // LIKE / ILIKE
+    // ==================================================
+
+    /**
+     * LIKE ailesini parse eder.
+     *
+     * name LIKE 'A%'
+     *
+     * name NOT LIKE 'A%'
+     *
+     * name ILIKE 'a%'
+     *
+     * name NOT ILIKE 'a%'
+     */
+    private Expression parseLike(
+            String expression
+    ) {
+
+        String normalized =
+                expression.trim();
+
+        /*
+         * Önce ILIKE aranmalı.
+         *
+         * matchesKeywordAt sayesinde LIKE,
+         * ILIKE içerisinden yanlışlıkla yakalanmaz.
+         */
+        int operatorIndex =
+                findKeywordOutsideQuotes(
+                        normalized,
+                        "ILIKE"
+                );
+
+        LikeOperator operator;
+
+        String operatorKeyword;
+
+        if (operatorIndex > 0) {
+
+            operatorKeyword =
+                    "ILIKE";
+
+            String leftPart =
+                    normalized.substring(
+                            0,
+                            operatorIndex
+                    ).trim();
+
+            boolean negated =
+                    endsWithKeyword(
+                            leftPart,
+                            "NOT"
+                    );
+
+            if (negated) {
+
+                operator =
+                        LikeOperator.NOT_ILIKE;
+
+            } else {
+
+                operator =
+                        LikeOperator.ILIKE;
+            }
+
+            return buildLikeExpression(
+                    normalized,
+                    operatorIndex,
+                    operatorKeyword,
+                    operator,
+                    negated
+            );
+        }
+
+        operatorIndex =
+                findKeywordOutsideQuotes(
+                        normalized,
+                        "LIKE"
+                );
+
+        if (operatorIndex <= 0) {
+
+            throw new ParserException(
+                    "Invalid LIKE expression: "
+                            + expression
+            );
+        }
+
+        operatorKeyword =
+                "LIKE";
+
+        String leftPart =
+                normalized.substring(
+                        0,
+                        operatorIndex
+                ).trim();
+
+        boolean negated =
+                endsWithKeyword(
+                        leftPart,
+                        "NOT"
+                );
+
+        if (negated) {
+
+            operator =
+                    LikeOperator.NOT_LIKE;
+
+        } else {
+
+            operator =
+                    LikeOperator.LIKE;
+        }
+
+        return buildLikeExpression(
+                normalized,
+                operatorIndex,
+                operatorKeyword,
+                operator,
+                negated
+        );
+    }
+
+    /**
+     * LIKE expression ortak oluşturma işlemi.
+     */
+    private Expression buildLikeExpression(
+            String expression,
+            int operatorIndex,
+            String operatorKeyword,
+            LikeOperator operator,
+            boolean negated
+    ) {
+
+        String columnPart =
+                expression.substring(
+                        0,
+                        operatorIndex
+                ).trim();
+
+        /*
+         * name NOT LIKE
+         *      ^^^
+         *
+         * NOT bölümünü kolon isminden çıkar.
+         */
+        if (negated) {
+
+            columnPart =
+                    columnPart.substring(
+                            0,
+                            columnPart.length()
+                                    - "NOT".length()
+                    ).trim();
+        }
+
+        validateColumnName(
+                columnPart
+        );
+
+        String rawPattern =
+                expression.substring(
+                        operatorIndex
+                                + operatorKeyword.length()
+                ).trim();
+
+        if (rawPattern.isBlank()) {
+
+            throw new ParserException(
+                    "LIKE pattern cannot be empty."
+            );
+        }
+
+        Object parsedPattern =
+                parseLiteral(
+                        rawPattern
+                );
+
+        if (!(parsedPattern
+                instanceof String pattern)) {
+
+            throw new ParserException(
+                    "LIKE pattern must be a string literal."
+            );
+        }
+
+        return new LikeExpression(
+                columnPart,
+                pattern,
+                operator
+        );
+    }
+
+    private boolean containsLikePredicate(
+            String expression
+    ) {
+
+        return findKeywordOutsideQuotes(
+                expression,
+                "ILIKE"
+        ) > 0
+                ||
+                findKeywordOutsideQuotes(
+                        expression,
+                        "LIKE"
+                ) > 0;
+    }
+
+    // ==================================================
+    // NORMAL COMPARISON
+    // ==================================================
+
+    /**
+     * Normal karşılaştırmalı expression.
+     *
      * age > 18
+     *
      * city = 'Malatya'
      */
     private Expression parseComparison(
@@ -352,7 +1009,9 @@ public final class ExpressionParser {
                             comparison.symbol()
                     );
 
-        } catch (IllegalArgumentException exception) {
+        } catch (
+                IllegalArgumentException exception
+        ) {
 
             throw new ParserException(
                     "Unsupported comparison operator: "
@@ -374,287 +1033,12 @@ public final class ExpressionParser {
     }
 
     /**
-     * AND / OR operatörünü sadece expression'ın
-     * ana seviyesinde arar.
-     *
-     * String literal veya parentheses içerisindeki
-     * logical operatörler dikkate alınmaz.
-     */
-    private int findLogicalOperator(
-            String expression,
-            String operator
-    ) {
-
-        boolean insideSingleQuote = false;
-        boolean insideDoubleQuote = false;
-
-        int parenthesesDepth = 0;
-
-        for (int i = 0;
-             i <= expression.length()
-                     - operator.length();
-             i++) {
-
-            char current =
-                    expression.charAt(i);
-
-            if (current == '\''
-                    && !insideDoubleQuote) {
-
-                insideSingleQuote =
-                        !insideSingleQuote;
-
-                continue;
-            }
-
-            if (current == '"'
-                    && !insideSingleQuote) {
-
-                insideDoubleQuote =
-                        !insideDoubleQuote;
-
-                continue;
-            }
-
-            if (insideSingleQuote
-                    || insideDoubleQuote) {
-
-                continue;
-            }
-
-            if (current == '(') {
-
-                parenthesesDepth++;
-
-                continue;
-            }
-
-            if (current == ')') {
-
-                parenthesesDepth--;
-
-                if (parenthesesDepth < 0) {
-
-                    throw new ParserException(
-                            "Unexpected closing parenthesis."
-                    );
-                }
-
-                continue;
-            }
-
-            /*
-             * Sadece root seviyesindeki
-             * AND / OR operatörleri aranır.
-             */
-            if (parenthesesDepth != 0) {
-
-                continue;
-            }
-
-            boolean matches =
-                    expression.regionMatches(
-                            true,
-                            i,
-                            operator,
-                            0,
-                            operator.length()
-                    );
-
-            if (!matches) {
-
-                continue;
-            }
-
-            boolean validLeftBoundary =
-                    i == 0
-                            || !isIdentifierCharacter(
-                            expression.charAt(
-                                    i - 1
-                            )
-                    );
-
-            int endIndex =
-                    i + operator.length();
-
-            boolean validRightBoundary =
-                    endIndex
-                            == expression.length()
-                            || !isIdentifierCharacter(
-                            expression.charAt(
-                                    endIndex
-                            )
-                    );
-
-            if (validLeftBoundary
-                    && validRightBoundary) {
-
-                return i;
-            }
-        }
-
-        return -1;
-    }
-
-    /**
-     * Expression'ın logical keyword ile
-     * başlayıp başlamadığını kontrol eder.
-     *
-     * NOT active = true  -> true
-     *
-     * notification = 1  -> false
-     */
-    private boolean startsWithLogicalKeyword(
-            String expression,
-            String keyword
-    ) {
-
-        if (expression.length()
-                < keyword.length()) {
-
-            return false;
-        }
-
-        if (!expression.regionMatches(
-                true,
-                0,
-                keyword,
-                0,
-                keyword.length()
-        )) {
-
-            return false;
-        }
-
-        if (expression.length()
-                == keyword.length()) {
-
-            return true;
-        }
-
-        char nextCharacter =
-                expression.charAt(
-                        keyword.length()
-                );
-
-        return !isIdentifierCharacter(
-                nextCharacter
-        );
-    }
-
-    /**
-     * Bir expression'ın tamamen
-     * parentheses ile sarılı olup olmadığını kontrol eder.
-     *
-     * (age > 18)                  -> true
-     *
-     * (age > 18 AND active=true) -> true
-     *
-     * (age > 18) OR active=true  -> false
-     */
-    private boolean isWrappedByParentheses(
-            String expression
-    ) {
-
-        if (expression.length() < 2
-                || expression.charAt(0) != '('
-                || expression.charAt(
-                expression.length() - 1
-        ) != ')') {
-
-            return false;
-        }
-
-        boolean insideSingleQuote = false;
-        boolean insideDoubleQuote = false;
-
-        int depth = 0;
-
-        for (int i = 0;
-             i < expression.length();
-             i++) {
-
-            char current =
-                    expression.charAt(i);
-
-            if (current == '\''
-                    && !insideDoubleQuote) {
-
-                insideSingleQuote =
-                        !insideSingleQuote;
-
-                continue;
-            }
-
-            if (current == '"'
-                    && !insideSingleQuote) {
-
-                insideDoubleQuote =
-                        !insideDoubleQuote;
-
-                continue;
-            }
-
-            if (insideSingleQuote
-                    || insideDoubleQuote) {
-
-                continue;
-            }
-
-            if (current == '(') {
-
-                depth++;
-            }
-
-            if (current == ')') {
-
-                depth--;
-
-                /*
-                 * İlk açılan parantez expression bitmeden
-                 * kapanıyorsa ifade tamamen parantezle
-                 * sarılmış değildir.
-                 */
-                if (depth == 0
-                        && i
-                        < expression.length() - 1) {
-
-                    return false;
-                }
-            }
-        }
-
-        return depth == 0;
-    }
-
-    /**
-     * Identifier karakterlerini kontrol eder.
-     */
-    private boolean isIdentifierCharacter(
-            char character
-    ) {
-
-        return Character.isLetterOrDigit(
-                character
-        )
-                || character == '_';
-    }
-
-    /**
-     * Karşılaştırma operatörünü bulur.
+     * Comparison operatörünü bulur.
      */
     private ParsedComparison findComparisonOperator(
             String expression
     ) {
 
-        /*
-         * Uzun operatörler önce kontrol edilmelidir.
-         *
-         * >= içindeki >
-         * <= içindeki <
-         *
-         * karakterlerinin erken eşleşmesini engeller.
-         */
         String[] operators = {
                 ">=",
                 "<=",
@@ -688,17 +1072,22 @@ public final class ExpressionParser {
     }
 
     /**
-     * Comparison operatorünü literal dışında arar.
+     * Comparison operatorünü literal ve nested
+     * parentheses dışında arar.
      */
     private int findComparisonOperatorIndex(
             String expression,
             String operator
     ) {
 
-        boolean insideSingleQuote = false;
-        boolean insideDoubleQuote = false;
+        boolean insideSingleQuote =
+                false;
 
-        int parenthesesDepth = 0;
+        boolean insideDoubleQuote =
+                false;
+
+        int parenthesesDepth =
+                0;
 
         for (int i = 0;
              i <= expression.length()
@@ -763,8 +1152,453 @@ public final class ExpressionParser {
         return -1;
     }
 
+    // ==================================================
+    // LOGICAL OPERATOR SEARCH
+    // ==================================================
+
     /**
-     * SQL literal değerini Java nesnesine dönüştürür.
+     * AND / OR operatörünü yalnızca root seviyede arar.
+     *
+     * String literal ve parentheses içerisindeki
+     * keywordler dikkate alınmaz.
+     *
+     * BETWEEN içindeki AND özel olarak atlanır.
+     */
+    private int findLogicalOperator(
+            String expression,
+            String operator
+    ) {
+
+        boolean insideSingleQuote =
+                false;
+
+        boolean insideDoubleQuote =
+                false;
+
+        int parenthesesDepth =
+                0;
+
+        /*
+         * age BETWEEN 18 AND 30 AND active = true
+         *
+         * İlk AND BETWEEN'e aittir.
+         */
+        boolean betweenAndPending =
+                false;
+
+        for (int i = 0;
+             i < expression.length();
+             i++) {
+
+            char current =
+                    expression.charAt(i);
+
+            if (current == '\''
+                    && !insideDoubleQuote) {
+
+                insideSingleQuote =
+                        !insideSingleQuote;
+
+                continue;
+            }
+
+            if (current == '"'
+                    && !insideSingleQuote) {
+
+                insideDoubleQuote =
+                        !insideDoubleQuote;
+
+                continue;
+            }
+
+            if (insideSingleQuote
+                    || insideDoubleQuote) {
+
+                continue;
+            }
+
+            if (current == '(') {
+
+                parenthesesDepth++;
+
+                continue;
+            }
+
+            if (current == ')') {
+
+                parenthesesDepth--;
+
+                if (parenthesesDepth < 0) {
+
+                    throw new ParserException(
+                            "Unexpected closing parenthesis."
+                    );
+                }
+
+                continue;
+            }
+
+            if (parenthesesDepth != 0) {
+
+                continue;
+            }
+
+            /*
+             * BETWEEN gördüğümüzde sıradaki AND
+             * logical operator değildir.
+             */
+            if (operator.equalsIgnoreCase(
+                    "AND"
+            )
+                    && matchesKeywordAt(
+                    expression,
+                    i,
+                    "BETWEEN"
+            )) {
+
+                betweenAndPending =
+                        true;
+
+                i += "BETWEEN".length()
+                        - 1;
+
+                continue;
+            }
+
+            if (!matchesKeywordAt(
+                    expression,
+                    i,
+                    operator
+            )) {
+
+                continue;
+            }
+
+            if (operator.equalsIgnoreCase(
+                    "AND"
+            )
+                    && betweenAndPending) {
+
+                betweenAndPending =
+                        false;
+
+                i += operator.length()
+                        - 1;
+
+                continue;
+            }
+
+            return i;
+        }
+
+        return -1;
+    }
+
+    // ==================================================
+    // KEYWORD HELPERS
+    // ==================================================
+
+    /**
+     * Keyword'ü quote ve nested parentheses dışında arar.
+     */
+    private int findKeywordOutsideQuotes(
+            String expression,
+            String keyword
+    ) {
+
+        boolean insideSingleQuote =
+                false;
+
+        boolean insideDoubleQuote =
+                false;
+
+        int parenthesesDepth =
+                0;
+
+        for (int i = 0;
+             i <= expression.length()
+                     - keyword.length();
+             i++) {
+
+            char current =
+                    expression.charAt(i);
+
+            if (current == '\''
+                    && !insideDoubleQuote) {
+
+                insideSingleQuote =
+                        !insideSingleQuote;
+
+                continue;
+            }
+
+            if (current == '"'
+                    && !insideSingleQuote) {
+
+                insideDoubleQuote =
+                        !insideDoubleQuote;
+
+                continue;
+            }
+
+            if (insideSingleQuote
+                    || insideDoubleQuote) {
+
+                continue;
+            }
+
+            if (current == '(') {
+
+                parenthesesDepth++;
+
+                continue;
+            }
+
+            if (current == ')') {
+
+                parenthesesDepth--;
+
+                continue;
+            }
+
+            if (parenthesesDepth != 0) {
+
+                continue;
+            }
+
+            if (matchesKeywordAt(
+                    expression,
+                    i,
+                    keyword
+            )) {
+
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    /**
+     * Belirtilen konumda keyword var mı kontrol eder.
+     */
+    private boolean matchesKeywordAt(
+            String expression,
+            int index,
+            String keyword
+    ) {
+
+        if (index < 0
+                || index + keyword.length()
+                > expression.length()) {
+
+            return false;
+        }
+
+        if (!expression.regionMatches(
+                true,
+                index,
+                keyword,
+                0,
+                keyword.length()
+        )) {
+
+            return false;
+        }
+
+        boolean validLeftBoundary =
+                index == 0
+                        || !isIdentifierCharacter(
+                        expression.charAt(
+                                index - 1
+                        )
+                );
+
+        int endIndex =
+                index
+                        + keyword.length();
+
+        boolean validRightBoundary =
+                endIndex
+                        == expression.length()
+                        || !isIdentifierCharacter(
+                        expression.charAt(
+                                endIndex
+                        )
+                );
+
+        return validLeftBoundary
+                && validRightBoundary;
+    }
+
+    /**
+     * Expression keyword ile başlıyor mu?
+     */
+    private boolean startsWithLogicalKeyword(
+            String expression,
+            String keyword
+    ) {
+
+        if (expression.length()
+                < keyword.length()) {
+
+            return false;
+        }
+
+        if (!expression.regionMatches(
+                true,
+                0,
+                keyword,
+                0,
+                keyword.length()
+        )) {
+
+            return false;
+        }
+
+        if (expression.length()
+                == keyword.length()) {
+
+            return true;
+        }
+
+        char nextCharacter =
+                expression.charAt(
+                        keyword.length()
+                );
+
+        return !isIdentifierCharacter(
+                nextCharacter
+        );
+    }
+
+    /**
+     * Expression keyword ile bitiyor mu?
+     */
+    private boolean endsWithKeyword(
+            String expression,
+            String keyword
+    ) {
+
+        String normalized =
+                expression.trim();
+
+        if (normalized.length()
+                < keyword.length()) {
+
+            return false;
+        }
+
+        int start =
+                normalized.length()
+                        - keyword.length();
+
+        if (!normalized.regionMatches(
+                true,
+                start,
+                keyword,
+                0,
+                keyword.length()
+        )) {
+
+            return false;
+        }
+
+        return start == 0
+                || !isIdentifierCharacter(
+                normalized.charAt(
+                        start - 1
+                )
+        );
+    }
+
+    // ==================================================
+    // PARENTHESES
+    // ==================================================
+
+    /**
+     * Expression tamamen parantezlerle sarılmış mı?
+     */
+    private boolean isWrappedByParentheses(
+            String expression
+    ) {
+
+        if (expression.length() < 2
+                || expression.charAt(0) != '('
+                || expression.charAt(
+                expression.length() - 1
+        ) != ')') {
+
+            return false;
+        }
+
+        boolean insideSingleQuote =
+                false;
+
+        boolean insideDoubleQuote =
+                false;
+
+        int depth =
+                0;
+
+        for (int i = 0;
+             i < expression.length();
+             i++) {
+
+            char current =
+                    expression.charAt(i);
+
+            if (current == '\''
+                    && !insideDoubleQuote) {
+
+                insideSingleQuote =
+                        !insideSingleQuote;
+
+                continue;
+            }
+
+            if (current == '"'
+                    && !insideSingleQuote) {
+
+                insideDoubleQuote =
+                        !insideDoubleQuote;
+
+                continue;
+            }
+
+            if (insideSingleQuote
+                    || insideDoubleQuote) {
+
+                continue;
+            }
+
+            if (current == '(') {
+
+                depth++;
+            }
+
+            if (current == ')') {
+
+                depth--;
+
+                if (depth == 0
+                        && i
+                        < expression.length() - 1) {
+
+                    return false;
+                }
+            }
+        }
+
+        return depth == 0;
+    }
+
+    // ==================================================
+    // LITERAL
+    // ==================================================
+
+    /**
+     * SQL literal değerini Java değerine dönüştürür.
      */
     private Object parseLiteral(
             String rawValue
@@ -774,7 +1608,7 @@ public final class ExpressionParser {
                 rawValue.trim();
 
         /*
-         * String
+         * String literal
          */
         if ((value.startsWith("'")
                 && value.endsWith("'"))
@@ -834,7 +1668,9 @@ public final class ExpressionParser {
                         value
                 );
 
-            } catch (NumberFormatException exception) {
+            } catch (
+                    NumberFormatException exception
+            ) {
 
                 throw new ParserException(
                         "Invalid numeric literal: "
@@ -854,15 +1690,19 @@ public final class ExpressionParser {
                             value
                     );
 
-            if (longValue >= Integer.MIN_VALUE
-                    && longValue <= Integer.MAX_VALUE) {
+            if (longValue
+                    >= Integer.MIN_VALUE
+                    && longValue
+                    <= Integer.MAX_VALUE) {
 
                 return (int) longValue;
             }
 
             return longValue;
 
-        } catch (NumberFormatException exception) {
+        } catch (
+                NumberFormatException exception
+        ) {
 
             throw new ParserException(
                     "Unsupported literal value: "
@@ -872,8 +1712,19 @@ public final class ExpressionParser {
         }
     }
 
+    // ==================================================
+    // COLUMN VALIDATION
+    // ==================================================
+
     /**
-     * Column ismini doğrular.
+     * Kolon ismini doğrular.
+     *
+     * Destek:
+     *
+     * age
+     * department
+     * u.age
+     * employees.salary
      */
     private void validateColumnName(
             String columnName
@@ -889,27 +1740,45 @@ public final class ExpressionParser {
 
         if (!columnName.matches(
                 "[A-Za-z_][A-Za-z0-9_]*"
+                        + "(\\.[A-Za-z_][A-Za-z0-9_]*)?"
         )) {
 
             throw new ParserException(
-                    "Invalid column name in WHERE clause: "
+                    "Invalid column name in expression: "
                             + columnName
             );
         }
     }
 
+    private boolean isIdentifierCharacter(
+            char character
+    ) {
+
+        return Character.isLetterOrDigit(
+                character
+        )
+                || character == '_';
+    }
+
+    // ==================================================
+    // STRUCTURE VALIDATION
+    // ==================================================
+
     /**
-     * Parentheses ve quote yapılarının
-     * temel doğrulamasını gerçekleştirir.
+     * Quote ve parentheses yapısını doğrular.
      */
     private void validateExpressionStructure(
             String expression
     ) {
 
-        boolean insideSingleQuote = false;
-        boolean insideDoubleQuote = false;
+        boolean insideSingleQuote =
+                false;
 
-        int parenthesesDepth = 0;
+        boolean insideDoubleQuote =
+                false;
+
+        int parenthesesDepth =
+                0;
 
         for (int i = 0;
              i < expression.length();
@@ -964,21 +1833,22 @@ public final class ExpressionParser {
                 || insideDoubleQuote) {
 
             throw new ParserException(
-                    "Unclosed string literal in WHERE clause."
+                    "Unclosed string literal in expression."
             );
         }
 
         if (parenthesesDepth != 0) {
 
             throw new ParserException(
-                    "Unbalanced parentheses in WHERE clause."
+                    "Unbalanced parentheses in expression."
             );
         }
     }
 
-    /**
-     * Bulunan comparison operator bilgisini tutar.
-     */
+    // ==================================================
+    // INTERNAL RECORD
+    // ==================================================
+
     private record ParsedComparison(
             String symbol,
             int index

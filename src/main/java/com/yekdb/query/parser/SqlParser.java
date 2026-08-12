@@ -1,9 +1,18 @@
 package com.yekdb.query.parser;
 
+import com.yekdb.query.expression.Expression;
 import com.yekdb.query.statement.DeleteStatement;
+import com.yekdb.query.statement.FetchClause;
+import com.yekdb.query.statement.GroupByClause;
+import com.yekdb.query.statement.HavingClause;
 import com.yekdb.query.statement.InsertStatement;
+import com.yekdb.query.statement.LimitClause;
+import com.yekdb.query.statement.OrderByItem;
+import com.yekdb.query.statement.SelectItem;
 import com.yekdb.query.statement.SelectStatement;
+import com.yekdb.query.statement.SortDirection;
 import com.yekdb.query.statement.Statement;
+import com.yekdb.query.statement.TableReference;
 import com.yekdb.query.statement.UpdateStatement;
 
 import java.util.ArrayList;
@@ -15,14 +24,33 @@ import java.util.Objects;
 /**
  * SQL metnini ayrıştırarak uygun Statement nesnesini üretir.
  *
- * <p>Desteklenen temel sorgular:</p>
+ * Desteklenen temel sorgular:
  *
- * <ul>
- *     <li>INSERT</li>
- *     <li>SELECT</li>
- *     <li>UPDATE</li>
- *     <li>DELETE</li>
- * </ul>
+ * - INSERT
+ * - SELECT
+ * - UPDATE
+ * - DELETE
+ *
+ * Sprint 00-14 SELECT desteği:
+ *
+ * - Table alias
+ * - Column alias
+ * - Qualified columns
+ * - BETWEEN / NOT BETWEEN
+ * - IN / NOT IN
+ * - LIKE / NOT LIKE
+ * - ILIKE / NOT ILIKE
+ * - COUNT
+ * - SUM
+ * - AVG
+ * - MIN
+ * - MAX
+ * - GROUP BY
+ * - HAVING
+ * - ORDER BY
+ * - LIMIT
+ * - FETCH FIRST
+ * - FETCH NEXT
  */
 public final class SqlParser {
 
@@ -32,50 +60,67 @@ public final class SqlParser {
     private int currentPosition;
 
     /**
-     * Varsayılan tokenizer ile yeni parser oluşturur.
+     * Varsayılan tokenizer ile parser oluşturur.
      */
     public SqlParser() {
-        this(new SqlTokenizer());
-    }
 
-    /**
-     * Belirtilen tokenizer ile yeni parser oluşturur.
-     *
-     * @param tokenizer SQL tokenizer
-     */
-    public SqlParser(SqlTokenizer tokenizer) {
-        this.tokenizer = Objects.requireNonNull(
-                tokenizer,
-                "SqlTokenizer cannot be null."
+        this(
+                new SqlTokenizer()
         );
     }
 
     /**
-     * SQL metnini ayrıştırır.
-     *
-     * @param sql ayrıştırılacak SQL
-     * @return oluşturulan statement
+     * Dışarıdan tokenizer verilerek parser oluşturur.
      */
-    public Statement parse(String sql) {
+    public SqlParser(
+            SqlTokenizer tokenizer
+    ) {
 
-        tokens = tokenizer.tokenize(sql);
+        this.tokenizer =
+                Objects.requireNonNull(
+                        tokenizer,
+                        "SqlTokenizer cannot be null."
+                );
+    }
+
+    /**
+     * SQL metnini parse eder.
+     */
+    public Statement parse(
+            String sql
+    ) {
+
+        tokens =
+                tokenizer.tokenize(
+                        sql
+                );
+
         currentPosition = 0;
 
-        Statement statement = switch (currentToken().getType()) {
+        Statement statement =
+                switch (
+                        currentToken().getType()
+                        ) {
 
-            case INSERT -> parseInsert();
+                    case INSERT ->
+                            parseInsert();
 
-            case SELECT -> parseSelect();
+                    case SELECT ->
+                            parseSelect();
 
-            case UPDATE -> parseUpdate();
+                    case UPDATE ->
+                            parseUpdate();
 
-            case DELETE -> parseDelete();
+                    case DELETE ->
+                            parseDelete();
 
-            default -> throw error(
-                    "Unsupported SQL statement: "
-                            + currentToken().getValue()
-            );
-        };
+                    default ->
+                            throw error(
+                                    "Unsupported SQL statement: "
+                                            + currentToken()
+                                            .getValue()
+                            );
+                };
 
         consumeOptionalSemicolon();
 
@@ -87,20 +132,17 @@ public final class SqlParser {
         return statement;
     }
 
+    // ==================================================
+    // INSERT
+    // ==================================================
+
     /**
      * INSERT sorgusunu ayrıştırır.
      *
-     * <pre>
+     * Örnek:
+     *
      * INSERT INTO users (id, name, age)
      * VALUES (1, 'Emre', 21);
-     * </pre>
-     *
-     * Sprint 00-12:
-     *
-     * INSERT işlemlerinde kolon listesi zorunludur.
-     * Böylece değerler tablo şemasındaki gerçek kolon
-     * sırasına göre InsertExecutor tarafından
-     * düzenlenebilir.
      */
     private InsertStatement parseInsert() {
 
@@ -114,16 +156,11 @@ public final class SqlParser {
                 "Expected INTO after INSERT."
         );
 
-        String tableName = consumeIdentifier(
-                "Expected table name after INTO."
-        );
+        String tableName =
+                consumeIdentifier(
+                        "Expected table name after INTO."
+                );
 
-        /*
-         * INSERT INTO users
-         *                  ^
-         *
-         * Tablo isminden sonra kolon listesi beklenir.
-         */
         expect(
                 SqlTokenType.LEFT_PARENTHESIS,
                 "Expected '(' before INSERT column list."
@@ -132,14 +169,10 @@ public final class SqlParser {
         List<String> columns =
                 new ArrayList<>();
 
-        /*
-         * İlk kolon zorunludur.
-         *
-         * INSERT INTO users ()
-         *
-         * kullanımı kabul edilmez.
-         */
-        if (check(SqlTokenType.RIGHT_PARENTHESIS)) {
+        if (check(
+                SqlTokenType.RIGHT_PARENTHESIS
+        )) {
+
             throw error(
                     "INSERT statement must contain at least one column."
             );
@@ -151,7 +184,9 @@ public final class SqlParser {
                 )
         );
 
-        while (match(SqlTokenType.COMMA)) {
+        while (match(
+                SqlTokenType.COMMA
+        )) {
 
             columns.add(
                     consumeIdentifier(
@@ -166,16 +201,19 @@ public final class SqlParser {
         );
 
         /*
-         * Aynı kolonun birden fazla kez yazılmasını
-         * parser seviyesinde engelliyoruz.
+         * Duplicate kolon kontrolü.
          */
         long distinctColumnCount =
                 columns.stream()
-                        .map(String::toLowerCase)
+                        .map(
+                                String::toLowerCase
+                        )
                         .distinct()
                         .count();
 
-        if (distinctColumnCount != columns.size()) {
+        if (distinctColumnCount
+                != columns.size()) {
+
             throw error(
                     "INSERT column list contains duplicate columns."
             );
@@ -194,7 +232,9 @@ public final class SqlParser {
         List<Object> values =
                 new ArrayList<>();
 
-        if (!check(SqlTokenType.RIGHT_PARENTHESIS)) {
+        if (!check(
+                SqlTokenType.RIGHT_PARENTHESIS
+        )) {
 
             do {
 
@@ -202,7 +242,11 @@ public final class SqlParser {
                         parseLiteralValue()
                 );
 
-            } while (match(SqlTokenType.COMMA));
+            } while (
+                    match(
+                            SqlTokenType.COMMA
+                    )
+            );
         }
 
         expect(
@@ -217,11 +261,8 @@ public final class SqlParser {
             );
         }
 
-        /*
-         * Her INSERT kolonu için tam olarak
-         * bir değer bulunmalıdır.
-         */
-        if (columns.size() != values.size()) {
+        if (columns.size()
+                != values.size()) {
 
             throw error(
                     "INSERT column count and value count must be equal. "
@@ -240,13 +281,22 @@ public final class SqlParser {
         );
     }
 
+    // ==================================================
+    // SELECT
+    // ==================================================
+
     /**
      * SELECT sorgusunu ayrıştırır.
      *
-     * <pre>
-     * SELECT * FROM users;
-     * SELECT id, name FROM users;
-     * </pre>
+     * Clause sırası:
+     *
+     * SELECT
+     * FROM
+     * WHERE
+     * GROUP BY
+     * HAVING
+     * ORDER BY
+     * LIMIT / FETCH
      */
     private SelectStatement parseSelect() {
 
@@ -255,58 +305,697 @@ public final class SqlParser {
                 "Expected SELECT keyword."
         );
 
-        List<String> selectedColumns =
+        // ----------------------------------------------
+        // SELECT ITEMS
+        // ----------------------------------------------
+
+        List<SelectItem> selectItems =
                 new ArrayList<>();
 
-        if (match(SqlTokenType.ASTERISK)) {
+        /*
+         * SELECT *
+         */
+        if (match(
+                SqlTokenType.ASTERISK
+        )) {
 
-            selectedColumns.add("*");
-
-        } else {
-
-            selectedColumns.add(
-                    consumeIdentifier(
-                            "Expected column name after SELECT."
+            selectItems.add(
+                    new SelectItem(
+                            "*"
                     )
             );
 
-            while (match(SqlTokenType.COMMA)) {
+        } else {
 
-                selectedColumns.add(
-                        consumeIdentifier(
-                                "Expected column name after ','."
-                        )
+            selectItems.add(
+                    parseSelectItem()
+            );
+
+            while (match(
+                    SqlTokenType.COMMA
+            )) {
+
+                selectItems.add(
+                        parseSelectItem()
                 );
             }
         }
+
+        // ----------------------------------------------
+        // FROM
+        // ----------------------------------------------
 
         expect(
                 SqlTokenType.FROM,
                 "Expected FROM after selected columns."
         );
 
-        String tableName = consumeIdentifier(
-                "Expected table name after FROM."
-        );
+        String tableName =
+                consumeIdentifier(
+                        "Expected table name after FROM."
+                );
+
+        String tableAlias =
+                null;
+
+        /*
+         * FROM users AS u
+         */
+        if (match(
+                SqlTokenType.AS
+        )) {
+
+            tableAlias =
+                    consumeIdentifier(
+                            "Expected table alias after AS."
+                    );
+
+            /*
+             * FROM users u
+             */
+        } else if (check(
+                SqlTokenType.IDENTIFIER
+        )) {
+
+            tableAlias =
+                    consumeIdentifier(
+                            "Expected table alias."
+                    );
+        }
+
+        TableReference table =
+                new TableReference(
+                        tableName,
+                        tableAlias
+                );
+
+        // ----------------------------------------------
+        // WHERE
+        // ----------------------------------------------
+
+        Expression whereExpression =
+                null;
+
+        if (match(
+                SqlTokenType.WHERE
+        )) {
+
+            String whereClause =
+                    readSelectClauseExpression();
+
+            whereExpression =
+                    new ExpressionParser()
+                            .parse(
+                                    whereClause
+                            );
+        }
+
+        // ----------------------------------------------
+        // GROUP BY
+        // ----------------------------------------------
+
+        GroupByClause groupByClause =
+                null;
+
+        if (match(
+                SqlTokenType.GROUP
+        )) {
+
+            expect(
+                    SqlTokenType.BY,
+                    "Expected BY after GROUP."
+            );
+
+            List<String> groupByColumns =
+                    new ArrayList<>();
+
+            /*
+             * GROUP BY department
+             */
+            groupByColumns.add(
+                    parseColumnReference()
+            );
+
+            /*
+             * GROUP BY department, city
+             */
+            while (match(
+                    SqlTokenType.COMMA
+            )) {
+
+                groupByColumns.add(
+                        parseColumnReference()
+                );
+            }
+
+            groupByClause =
+                    new GroupByClause(
+                            groupByColumns
+                    );
+        }
+
+        // ----------------------------------------------
+        // HAVING
+        // ----------------------------------------------
+
+        HavingClause havingClause =
+                null;
+
+        if (match(
+                SqlTokenType.HAVING
+        )) {
+
+            if (groupByClause == null) {
+
+                throw error(
+                        "HAVING requires GROUP BY."
+                );
+            }
+
+            String havingClauseText =
+                    readSelectClauseExpression();
+
+            Expression havingExpression =
+                    new ExpressionParser()
+                            .parse(
+                                    havingClauseText
+                            );
+
+            havingClause =
+                    new HavingClause(
+                            havingExpression
+                    );
+        }
+
+        // ----------------------------------------------
+        // ORDER BY
+        // ----------------------------------------------
+
+        List<OrderByItem> orderByItems =
+                new ArrayList<>();
+
+        if (match(
+                SqlTokenType.ORDER
+        )) {
+
+            expect(
+                    SqlTokenType.BY,
+                    "Expected BY after ORDER."
+            );
+
+            orderByItems.add(
+                    parseOrderByItem()
+            );
+
+            while (match(
+                    SqlTokenType.COMMA
+            )) {
+
+                orderByItems.add(
+                        parseOrderByItem()
+                );
+            }
+        }
+
+        // ----------------------------------------------
+        // LIMIT
+        // ----------------------------------------------
+
+        LimitClause limitClause =
+                null;
+
+        FetchClause fetchClause =
+                null;
+
+        if (match(
+                SqlTokenType.LIMIT
+        )) {
+
+            int rowCount =
+                    parseRowCount(
+                            "Expected integer value after LIMIT."
+                    );
+
+            limitClause =
+                    new LimitClause(
+                            rowCount
+                    );
+        }
+
+        // ----------------------------------------------
+        // FETCH
+        // ----------------------------------------------
+
+        if (match(
+                SqlTokenType.FETCH
+        )) {
+
+            FetchClause.Mode mode;
+
+            if (match(
+                    SqlTokenType.FIRST
+            )) {
+
+                mode =
+                        FetchClause.Mode.FIRST;
+
+            } else if (match(
+                    SqlTokenType.NEXT
+            )) {
+
+                mode =
+                        FetchClause.Mode.NEXT;
+
+            } else {
+
+                throw error(
+                        "Expected FIRST or NEXT after FETCH."
+                );
+            }
+
+            int rowCount =
+                    parseRowCount(
+                            "Expected row count after FETCH FIRST/NEXT."
+                    );
+
+            /*
+             * FETCH FIRST 10 ROW ONLY
+             * FETCH FIRST 10 ROWS ONLY
+             *
+             * İkisini de kabul ediyoruz.
+             */
+            if (!match(
+                    SqlTokenType.ROW
+            )
+                    && !match(
+                    SqlTokenType.ROWS
+            )) {
+
+                throw error(
+                        "Expected ROW or ROWS after FETCH row count."
+                );
+            }
+
+            expect(
+                    SqlTokenType.ONLY,
+                    "Expected ONLY after FETCH ROW/ROWS."
+            );
+
+            fetchClause =
+                    new FetchClause(
+                            mode,
+                            rowCount
+                    );
+        }
 
         return new SelectStatement(
-                tableName,
-                selectedColumns
+                table,
+                selectItems,
+                whereExpression,
+                groupByClause,
+                havingClause,
+                orderByItems,
+                limitClause,
+                fetchClause
+        );
+    }
+
+    // ==================================================
+    // SELECT ITEM
+    // ==================================================
+
+    /**
+     * SELECT item parse eder.
+     *
+     * Destek:
+     *
+     * name
+     * u.name
+     * name AS username
+     * name username
+     *
+     * COUNT(*)
+     * COUNT(*) AS total
+     * SUM(salary)
+     * AVG(age)
+     * MIN(age)
+     * MAX(age)
+     */
+    private SelectItem parseSelectItem() {
+
+        String expression;
+
+        if (isAggregateFunction()) {
+
+            expression =
+                    parseAggregateExpression();
+
+        } else {
+
+            expression =
+                    parseColumnReference();
+        }
+
+        String alias =
+                null;
+
+        /*
+         * SELECT name AS username
+         *
+         * SELECT COUNT(*) AS total
+         */
+        if (match(
+                SqlTokenType.AS
+        )) {
+
+            alias =
+                    consumeIdentifier(
+                            "Expected column alias after AS."
+                    );
+
+            /*
+             * SELECT name username
+             *
+             * SELECT COUNT(*) total
+             */
+        } else if (check(
+                SqlTokenType.IDENTIFIER
+        )) {
+
+            alias =
+                    consumeIdentifier(
+                            "Expected column alias."
+                    );
+        }
+
+        return new SelectItem(
+                expression,
+                alias
+        );
+    }
+
+    // ==================================================
+    // AGGREGATE FUNCTIONS
+    // ==================================================
+
+    /**
+     * Mevcut tokenın aggregate fonksiyon başlangıcı
+     * olup olmadığını kontrol eder.
+     *
+     * COUNT(
+     * SUM(
+     * AVG(
+     * MIN(
+     * MAX(
+     */
+    private boolean isAggregateFunction() {
+
+        if (!check(
+                SqlTokenType.IDENTIFIER
+        )) {
+
+            return false;
+        }
+
+        String value =
+                currentToken()
+                        .getValue()
+                        .toUpperCase();
+
+        boolean aggregateFunction =
+                value.equals(
+                        "COUNT"
+                )
+                        || value.equals(
+                        "SUM"
+                )
+                        || value.equals(
+                        "AVG"
+                )
+                        || value.equals(
+                        "MIN"
+                )
+                        || value.equals(
+                        "MAX"
+                );
+
+        if (!aggregateFunction) {
+
+            return false;
+        }
+
+        return checkNext(
+                SqlTokenType.LEFT_PARENTHESIS
         );
     }
 
     /**
+     * Aggregate expression parse eder.
+     *
+     * COUNT(*)
+     * COUNT(id)
+     * SUM(salary)
+     * AVG(age)
+     * MIN(age)
+     * MAX(age)
+     *
+     * Qualified column:
+     *
+     * SUM(e.salary)
+     */
+    private String parseAggregateExpression() {
+
+        String functionName =
+                currentToken()
+                        .getValue()
+                        .toUpperCase();
+
+        advance();
+
+        expect(
+                SqlTokenType.LEFT_PARENTHESIS,
+                "Expected '(' after aggregate function."
+        );
+
+        String argument;
+
+        /*
+         * COUNT(*)
+         */
+        if (match(
+                SqlTokenType.ASTERISK
+        )) {
+
+            if (!functionName.equals(
+                    "COUNT"
+            )) {
+
+                throw error(
+                        functionName
+                                + "(*) is not supported. "
+                                + "Only COUNT(*) accepts '*'."
+                );
+            }
+
+            argument = "*";
+
+        } else {
+
+            /*
+             * COUNT(id)
+             * SUM(salary)
+             * AVG(e.salary)
+             */
+            argument =
+                    parseColumnReference();
+        }
+
+        expect(
+                SqlTokenType.RIGHT_PARENTHESIS,
+                "Expected ')' after aggregate argument."
+        );
+
+        return functionName
+                + "("
+                + argument
+                + ")";
+    }
+
+    // ==================================================
+    // COLUMN REFERENCE
+    // ==================================================
+
+    /**
+     * Kolon referansı parse eder.
+     *
+     * name
+     *
+     * veya
+     *
+     * u.name
+     */
+    private String parseColumnReference() {
+
+        String firstPart =
+                consumeIdentifier(
+                        "Expected column name."
+                );
+
+        /*
+         * Basit kolon:
+         *
+         * name
+         */
+        if (!match(
+                SqlTokenType.DOT
+        )) {
+
+            return firstPart;
+        }
+
+        /*
+         * Qualified column:
+         *
+         * u.name
+         */
+        String secondPart =
+                consumeIdentifier(
+                        "Expected column name after '.'."
+                );
+
+        return firstPart
+                + "."
+                + secondPart;
+    }
+
+    // ==================================================
+    // ORDER BY
+    // ==================================================
+
+    /**
+     * ORDER BY item parse eder.
+     *
+     * age
+     * age ASC
+     * age DESC
+     * u.age DESC
+     */
+    private OrderByItem parseOrderByItem() {
+
+        String columnName =
+                parseColumnReference();
+
+        SortDirection direction =
+                SortDirection.ASC;
+
+        if (match(
+                SqlTokenType.ASC
+        )) {
+
+            direction =
+                    SortDirection.ASC;
+
+        } else if (match(
+                SqlTokenType.DESC
+        )) {
+
+            direction =
+                    SortDirection.DESC;
+        }
+
+        return new OrderByItem(
+                columnName,
+                direction
+        );
+    }
+
+    // ==================================================
+    // LIMIT / FETCH
+    // ==================================================
+
+    /**
+     * LIMIT / FETCH satır sayısını parse eder.
+     *
+     * Yalnızca 0 veya pozitif integer kabul edilir.
+     */
+    private int parseRowCount(
+            String errorMessage
+    ) {
+
+        if (!check(
+                SqlTokenType.NUMBER_LITERAL
+        )) {
+
+            throw error(
+                    errorMessage
+            );
+        }
+
+        SqlToken token =
+                advance();
+
+        String rawValue =
+                token.getValue();
+
+        /*
+         * LIMIT 10.5 geçersiz.
+         */
+        if (rawValue.contains(
+                "."
+        )) {
+
+            throw error(
+                    "Row count must be an integer: "
+                            + rawValue
+            );
+        }
+
+        try {
+
+            long value =
+                    Long.parseLong(
+                            rawValue
+                    );
+
+            if (value < 0) {
+
+                throw error(
+                        "Row count cannot be negative."
+                );
+            }
+
+            if (value > Integer.MAX_VALUE) {
+
+                throw error(
+                        "Row count is too large: "
+                                + rawValue
+                );
+            }
+
+            return (int) value;
+
+        } catch (
+                NumberFormatException exception
+        ) {
+
+            throw new ParserException(
+                    "Invalid row count: "
+                            + rawValue,
+                    exception
+            );
+        }
+    }
+
+    // ==================================================
+    // UPDATE
+    // ==================================================
+
+    /**
      * UPDATE sorgusunu ayrıştırır.
      *
-     * <pre>
      * UPDATE users
      * SET name = 'Emre', age = 22
      * WHERE id = 1;
-     * </pre>
-     *
-     * WHERE bölümü bu aşamada metin olarak UpdateStatement
-     * içerisinde tutulur. StatementCommandMapper -> UpdateMapper
-     * zincirinde ExpressionParser tarafından Expression'a çevrilir.
      */
     private UpdateStatement parseUpdate() {
 
@@ -315,9 +1004,10 @@ public final class SqlParser {
                 "Expected UPDATE keyword."
         );
 
-        String tableName = consumeIdentifier(
-                "Expected table name after UPDATE."
-        );
+        String tableName =
+                consumeIdentifier(
+                        "Expected table name after UPDATE."
+                );
 
         expect(
                 SqlTokenType.SET,
@@ -347,9 +1037,10 @@ public final class SqlParser {
                             .stream()
                             .anyMatch(
                                     existingColumn ->
-                                            existingColumn.equalsIgnoreCase(
-                                                    columnName
-                                            )
+                                            existingColumn
+                                                    .equalsIgnoreCase(
+                                                            columnName
+                                                    )
                             );
 
             if (duplicateColumn) {
@@ -365,12 +1056,24 @@ public final class SqlParser {
                     value
             );
 
-        } while (match(SqlTokenType.COMMA));
+        } while (
+                match(
+                        SqlTokenType.COMMA
+                )
+        );
 
-        String whereClause = null;
+        String whereClause =
+                null;
 
-        if (match(SqlTokenType.WHERE)) {
+        if (match(
+                SqlTokenType.WHERE
+        )) {
 
+            /*
+             * UPDATE tarafında SELECT clause'ları
+             * bulunmadığından eski readWhereClause()
+             * kullanılmaya devam edilir.
+             */
             whereClause =
                     readWhereClause();
         }
@@ -382,13 +1085,15 @@ public final class SqlParser {
         );
     }
 
+    // ==================================================
+    // DELETE
+    // ==================================================
+
     /**
      * DELETE sorgusunu ayrıştırır.
      *
-     * <pre>
      * DELETE FROM users WHERE id = 1;
      * DELETE FROM users;
-     * </pre>
      */
     private DeleteStatement parseDelete() {
 
@@ -407,9 +1112,12 @@ public final class SqlParser {
                         "Expected table name after FROM."
                 );
 
-        String whereClause = null;
+        String whereClause =
+                null;
 
-        if (match(SqlTokenType.WHERE)) {
+        if (match(
+                SqlTokenType.WHERE
+        )) {
 
             whereClause =
                     readWhereClause();
@@ -421,15 +1129,21 @@ public final class SqlParser {
         );
     }
 
+    // ==================================================
+    // LITERAL VALUES
+    // ==================================================
+
     /**
-     * SQL sabit değerini Java nesnesine dönüştürür.
+     * SQL literal değerini Java nesnesine dönüştürür.
      */
     private Object parseLiteralValue() {
 
         SqlToken token =
                 currentToken();
 
-        return switch (token.getType()) {
+        return switch (
+                token.getType()
+                ) {
 
             case STRING_LITERAL -> {
 
@@ -442,7 +1156,9 @@ public final class SqlParser {
 
                 advance();
 
-                yield parseNumber(token);
+                yield parseNumber(
+                        token
+                );
             }
 
             case BOOLEAN_LITERAL -> {
@@ -461,10 +1177,11 @@ public final class SqlParser {
                 yield null;
             }
 
-            default -> throw error(
-                    "Expected literal value but found: "
-                            + token.getValue()
-            );
+            default ->
+                    throw error(
+                            "Expected literal value but found: "
+                                    + token.getValue()
+                    );
         };
     }
 
@@ -480,7 +1197,9 @@ public final class SqlParser {
 
         try {
 
-            if (value.contains(".")) {
+            if (value.contains(
+                    "."
+            )) {
 
                 return Double.parseDouble(
                         value
@@ -492,15 +1211,19 @@ public final class SqlParser {
                             value
                     );
 
-            if (longValue >= Integer.MIN_VALUE
-                    && longValue <= Integer.MAX_VALUE) {
+            if (longValue
+                    >= Integer.MIN_VALUE
+                    && longValue
+                    <= Integer.MAX_VALUE) {
 
                 return (int) longValue;
             }
 
             return longValue;
 
-        } catch (NumberFormatException exception) {
+        } catch (
+                NumberFormatException exception
+        ) {
 
             throw new ParserException(
                     "Invalid numeric value: "
@@ -510,14 +1233,181 @@ public final class SqlParser {
         }
     }
 
+    // ==================================================
+    // SELECT CLAUSE EXPRESSION
+    // ==================================================
+
     /**
-     * WHERE anahtar kelimesinden sonraki tokenları
-     * metinsel koşula dönüştürür.
+     * SELECT içerisindeki WHERE / HAVING expression
+     * metnini okur.
+     *
+     * Önemli fark:
+     *
+     * Eski readWhereClause() noktalı virgüle kadar
+     * her şeyi okuyordu.
+     *
+     * Bu metod ise:
+     *
+     * GROUP BY
+     * HAVING
+     * ORDER BY
+     * LIMIT
+     * FETCH
+     *
+     * başladığında okumayı bırakır.
+     */
+    private String readSelectClauseExpression() {
+
+        if (check(
+                SqlTokenType.SEMICOLON
+        )
+                || check(
+                SqlTokenType.END_OF_INPUT
+        )
+                || isSelectClauseBoundary()) {
+
+            throw error(
+                    "Clause expression cannot be empty."
+            );
+        }
+
+        StringBuilder builder =
+                new StringBuilder();
+
+        int parenthesisDepth = 0;
+
+        while (!check(
+                SqlTokenType.END_OF_INPUT
+        )
+                && !check(
+                SqlTokenType.SEMICOLON
+        )) {
+
+            /*
+             * Yeni SELECT clause'una geldiysek dur.
+             *
+             * Sadece parantez dışındayken boundary
+             * olarak kabul ediyoruz.
+             */
+            if (parenthesisDepth == 0
+                    && isSelectClauseBoundary()) {
+
+                break;
+            }
+
+            SqlToken token =
+                    advance();
+
+            if (token.is(
+                    SqlTokenType.LEFT_PARENTHESIS
+            )) {
+
+                parenthesisDepth++;
+
+            } else if (token.is(
+                    SqlTokenType.RIGHT_PARENTHESIS
+            )) {
+
+                parenthesisDepth--;
+
+                if (parenthesisDepth < 0) {
+
+                    throw error(
+                            "Unexpected ')' in clause expression."
+                    );
+                }
+            }
+
+            appendExpressionToken(
+                    builder,
+                    token
+            );
+        }
+
+        if (parenthesisDepth != 0) {
+
+            throw error(
+                    "Unbalanced parentheses in clause expression."
+            );
+        }
+
+        String result =
+                builder.toString()
+                        .trim();
+
+        if (result.isBlank()) {
+
+            throw error(
+                    "Clause expression cannot be empty."
+            );
+        }
+
+        return result;
+    }
+
+    /**
+     * SELECT expression okumayı durduran clause'lar.
+     */
+    private boolean isSelectClauseBoundary() {
+
+        return check(
+                SqlTokenType.GROUP
+        )
+                || check(
+                SqlTokenType.HAVING
+        )
+                || check(
+                SqlTokenType.ORDER
+        )
+                || check(
+                SqlTokenType.LIMIT
+        )
+                || check(
+                SqlTokenType.FETCH
+        );
+    }
+
+    /**
+     * Expression tokenını tekrar SQL metnine ekler.
+     */
+    private void appendExpressionToken(
+            StringBuilder builder,
+            SqlToken token
+    ) {
+
+        if (!builder.isEmpty()) {
+
+            builder.append(
+                    ' '
+            );
+        }
+
+        builder.append(
+                formatTokenValue(
+                        token
+                )
+        );
+    }
+
+    // ==================================================
+    // UPDATE / DELETE WHERE READER
+    // ==================================================
+
+    /**
+     * UPDATE / DELETE WHERE clause reader.
+     *
+     * SELECT için kullanılmaz çünkü SELECT içerisinde
+     * WHERE sonrasında GROUP BY / HAVING / ORDER BY /
+     * LIMIT / FETCH bulunabilir.
      */
     private String readWhereClause() {
 
-        if (check(SqlTokenType.SEMICOLON)
-                || check(SqlTokenType.END_OF_INPUT)) {
+        if (check(
+                SqlTokenType.SEMICOLON
+        )
+                || check(
+                SqlTokenType.END_OF_INPUT
+        )) {
 
             throw error(
                     "WHERE clause cannot be empty."
@@ -527,28 +1417,39 @@ public final class SqlParser {
         StringBuilder builder =
                 new StringBuilder();
 
-        while (!check(SqlTokenType.SEMICOLON)
-                && !check(SqlTokenType.END_OF_INPUT)) {
+        while (!check(
+                SqlTokenType.SEMICOLON
+        )
+                && !check(
+                SqlTokenType.END_OF_INPUT
+        )) {
 
             SqlToken token =
                     advance();
 
             if (!builder.isEmpty()) {
 
-                builder.append(' ');
+                builder.append(
+                        ' '
+                );
             }
 
             builder.append(
-                    formatTokenValue(token)
+                    formatTokenValue(
+                            token
+                    )
             );
         }
 
         return builder.toString();
     }
 
+    // ==================================================
+    // TOKEN -> SQL TEXT
+    // ==================================================
+
     /**
-     * WHERE içerisindeki tokenı yeniden
-     * SQL metnine çevirir.
+     * Tokenı tekrar SQL text biçimine çevirir.
      */
     private String formatTokenValue(
             SqlToken token
@@ -570,9 +1471,12 @@ public final class SqlParser {
         return token.getValue();
     }
 
+    // ==================================================
+    // IDENTIFIER
+    // ==================================================
+
     /**
-     * Identifier tokenını tüketerek
-     * değerini döndürür.
+     * Identifier tokenını tüketir.
      */
     private String consumeIdentifier(
             String errorMessage
@@ -587,6 +1491,38 @@ public final class SqlParser {
         return token.getValue();
     }
 
+    // ==================================================
+    // LOOKAHEAD
+    // ==================================================
+
+    /**
+     * Bir sonraki tokenı tüketmeden kontrol eder.
+     */
+    private boolean checkNext(
+            SqlTokenType tokenType
+    ) {
+
+        int nextPosition =
+                currentPosition + 1;
+
+        if (nextPosition
+                >= tokens.size()) {
+
+            return false;
+        }
+
+        return tokens
+                .get(
+                        nextPosition
+                )
+                .getType()
+                == tokenType;
+    }
+
+    // ==================================================
+    // TOKEN HELPERS
+    // ==================================================
+
     /**
      * Beklenen token varsa tüketir.
      */
@@ -595,14 +1531,18 @@ public final class SqlParser {
             String errorMessage
     ) {
 
-        if (!check(expectedType)) {
+        if (!check(
+                expectedType
+        )) {
 
             throw error(
                     errorMessage
                             + " Found: "
-                            + currentToken().getType()
+                            + currentToken()
+                            .getType()
                             + " ('"
-                            + currentToken().getValue()
+                            + currentToken()
+                            .getValue()
                             + "')."
             );
         }
@@ -611,13 +1551,15 @@ public final class SqlParser {
     }
 
     /**
-     * Mevcut token verilen türdeyse tüketir.
+     * Token verilen türdeyse tüketir.
      */
     private boolean match(
             SqlTokenType tokenType
     ) {
 
-        if (!check(tokenType)) {
+        if (!check(
+                tokenType
+        )) {
 
             return false;
         }
@@ -638,20 +1580,19 @@ public final class SqlParser {
     }
 
     /**
-     * Mevcut tokenın belirtilen türde
-     * olup olmadığını kontrol eder.
+     * Mevcut token tipini kontrol eder.
      */
     private boolean check(
             SqlTokenType tokenType
     ) {
 
-        return currentToken().getType()
+        return currentToken()
+                .getType()
                 == tokenType;
     }
 
     /**
-     * Mevcut tokenı döndürüp
-     * sonraki tokena geçer.
+     * Mevcut tokenı döndürür ve ilerler.
      */
     private SqlToken advance() {
 
@@ -669,7 +1610,7 @@ public final class SqlParser {
     }
 
     /**
-     * Mevcut tokenı döndürür.
+     * Mevcut token.
      */
     private SqlToken currentToken() {
 
@@ -678,8 +1619,12 @@ public final class SqlParser {
         );
     }
 
+    // ==================================================
+    // ERROR
+    // ==================================================
+
     /**
-     * Mevcut parser konumuyla hata oluşturur.
+     * ParserException oluşturur.
      */
     private ParserException error(
             String message

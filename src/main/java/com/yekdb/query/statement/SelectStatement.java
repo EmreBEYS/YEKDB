@@ -1,154 +1,408 @@
 package com.yekdb.query.statement;
 
-import java.util.Objects;
+import com.yekdb.query.expression.Expression;
+
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 /**
- * Parser tarafından ayrıştırılmış SELECT sorgusunu temsil eder.
+ * SELECT statement modeli.
  *
- * <p>Örnek SQL:</p>
+ * Sprint 00-14:
  *
- * <pre>
- * SELECT * FROM users;
- * SELECT id, name FROM users;
- * </pre>
+ * - Table / column alias
+ * - WHERE
+ * - GROUP BY
+ * - HAVING
+ * - ORDER BY
+ * - LIMIT
+ * - FETCH
+ *
+ * Aggregate ifadeleri SelectItem.expression içerisinde
+ * COUNT(*), SUM(salary), AVG(age) vb. biçimde tutulabilir.
  */
-
 public final class SelectStatement implements Statement {
-    /**
-     * Verilerin okunacağı tablo adı.
-     */
-    private final String tableName;
+
+    private final TableReference table;
+    private final List<SelectItem> selectItems;
+
+    private final Expression whereExpression;
+
+    private final GroupByClause groupByClause;
+    private final HavingClause havingClause;
+
+    private final List<OrderByItem> orderByItems;
+
+    private final LimitClause limitClause;
+    private final FetchClause fetchClause;
 
     /**
-     * Sorguda seçilen sütunlar.
-     *
-     * "*" değeri tüm sütunları temsil eder.
+     * Sprint 00-14 ana constructor.
      */
-    private final List<String> selectedColumns;
-
-    /**
-     * Yeni bir SelectStatement oluşturur.
-     *
-     * @param tableName       hedef tablo adı
-     * @param selectedColumns seçilecek sütun adları
-     */
-    public SelectStatement(String tableName,List<String> selectedColumns){
-        this.tableName=validateTableName(tableName);
-        Objects.requireNonNull(selectedColumns,"Selected columns cannot be null.");
-        if(selectedColumns.isEmpty()){
-            throw new IllegalArgumentException("SELECT statement must contain at least one column.");
-        }
-        this.selectedColumns=selectedColumns.stream().map(this::validateColumnName).toList();
-    }
-    /**
-     * Tüm sütunları seçen bir SelectStatement oluşturur.
-     *
-     * @param tableName hedef tablo adı
-     * @return SELECT * statement modeli
-     */
-    public static SelectStatement allColumns(
-            String tableName
+    public SelectStatement(
+            TableReference table,
+            List<SelectItem> selectItems,
+            Expression whereExpression,
+            GroupByClause groupByClause,
+            HavingClause havingClause,
+            List<OrderByItem> orderByItems,
+            LimitClause limitClause,
+            FetchClause fetchClause
     ) {
-        return new SelectStatement(
-                tableName,
-                List.of("*")
+
+        this.table =
+                Objects.requireNonNull(
+                        table,
+                        "table cannot be null"
+                );
+
+        this.selectItems =
+                selectItems == null
+                        ? new ArrayList<>()
+                        : new ArrayList<>(
+                        selectItems
+                );
+
+        this.whereExpression =
+                whereExpression;
+
+        this.groupByClause =
+                groupByClause;
+
+        this.havingClause =
+                havingClause;
+
+        this.orderByItems =
+                orderByItems == null
+                        ? new ArrayList<>()
+                        : new ArrayList<>(
+                        orderByItems
+                );
+
+        this.limitClause =
+                limitClause;
+
+        this.fetchClause =
+                fetchClause;
+
+        /*
+         * Aynı SELECT içerisinde LIMIT ve FETCH
+         * birlikte kullanılmasın.
+         */
+        if (limitClause != null
+                && fetchClause != null) {
+
+            throw new IllegalArgumentException(
+                    "LIMIT and FETCH cannot be used together."
+            );
+        }
+
+        /*
+         * HAVING normalde GROUP BY sonucunu filtreler.
+         *
+         * Sprint 00-14 için HAVING kullanımını
+         * GROUP BY ile sınırlandırıyoruz.
+         */
+        if (havingClause != null
+                && groupByClause == null) {
+
+            throw new IllegalArgumentException(
+                    "HAVING requires GROUP BY."
+            );
+        }
+    }
+
+    /**
+     * ORDER BY entegrasyonunda kullanılan
+     * eski Sprint 00-14 constructor.
+     */
+    public SelectStatement(
+            TableReference table,
+            List<SelectItem> selectItems,
+            Expression whereExpression,
+            List<OrderByItem> orderByItems
+    ) {
+
+        this(
+                table,
+                selectItems,
+                whereExpression,
+                null,
+                null,
+                orderByItems,
+                null,
+                null
         );
     }
 
     /**
-     * Statement türünü döndürür.
-     *
-     * @return SELECT
+     * WHERE destekli eski constructor.
      */
-    @Override
-    public StatementType getType() {
-        return StatementType.SELECT;
+    public SelectStatement(
+            TableReference table,
+            List<SelectItem> selectItems,
+            Expression whereExpression
+    ) {
+
+        this(
+                table,
+                selectItems,
+                whereExpression,
+                null,
+                null,
+                List.of(),
+                null,
+                null
+        );
     }
 
     /**
-     * Hedef tablo adını döndürür.
-     *
-     * @return tablo adı
+     * Alias destekli constructor.
      */
+    public SelectStatement(
+            TableReference table,
+            List<SelectItem> selectItems
+    ) {
+
+        this(
+                table,
+                selectItems,
+                null
+        );
+    }
+
+    /**
+     * Geriye dönük uyumluluk.
+     */
+    public SelectStatement(
+            String tableName,
+            List<String> columns
+    ) {
+
+        this(
+                tableName,
+                columns,
+                null
+        );
+    }
+
+    /**
+     * Eski String table API + WHERE.
+     */
+    public SelectStatement(
+            String tableName,
+            List<String> columns,
+            Expression whereExpression
+    ) {
+
+        this(
+                new TableReference(
+                        tableName
+                ),
+                convertColumns(
+                        columns
+                ),
+                whereExpression
+        );
+    }
+
+    private static List<SelectItem> convertColumns(
+            List<String> columns
+    ) {
+
+        if (columns == null) {
+
+            return Collections.emptyList();
+        }
+
+        List<SelectItem> items =
+                new ArrayList<>();
+
+        for (String column : columns) {
+
+            items.add(
+                    new SelectItem(
+                            column
+                    )
+            );
+        }
+
+        return items;
+    }
+
+    public TableReference getTable() {
+
+        return table;
+    }
+
     public String getTableName() {
-        return tableName;
+
+        return table.getTableName();
     }
 
-    /**
-     * Seçilen sütunları döndürür.
-     *
-     * @return değiştirilemez sütun listesi
+    public String getTableAlias() {
+
+        return table.getAlias();
+    }
+
+    public boolean hasTableAlias() {
+
+        return table.hasAlias();
+    }
+
+    public List<SelectItem> getSelectItems() {
+
+        return Collections.unmodifiableList(
+                selectItems
+        );
+    }
+
+    /*
+     * Eski executor / mapper uyumluluğu.
+     */
+    public List<String> getColumns() {
+
+        List<String> columns =
+                new ArrayList<>();
+
+        for (SelectItem item : selectItems) {
+
+            columns.add(
+                    item.getExpression()
+            );
+        }
+
+        return Collections.unmodifiableList(
+                columns
+        );
+    }
+
+    /*
+     * Eski StatementCommandMapper uyumluluğu.
      */
     public List<String> getSelectedColumns() {
-        return selectedColumns;
+
+        return getColumns();
     }
 
-    /**
-     * Sorgunun bütün sütunları seçip seçmediğini döndürür.
-     *
-     * @return SELECT * sorgusuysa true
-     */
     public boolean selectsAllColumns() {
-        return selectedColumns.size() == 1
-                && "*".equals(selectedColumns.get(0));
+
+        return selectItems.size() == 1
+                && "*".equals(
+                selectItems
+                        .get(0)
+                        .getExpression()
+        );
     }
 
-    /**
-     * Tablo adını doğrular ve temizler.
-     */
-    private String validateTableName(String tableName) {
-        if (tableName == null || tableName.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Table name cannot be null or blank."
-            );
-        }
+    // --------------------------------------------------
+    // WHERE
+    // --------------------------------------------------
 
-        String normalizedName = tableName.trim();
+    public Expression getWhereExpression() {
 
-        if (!normalizedName.matches(
-                "[A-Za-z_][A-Za-z0-9_]*"
-        )) {
-            throw new IllegalArgumentException(
-                    "Invalid table name: " + tableName
-            );
-        }
-
-        return normalizedName;
+        return whereExpression;
     }
 
-    /**
-     * Sütun adını doğrular ve temizler.
-     */
-    private String validateColumnName(String columnName) {
-        if (columnName == null || columnName.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Column name cannot be null or blank."
-            );
-        }
+    public boolean hasWhereClause() {
 
-        String normalizedName = columnName.trim();
+        return whereExpression != null;
+    }
 
-        if ("*".equals(normalizedName)) {
-            return normalizedName;
-        }
+    // --------------------------------------------------
+    // GROUP BY
+    // --------------------------------------------------
 
-        if (!normalizedName.matches(
-                "[A-Za-z_][A-Za-z0-9_]*"
-        )) {
-            throw new IllegalArgumentException(
-                    "Invalid column name: " + columnName
-            );
-        }
+    public GroupByClause getGroupByClause() {
 
-        return normalizedName;
+        return groupByClause;
+    }
+
+    public boolean hasGroupBy() {
+
+        return groupByClause != null;
+    }
+
+    // --------------------------------------------------
+    // HAVING
+    // --------------------------------------------------
+
+    public HavingClause getHavingClause() {
+
+        return havingClause;
+    }
+
+    public boolean hasHaving() {
+
+        return havingClause != null;
+    }
+
+    // --------------------------------------------------
+    // ORDER BY
+    // --------------------------------------------------
+
+    public List<OrderByItem> getOrderByItems() {
+
+        return Collections.unmodifiableList(
+                orderByItems
+        );
+    }
+
+    public boolean hasOrderBy() {
+
+        return !orderByItems.isEmpty();
+    }
+
+    // --------------------------------------------------
+    // LIMIT
+    // --------------------------------------------------
+
+    public LimitClause getLimitClause() {
+
+        return limitClause;
+    }
+
+    public boolean hasLimit() {
+
+        return limitClause != null;
+    }
+
+    // --------------------------------------------------
+    // FETCH
+    // --------------------------------------------------
+
+    public FetchClause getFetchClause() {
+
+        return fetchClause;
+    }
+
+    public boolean hasFetch() {
+
+        return fetchClause != null;
+    }
+
+    // --------------------------------------------------
+
+    @Override
+    public StatementType getType() {
+
+        return StatementType.SELECT;
     }
 
     @Override
     public String toString() {
+
         return "SelectStatement{" +
-                "tableName='" + tableName + '\'' +
-                ", selectedColumns=" + selectedColumns +
+                "table=" + table +
+                ", selectItems=" + selectItems +
+                ", whereExpression=" + whereExpression +
+                ", groupByClause=" + groupByClause +
+                ", havingClause=" + havingClause +
+                ", orderByItems=" + orderByItems +
+                ", limitClause=" + limitClause +
+                ", fetchClause=" + fetchClause +
                 '}';
     }
 }

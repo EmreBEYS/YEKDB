@@ -19,59 +19,95 @@ import java.util.Objects;
  * QueryExecutor tarafından çalıştırılabilen Command
  * nesnelerine dönüştürür.
  *
- * <p>Bu sınıf yalnızca eşleme işlemi yapar.
- * SQL ayrıştırmaz ve komut yürütmez.</p>
+ * Bu sınıf:
+ *
+ * - SQL parse etmez
+ * - Query çalıştırmaz
+ * - Storage erişimi yapmaz
+ *
+ * Yalnızca:
+ *
+ * Statement -> Command
+ *
+ * dönüşümünden sorumludur.
+ *
+ * Sprint 00-14:
+ *
+ * SelectStatement artık SelectCommand içerisine
+ * kayıpsız olarak aktarılır.
  */
 public final class StatementCommandMapper {
 
     /**
-     * Utility sınıfı olduğu için nesne oluşturulamaz.
+     * Utility sınıfı.
      */
     private StatementCommandMapper() {
     }
 
+    // ==================================================
+    // MAP
+    // ==================================================
+
     /**
-     * Verilen Statement nesnesini uygun Command
-     * nesnesine dönüştürür.
-     *
-     * @param statement parser tarafından oluşturulan statement
-     * @return çalıştırılabilir command
+     * Statement nesnesini uygun Command nesnesine çevirir.
      */
-    public static Command map(Statement statement) {
+    public static Command map(
+            Statement statement
+    ) {
+
         Objects.requireNonNull(
                 statement,
                 "Statement cannot be null."
         );
 
-        if (statement instanceof InsertStatement insertStatement) {
-            return mapInsert(insertStatement);
+        if (statement
+                instanceof InsertStatement insertStatement) {
+
+            return mapInsert(
+                    insertStatement
+            );
         }
 
-        if (statement instanceof SelectStatement selectStatement) {
-            return mapSelect(selectStatement);
+        if (statement
+                instanceof SelectStatement selectStatement) {
+
+            return mapSelect(
+                    selectStatement
+            );
         }
 
-        if (statement instanceof DeleteStatement deleteStatement) {
-            return mapDelete(deleteStatement);
+        if (statement
+                instanceof DeleteStatement deleteStatement) {
+
+            return mapDelete(
+                    deleteStatement
+            );
         }
 
-        if (statement instanceof UpdateStatement updateStatement) {
-            return mapUpdate(updateStatement);
+        if (statement
+                instanceof UpdateStatement updateStatement) {
+
+            return mapUpdate(
+                    updateStatement
+            );
         }
 
         throw new QueryExecutionException(
                 "Unsupported statement type: "
-                        + statement.getClass().getSimpleName()
+                        + statement
+                        .getClass()
+                        .getSimpleName()
         );
     }
 
-    /**
-     * InsertStatement nesnesini InsertCommand
-     * nesnesine dönüştürür.
-     */
+    // ==================================================
+    // INSERT
+    // ==================================================
+
     private static InsertCommand mapInsert(
             InsertStatement statement
     ) {
+
         return new InsertCommand(
                 statement.getTableName(),
                 statement.getColumns(),
@@ -79,51 +115,63 @@ public final class StatementCommandMapper {
         );
     }
 
+    // ==================================================
+    // SELECT
+    // ==================================================
+
     /**
-     * SelectStatement nesnesini SelectCommand
-     * nesnesine dönüştürür.
+     * Sprint 00-14:
+     *
+     * SelectStatement içerisindeki gelişmiş SELECT
+     * bilgileri artık parçalara ayrılarak tekrar
+     * oluşturulmaz.
+     *
+     * Tam statement doğrudan SelectCommand'a taşınır.
+     *
+     * Korunan bilgiler:
+     *
+     * - table alias
+     * - select item aliases
+     * - WHERE
+     * - GROUP BY
+     * - HAVING
+     * - ORDER BY
+     * - LIMIT
+     * - FETCH
+     * - aggregate expressions
      */
     private static SelectCommand mapSelect(
             SelectStatement statement
     ) {
-        if (statement.selectsAllColumns()) {
-            return SelectCommand.allFrom(
-                    statement.getTableName()
-            );
-        }
 
-        return SelectCommand.columnsFrom(
-                statement.getTableName(),
-                statement.getSelectedColumns()
+        return new SelectMapper().map(
+                statement
         );
     }
 
-    /**
-     * DeleteStatement nesnesini DeleteCommand
-     * nesnesine dönüştürür.
-     */
+    // ==================================================
+    // DELETE
+    // ==================================================
+
     private static DeleteCommand mapDelete(
             DeleteStatement statement
     ) {
+
         return new DeleteMapper().map(
                 statement
         );
     }
 
-    /**
-     * UpdateStatement nesnesini UpdateCommand
-     * nesnesine dönüştürür.
-     *
-     * WHERE metni UpdateMapper içerisinde
-     * ExpressionParser kullanılarak Expression
-     * nesnesine çevrilir.
-     */
+    // ==================================================
+    // UPDATE
+    // ==================================================
+
     private static UpdateCommand mapUpdate(
             UpdateStatement statement
     ) {
+
         return new UpdateMapper().map(
                 statement
         );
     }
-
 }

@@ -283,48 +283,68 @@ public final class QueryExecutor implements AutoCloseable {
      * @param sql çalıştırılacak SQL metni
      * @return yürütme sonucu
      */
-    public ExecuteResult execute(String sql) {
-        if (sql == null || sql.isBlank()) {
+    public ExecuteResult execute(
+            String sql
+    ) {
+
+        if (sql == null
+                || sql.isBlank()) {
+
             throw new QueryExecutionException(
                     "SQL statement cannot be null or blank."
             );
         }
 
-        String normalizedSql = removeTrailingSemicolon(
-                sql.trim()
-        );
-
-        String upperSql = normalizedSql.toUpperCase(
-                Locale.ROOT
-        );
+        String normalizedSql =
+                removeTrailingSemicolon(
+                        sql.trim()
+                );
 
         /*
-         * Kayıt işlemleri yeni SQL parser zincirinden geçer:
+         * SQL komutunun ilk keyword'ünü whitespace bağımsız al.
          *
-         * SQL
-         *   -> SqlParser
-         *   -> Statement
-         *   -> StatementCommandMapper
-         *   -> Command
-         *   -> QueryExecutor
+         * Böylece:
          *
-         * Yönetim komutları ise mevcut geriye uyumlu
-         * parseSqlCommand(...) yolu üzerinden yürütülür.
+         * SELECT * FROM users
+         *
+         * ve
+         *
+         * SELECT
+         *     department,
+         *     COUNT(*)
+         * FROM employees
+         *
+         * aynı şekilde SELECT olarak algılanır.
          */
-        if (upperSql.startsWith("INSERT ")
-                || upperSql.startsWith("SELECT ")
-                || upperSql.startsWith("UPDATE ")
-                || upperSql.startsWith("DELETE ")) {
+        String firstKeyword =
+                normalizedSql
+                        .split("\\s+", 2)[0]
+                        .toUpperCase(
+                                Locale.ROOT
+                        );
+
+        /*
+         * Data query / mutation işlemleri yeni parser
+         * pipeline'ından geçer.
+         */
+        if (firstKeyword.equals("INSERT")
+                || firstKeyword.equals("SELECT")
+                || firstKeyword.equals("UPDATE")
+                || firstKeyword.equals("DELETE")) {
 
             Statement statement;
 
             try {
+
                 statement =
                         new SqlParser().parse(
                                 normalizedSql
                         );
 
-            } catch (RuntimeException exception) {
+            } catch (
+                    RuntimeException exception
+            ) {
+
                 throw new QueryExecutionException(
                         "SQL parsing failed: "
                                 + exception.getMessage(),
@@ -335,13 +355,19 @@ public final class QueryExecutor implements AutoCloseable {
             Command command;
 
             try {
+
                 command =
                         StatementCommandMapper.map(
                                 statement
                         );
 
-            } catch (RuntimeException exception) {
-                if (exception instanceof QueryExecutionException queryExecutionException) {
+            } catch (
+                    RuntimeException exception
+            ) {
+
+                if (exception
+                        instanceof QueryExecutionException queryExecutionException) {
+
                     throw queryExecutionException;
                 }
 
@@ -352,15 +378,28 @@ public final class QueryExecutor implements AutoCloseable {
                 );
             }
 
-            return execute(command);
+            return execute(
+                    command
+            );
         }
 
+        /*
+         * CREATE DATABASE
+         * USE DATABASE
+         * DROP DATABASE
+         * CREATE TABLE
+         * DROP TABLE
+         *
+         * mevcut management parser yolunda kalır.
+         */
         Command command =
                 parseSqlCommand(
                         normalizedSql
                 );
 
-        return execute(command);
+        return execute(
+                command
+        );
     }
 
     /**
@@ -767,27 +806,107 @@ public final class QueryExecutor implements AutoCloseable {
 
     /**
      * SELECT komutunu çalıştırır.
+     *
+     * Sprint 00-14 final SELECT pipeline:
+     *
+     * SQL
+     *   ->
+     * SqlParser
+     *   ->
+     * SelectStatement
+     *   ->
+     * StatementCommandMapper
+     *   ->
+     * SelectCommand
+     *   ->
+     * SelectExecutor.executeStatement(...)
+     *
+     * Execution:
+     *
+     * WHERE
+     *   ->
+     * GROUP BY
+     *   ->
+     * Aggregate
+     *   ->
+     * HAVING
+     *   ->
+     * ORDER BY
+     *   ->
+     * LIMIT / FETCH
+     *   ->
+     * QueryResult
      */
     private ExecuteResult executeSelect(
             SelectCommand command
     ) {
+
+        Objects.requireNonNull(
+                command,
+                "SelectCommand cannot be null."
+        );
+
         QueryDataSource activeDataSource =
                 requireQueryDataSource();
 
-        Table table = activeDataSource.getTable(
-                command.getTableName()
-        );
+        /*
+         * Tablo ve fiziksel/memory row verileri
+         * QueryDataSource üzerinden alınır.
+         */
+        Table table =
+                activeDataSource.getTable(
+                        command.getTableName()
+                );
 
-        List<Row> rows = activeDataSource.getRows(
-                command.getTableName()
-        );
+        if (table == null) {
 
+            throw new QueryExecutionException(
+                    "QueryDataSource returned null table for: "
+                            + command.getTableName()
+            );
+        }
+
+        List<Row> rows =
+                activeDataSource.getRows(
+                        command.getTableName()
+                );
+
+        if (rows == null) {
+
+            throw new QueryExecutionException(
+                    "QueryDataSource returned null row list for table: "
+                            + command.getTableName()
+            );
+        }
+
+        /*
+         * Sprint 00-14:
+         *
+         * Eski:
+         *
+         * selectExecutor.execute(
+         *     table,
+         *     rows,
+         *     command.getWhereExpression()
+         * )
+         *
+         * kullanılmaz.
+         *
+         * Artık tam SelectStatement gönderilir.
+         */
         QueryResult queryResult =
-                selectExecutor.execute(
+                selectExecutor.executeStatement(
                         table,
                         rows,
-                        command.getWhereExpression()
+                        command.getStatement()
                 );
+
+        if (queryResult == null) {
+
+            throw new QueryExecutionException(
+                    "SelectExecutor returned null QueryResult."
+            );
+        }
 
         String message =
                 "SELECT query executed successfully. "

@@ -20,53 +20,83 @@ public class SelectExecutorDemo {
         Table usersTable = new Table(
                 "users",
                 List.of(
-                        new Column("id", DataType.INT),
-                        new Column("name", DataType.STRING),
-                        new Column("age", DataType.INT),
-                        new Column("city", DataType.STRING),
-                        new Column("active", DataType.BOOLEAN)
+                        new Column(
+                                "id",
+                                DataType.INT
+                        ),
+                        new Column(
+                                "name",
+                                DataType.STRING
+                        ),
+                        new Column(
+                                "age",
+                                DataType.INT
+                        ),
+                        new Column(
+                                "city",
+                                DataType.STRING
+                        ),
+                        new Column(
+                                "active",
+                                DataType.BOOLEAN
+                        )
                 )
         );
 
         List<Row> rows = List.of(
-                new Row(List.of(
-                        1,
-                        "Yunus Emre",
-                        21,
-                        "Malatya",
-                        true
-                )),
-                new Row(List.of(
-                        2,
-                        "Ali",
-                        16,
-                        "Ankara",
-                        true
-                )),
-                new Row(List.of(
-                        3,
-                        "Ayşe",
-                        27,
-                        "Malatya",
-                        false
-                )),
-                new Row(List.of(
-                        4,
-                        "Mehmet",
-                        35,
-                        "İstanbul",
-                        true
-                ))
+
+                new Row(
+                        List.of(
+                                1,
+                                "Yunus Emre",
+                                21,
+                                "Malatya",
+                                true
+                        )
+                ),
+
+                new Row(
+                        List.of(
+                                2,
+                                "Ali",
+                                16,
+                                "Ankara",
+                                true
+                        )
+                ),
+
+                new Row(
+                        List.of(
+                                3,
+                                "Ayşe",
+                                27,
+                                "Malatya",
+                                false
+                        )
+                ),
+
+                new Row(
+                        List.of(
+                                4,
+                                "Mehmet",
+                                35,
+                                "İstanbul",
+                                true
+                        )
+                )
         );
 
         Expression whereExpression =
                 new LogicalExpression(
+
                         new ComparisonExpression(
                                 "age",
                                 ComparisonOperator.GREATER_THAN,
                                 18
                         ),
+
                         LogicalOperator.AND,
+
                         new ComparisonExpression(
                                 "city",
                                 ComparisonOperator.EQUALS,
@@ -77,6 +107,9 @@ public class SelectExecutorDemo {
         SelectExecutor selectExecutor =
                 new SelectExecutor();
 
+        /*
+         * WHERE içeren SELECT
+         */
         QueryResult filteredResult =
                 selectExecutor.execute(
                         usersTable,
@@ -84,11 +117,17 @@ public class SelectExecutorDemo {
                         whereExpression
                 );
 
+        /*
+         * WHERE içermeyen SELECT
+         *
+         * Expression cast'i overload belirsizliğini
+         * ortadan kaldırır.
+         */
         QueryResult allRowsResult =
                 selectExecutor.execute(
                         usersTable,
                         rows,
-                        null
+                        (Expression) null
                 );
 
         System.out.println(
@@ -96,34 +135,46 @@ public class SelectExecutorDemo {
         );
 
         for (Row row : filteredResult.getRows()) {
-            System.out.println(row);
+
+            System.out.println(
+                    row
+            );
         }
 
         System.out.println();
 
         System.out.println(
                 "Filtrelenen satır sayısı: "
-                        + filteredResult.getAffectedRowCount()
+                        + filteredResult
+                        .getAffectedRowCount()
         );
 
         System.out.println(
                 "Çalışma süresi: "
-                        + filteredResult.getExecutionTimeMillis()
+                        + filteredResult
+                        .getExecutionTimeMillis()
                         + " ms"
         );
 
         System.out.println();
-        System.out.println("=== SELECT * FROM users ===");
+
+        System.out.println(
+                "=== SELECT * FROM users ==="
+        );
 
         for (Row row : allRowsResult.getRows()) {
-            System.out.println(row);
+
+            System.out.println(
+                    row
+            );
         }
 
         System.out.println();
 
         System.out.println(
                 "Toplam satır sayısı: "
-                        + allRowsResult.getAffectedRowCount()
+                        + allRowsResult
+                        .getAffectedRowCount()
         );
     }
 }

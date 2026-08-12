@@ -37,36 +37,41 @@ The project focuses on areas such as:
 - Transaction Management
 - Client / Server Architecture
 
-YEKDB can currently store records in its own physical `.data` files and persistently execute INSERT, UPDATE, and DELETE operations starting directly from SQL text.
+YEKDB can currently execute SQL text through its parser, mapper, command, and execution layers; persist INSERT, UPDATE, and DELETE operations to its own physical `.data` files; and execute advanced SELECT queries with filtering, grouping, aggregation, ordering, and result limiting.
 
 ---
 
-# 🚀 Sprint 00-12 Status
+# 🚀 Sprint 00-14 Status
 
-Sprint 00-12 completes the fundamental data mutation layer of YEKDB.
+Sprint 00-14 completes the advanced SELECT execution pipeline of YEKDB.
 
-## Completed CRUD Capabilities
+## Completed Query Capabilities
 
 | Feature | Status |
 |---|---|
-| INSERT | ✅ |
-| UPDATE | ✅ |
-| DELETE | ✅ |
-| WHERE-based mutations | ✅ |
-| SQL Parser integration | ✅ |
-| Statement → Command mapping | ✅ |
-| Physical persistence | ✅ |
-| Logical DELETE | ✅ |
-| Integration tests | ✅ |
-| CRUD mutation demo | ✅ |
+| AND / OR / NOT | ✅ |
+| Parentheses & precedence | ✅ |
+| BETWEEN / NOT BETWEEN | ✅ |
+| IN / NOT IN | ✅ |
+| LIKE / NOT LIKE | ✅ |
+| ILIKE / NOT ILIKE | ✅ |
+| Table / column aliases | ✅ |
+| ORDER BY ASC / DESC | ✅ |
+| LIMIT | ✅ |
+| FETCH FIRST / NEXT | ✅ |
+| GROUP BY | ✅ |
+| HAVING | ✅ |
+| COUNT / SUM / AVG / MIN / MAX | ✅ |
+| Advanced SELECT parser integration | ✅ |
+| Statement → Command preservation | ✅ |
+| Full SELECT execution pipeline | ✅ |
+| Maven verification | ✅ — 805 tests passed |
 
 ---
 
 # 🧠 Current Query Architecture
 
-SQL statements are not sent directly to the storage layer.
-
-They pass through the following execution pipeline:
+SQL statements are not sent directly to an executor. The query layer preserves the parsed statement model until execution so advanced SELECT clauses are not lost during mapping.
 
 ```text
 SQL
@@ -83,6 +88,10 @@ Statement
  ▼
 StatementCommandMapper
  │
+ ├── SelectMapper
+ ├── UpdateMapper
+ └── DeleteMapper
+ │
  ▼
 Command
  │
@@ -93,21 +102,19 @@ QueryExecutor
  ├── UpdateExecutor
  ├── DeleteExecutor
  └── SelectExecutor
+        │
+        ├── WHERE
+        ├── GROUP BY
+        ├── AggregateExecutor
+        ├── HAVING
+        ├── OrderByExecutor
+        └── LIMIT / FETCH
  │
  ▼
-RecordManager
- │
- ▼
-PageManager
- │
- ▼
-StorageEngine
- │
- ▼
-.data File
+QueryResult / Storage Layer
 ```
 
-This architecture keeps SQL parsing, query execution, and physical storage responsibilities separated from each other.
+For advanced SELECT statements, `SelectCommand` preserves the complete `SelectStatement`, including aliases, grouping, HAVING, ordering, limiting, and aggregate expressions.
 
 ---
 
@@ -286,40 +293,67 @@ This approach provides a foundation for future systems such as:
 
 ---
 
-# 🔍 WHERE Expression Engine
+# 🔍 Expression & Advanced SELECT Engine
 
-UPDATE and DELETE reuse the WHERE expression infrastructure.
+The expression layer is shared by SELECT, UPDATE, and DELETE operations. Sprint 00-13 introduced recursive logical expressions; Sprint 00-14 extends predicate parsing and completes the advanced SELECT pipeline.
 
-Examples:
-
-```sql
-WHERE id = 1
-```
-
-```sql
-WHERE age > 18
-```
-
-```sql
-WHERE score >= 75.5
-```
-
-```sql
-WHERE active = true
-```
-
-Currently supported comparison operators:
+Supported logical and comparison features:
 
 ```text
-=
-!=
->
-<
->=
-<=
+=   !=   >   <   >=   <=
+AND   OR   NOT
+Parentheses
+BETWEEN / NOT BETWEEN
+IN / NOT IN
+LIKE / NOT LIKE
+ILIKE / NOT ILIKE
 ```
 
-The expression layer prevents the execution engine from depending directly on raw SQL text.
+Advanced SELECT features:
+
+```text
+ORDER BY ... ASC | DESC
+LIMIT n
+FETCH FIRST n ROWS ONLY
+FETCH NEXT n ROWS ONLY
+GROUP BY column[, ...]
+HAVING expression
+COUNT(*) / COUNT(column)
+SUM(column)
+AVG(column)
+MIN(column)
+MAX(column)
+```
+
+Example:
+
+```sql
+SELECT department, COUNT(*) AS employee_count
+FROM employees e
+WHERE active = true
+GROUP BY department
+HAVING employee_count > 1
+ORDER BY employee_count DESC
+LIMIT 3;
+```
+
+Execution order:
+
+```text
+WHERE
+  ↓
+GROUP BY
+  ↓
+Aggregate
+  ↓
+HAVING
+  ↓
+ORDER BY
+  ↓
+LIMIT / FETCH
+  ↓
+QueryResult
+```
 
 ---
 
@@ -395,106 +429,32 @@ This confirms that INSERT, UPDATE, and DELETE operations are persisted through t
 
 ---
 
-# 🖼️ Sprint 00-12 Architecture Visuals
-
-The following diagrams document the internal CRUD mutation architecture introduced in Sprint 00-12.
-
-## CRUD Mutation Architecture
-
-This diagram shows the complete mutation pipeline from SQL input to physical `.data` storage.
-
-![CRUD Mutation Architecture](docs/screenshots/00-12/CRUD Mutation Architecture.png)
-
----
-
-## Statement → Command Mapping
-
-This diagram shows how parser-generated Statement objects are transformed into execution-ready Command objects.
-
-![Statement Command Mapping](docs/screenshots/00-12/Statement Command Mapping.png)
-
----
-
-## INSERT Execution Flow
-
-This diagram explains how an INSERT statement is parsed, validated, converted into a Row, and written to the physical storage layer.
-
-![INSERT Execution Flow](docs/screenshots/00-12/Insert Execution Flow.png)
-
----
-
-## UPDATE Execution Flow
-
-This diagram shows how UPDATE reuses the Expression infrastructure for WHERE evaluation before modifying the persisted record.
-
-![UPDATE Execution Flow](docs/screenshots/00-12/Update Execution Flow.png)
-
----
-
-## Logical DELETE Structure
-
-This diagram explains YEKDB's logical delete strategy, where deleted records remain physically stored but are filtered out from active record views.
-
-![Logical DELETE Structure](docs/screenshots/00-12/Logical Delete Structure.png)
-
----
-
 # 🧪 Testing
 
-YEKDB uses **JUnit 5**.
+YEKDB uses **JUnit 5** and Maven for component, parser, execution, integration, and persistence verification.
 
-Tests cover both component-level behavior and physical persistence.
+Sprint 00-14 verifies:
 
-Sprint 00-12 includes the following scenarios:
+- BETWEEN / IN / LIKE / ILIKE predicates
+- ORDER BY with multiple columns and directions
+- LIMIT and FETCH
+- GROUP BY and HAVING
+- COUNT / SUM / AVG / MIN / MAX
+- Aggregate aliases
+- WHERE → GROUP BY → HAVING → ORDER BY → LIMIT execution order
+- SQL → Parser → Mapper → Command → QueryExecutor → SelectExecutor wiring
+- Backward compatibility of the existing query APIs
 
-### INSERT
-
-```text
-SQL INSERT
-→ Record creation
-→ Write to .data file
-```
-
-### UPDATE
-
-```text
-INSERT
-→ UPDATE
-→ Close Storage Engine
-→ Reopen Storage Engine
-→ Verify updated Row
-```
-
-### DELETE with WHERE
+Final Maven verification:
 
 ```text
-INSERT
-→ DELETE WHERE
-→ Reopen Storage Engine
-→ Active records = 0
+Tests run: 805
+Failures: 0
+Errors: 0
+BUILD SUCCESS
 ```
 
-### DELETE with no matching row
-
-```text
-DELETE WHERE id = 999
-→ Deleted row count = 0
-→ Existing row remains active
-```
-
-### DELETE ALL
-
-```sql
-DELETE FROM users;
-```
-
-Expected result:
-
-```text
-Active records = 0
-```
-
-Run all tests with:
+Run the complete suite with:
 
 ```bash
 mvn clean test
@@ -612,6 +572,7 @@ NotExpression
 # 📚 Sprint History
 
 ## Sprint 00-01
+
 - Initial architecture
 - Java 21
 - Maven
@@ -619,31 +580,37 @@ NotExpression
 - Initial package structure
 
 ## Sprint 00-02
+
 - Core Engine
 - Storage Engine architecture
 
 ## Sprint 00-03
+
 - Configuration
 - Logger
 - Page structure
 
 ## Sprint 00-04
+
 - Page Serialization
 - Page Manager
 - Record foundation
 
 ## Sprint 00-05
+
 - Physical Storage Engine
 - DataFile
 - DatabaseHeader
 - Page persistence
 
 ## Sprint 00-06
+
 - Database Management
 - Database metadata
 - Database lifecycle
 
 ## Sprint 00-07
+
 - Table Management
 - Column
 - DataType
@@ -651,11 +618,13 @@ NotExpression
 - TableManager
 
 ## Sprint 00-08
+
 - Row
 - RowSerializer
 - RecordManager
 
 ## Sprint 00-09
+
 - Index foundation
 - RecordPointer
 - IndexMetadata
@@ -663,12 +632,14 @@ NotExpression
 - IndexManager
 
 ## Sprint 00-10
+
 - Query Execution Foundation
 - Command infrastructure
 - ExecuteResult
 - QueryExecutor foundation
 
 ## Sprint 00-11
+
 - SELECT execution
 - WHERE expression infrastructure
 - Query evaluation
@@ -676,6 +647,7 @@ NotExpression
 - Query optimizer foundation
 
 ## Sprint 00-12
+
 - INSERT execution
 - UPDATE execution
 - DELETE execution
@@ -686,7 +658,32 @@ NotExpression
 - Logical delete
 - CRUD integration tests
 - CRUD mutation demo
-- Architecture documentation
+
+## Sprint 00-13
+
+- Recursive WHERE Expression Engine
+- AND / OR / NOT
+- Parentheses and operator precedence
+- Recursive parsing and evaluation
+- SELECT / UPDATE / DELETE expression integration
+- Persistence verification
+- ExpressionEngineDemo
+
+## Sprint 00-14
+
+- BETWEEN / NOT BETWEEN
+- IN / NOT IN
+- LIKE / NOT LIKE / ILIKE / NOT ILIKE
+- Table and column aliases
+- ORDER BY ASC / DESC
+- LIMIT / FETCH
+- GROUP BY / HAVING
+- COUNT / SUM / AVG / MIN / MAX
+- Advanced SelectStatement model
+- SelectMapper / SelectCommand preservation
+- Final SelectExecutor pipeline
+- Advanced SELECT integration tests
+- 805-test Maven verification
 
 ---
 
@@ -703,10 +700,12 @@ YEKDB is still under active development.
 - [x] UPDATE
 - [x] DELETE
 - [x] Basic WHERE
-- [ ] AND / OR / NOT extensions
-- [ ] ORDER BY
-- [ ] LIMIT
-- [ ] Aggregate Functions
+- [x] AND / OR / NOT extensions
+- [x] BETWEEN / IN / LIKE / ILIKE
+- [x] ORDER BY
+- [x] LIMIT / FETCH
+- [x] GROUP BY / HAVING
+- [x] Aggregate Functions
 - [ ] JOIN
 
 ## Storage Engine

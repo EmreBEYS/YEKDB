@@ -1,198 +1,309 @@
 package com.yekdb.query.command;
 
 import com.yekdb.query.expression.Expression;
+import com.yekdb.query.statement.FetchClause;
+import com.yekdb.query.statement.GroupByClause;
+import com.yekdb.query.statement.HavingClause;
+import com.yekdb.query.statement.LimitClause;
+import com.yekdb.query.statement.OrderByItem;
+import com.yekdb.query.statement.SelectItem;
+import com.yekdb.query.statement.SelectStatement;
+import com.yekdb.query.statement.TableReference;
 
 import java.util.List;
 import java.util.Objects;
 
 /**
- * SELECT SQL komutunu temsil eder.
+ * SELECT SQL komutunu execution katmanında temsil eder.
  *
- * Desteklenen kullanımlar:
+ * Sprint 00-14 final tasarımı:
  *
- * SELECT * FROM table
- * SELECT * FROM table WHERE ...
- * SELECT column1, column2 FROM table
+ * SelectCommand artık gelişmiş SelectStatement modelini
+ * doğrudan taşır.
+ *
+ * Böylece aşağıdaki bilgiler Statement -> Command
+ * geçişinde kaybolmaz:
+ *
+ * - SELECT items
+ * - Column alias
+ * - Table alias
+ * - WHERE
+ * - GROUP BY
+ * - HAVING
+ * - ORDER BY
+ * - LIMIT
+ * - FETCH
+ * - Aggregate expressions
+ *
+ * Eski factory metodları geriye dönük uyumluluk için
+ * korunmuştur.
  */
 public final class SelectCommand implements Command {
 
     /**
-     * Kayıtların okunacağı tablo adı.
+     * Parser tarafından oluşturulmuş tam SELECT modeli.
      */
-    private final String tableName;
+    private final SelectStatement statement;
+
+    // ==================================================
+    // CONSTRUCTOR
+    // ==================================================
 
     /**
-     * Seçilecek sütun adları.
-     *
-     * SELECT * kullanımında bu liste boştur.
+     * Tam SelectStatement üzerinden command oluşturur.
      */
-    private final List<String> selectedColumns;
-
-    /**
-     * Tüm sütunların seçilip seçilmediğini belirtir.
-     */
-    private final boolean selectAll;
-
-    /**
-     * WHERE koşulunu temsil eden expression ağacı.
-     *
-     * WHERE bulunmuyorsa null değerindedir.
-     */
-    private final Expression whereExpression;
-
     private SelectCommand(
+            SelectStatement statement
+    ) {
+
+        this.statement =
+                Objects.requireNonNull(
+                        statement,
+                        "SelectStatement cannot be null."
+                );
+    }
+
+    // ==================================================
+    // SPRINT 00-14 FACTORY
+    // ==================================================
+
+    /**
+     * Parser / Mapper tarafından oluşturulan gelişmiş
+     * SelectStatement'ı kayıpsız şekilde command'a taşır.
+     */
+    public static SelectCommand fromStatement(
+            SelectStatement statement
+    ) {
+
+        return new SelectCommand(
+                statement
+        );
+    }
+
+    // ==================================================
+    // BACKWARD COMPATIBILITY
+    // ==================================================
+
+    /**
+     * SELECT * FROM table
+     */
+    public static SelectCommand allFrom(
+            String tableName
+    ) {
+
+        return new SelectCommand(
+                new SelectStatement(
+                        tableName,
+                        List.of("*")
+                )
+        );
+    }
+
+    /**
+     * SELECT * FROM table WHERE ...
+     */
+    public static SelectCommand allFromWhere(
             String tableName,
-            List<String> selectedColumns,
-            boolean selectAll,
             Expression whereExpression
     ) {
-        this.tableName = validateTableName(tableName);
-        this.selectAll = selectAll;
-        this.whereExpression = whereExpression;
+
+        Objects.requireNonNull(
+                whereExpression,
+                "WHERE expression cannot be null."
+        );
+
+        return new SelectCommand(
+                new SelectStatement(
+                        tableName,
+                        List.of("*"),
+                        whereExpression
+                )
+        );
+    }
+
+    /**
+     * SELECT column1, column2 FROM table
+     */
+    public static SelectCommand columnsFrom(
+            String tableName,
+            List<String> selectedColumns
+    ) {
 
         Objects.requireNonNull(
                 selectedColumns,
                 "Selected column list cannot be null."
         );
 
-        this.selectedColumns = selectedColumns.stream()
-                .map(SelectCommand::validateColumnName)
-                .toList();
-
-        if (!selectAll && this.selectedColumns.isEmpty()) {
-            throw new IllegalArgumentException(
-                    "At least one column must be selected."
-            );
-        }
-
-        if (selectAll && !this.selectedColumns.isEmpty()) {
-            throw new IllegalArgumentException(
-                    "SELECT ALL command cannot contain column names."
-            );
-        }
-    }
-
-    /**
-     * SELECT * FROM table komutu oluşturur.
-     */
-    public static SelectCommand allFrom(String tableName) {
         return new SelectCommand(
-                tableName,
-                List.of(),
-                true,
-                null
-        );
-    }
-
-    /**
-     * SELECT * FROM table WHERE ... komutu oluşturur.
-     */
-    public static SelectCommand allFromWhere(
-            String tableName,
-            Expression whereExpression
-    ) {
-        return new SelectCommand(
-                tableName,
-                List.of(),
-                true,
-                Objects.requireNonNull(
-                        whereExpression,
-                        "WHERE expression cannot be null."
+                new SelectStatement(
+                        tableName,
+                        selectedColumns
                 )
         );
     }
 
     /**
-     * Belirli sütunları seçen SELECT komutu oluşturur.
-     */
-    public static SelectCommand columnsFrom(
-            String tableName,
-            List<String> selectedColumns
-    ) {
-        return new SelectCommand(
-                tableName,
-                selectedColumns,
-                false,
-                null
-        );
-    }
-
-    /**
-     * Belirli sütunları WHERE koşuluyla seçen komut oluşturur.
+     * SELECT column1, column2
+     * FROM table
+     * WHERE ...
      */
     public static SelectCommand columnsFromWhere(
             String tableName,
             List<String> selectedColumns,
             Expression whereExpression
     ) {
-        return new SelectCommand(
-                tableName,
+
+        Objects.requireNonNull(
                 selectedColumns,
-                false,
-                Objects.requireNonNull(
-                        whereExpression,
-                        "WHERE expression cannot be null."
+                "Selected column list cannot be null."
+        );
+
+        Objects.requireNonNull(
+                whereExpression,
+                "WHERE expression cannot be null."
+        );
+
+        return new SelectCommand(
+                new SelectStatement(
+                        tableName,
+                        selectedColumns,
+                        whereExpression
                 )
         );
     }
 
+    // ==================================================
+    // FULL STATEMENT
+    // ==================================================
+
+    /**
+     * Tam SELECT statement modelini döndürür.
+     *
+     * QueryExecutor Sprint 00-14 execution pipeline'ı
+     * bu modeli SelectExecutor.executeStatement(...)
+     * metoduna gönderir.
+     */
+    public SelectStatement getStatement() {
+        return statement;
+    }
+
+    // ==================================================
+    // COMPATIBILITY GETTERS
+    // ==================================================
+
     public String getTableName() {
-        return tableName;
+        return statement.getTableName();
+    }
+
+    public String getTableAlias() {
+        return statement.getTableAlias();
+    }
+
+    public boolean hasTableAlias() {
+        return statement.hasTableAlias();
+    }
+
+    public TableReference getTable() {
+        return statement.getTable();
+    }
+
+    public List<SelectItem> getSelectItems() {
+        return statement.getSelectItems();
     }
 
     public List<String> getSelectedColumns() {
-        return selectedColumns;
+        return statement.getSelectedColumns();
     }
 
     public boolean isSelectAll() {
-        return selectAll;
+        return statement.selectsAllColumns();
     }
 
+    public boolean selectsAllColumns() {
+        return statement.selectsAllColumns();
+    }
+
+    // ==================================================
+    // WHERE
+    // ==================================================
+
     public Expression getWhereExpression() {
-        return whereExpression;
+        return statement.getWhereExpression();
     }
 
     public boolean hasWhereExpression() {
-        return whereExpression != null;
+        return statement.hasWhereClause();
     }
 
-    private static String validateTableName(String tableName) {
-        String normalizedName = Objects.requireNonNull(
-                tableName,
-                "Table name cannot be null."
-        ).trim();
+    // ==================================================
+    // GROUP BY
+    // ==================================================
 
-        if (normalizedName.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Table name cannot be blank."
-            );
-        }
-
-        return normalizedName;
+    public GroupByClause getGroupByClause() {
+        return statement.getGroupByClause();
     }
 
-    private static String validateColumnName(String columnName) {
-        String normalizedName = Objects.requireNonNull(
-                columnName,
-                "Column name cannot be null."
-        ).trim();
-
-        if (normalizedName.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Column name cannot be blank."
-            );
-        }
-
-        return normalizedName;
+    public boolean hasGroupBy() {
+        return statement.hasGroupBy();
     }
+
+    // ==================================================
+    // HAVING
+    // ==================================================
+
+    public HavingClause getHavingClause() {
+        return statement.getHavingClause();
+    }
+
+    public boolean hasHaving() {
+        return statement.hasHaving();
+    }
+
+    // ==================================================
+    // ORDER BY
+    // ==================================================
+
+    public List<OrderByItem> getOrderByItems() {
+        return statement.getOrderByItems();
+    }
+
+    public boolean hasOrderBy() {
+        return statement.hasOrderBy();
+    }
+
+    // ==================================================
+    // LIMIT
+    // ==================================================
+
+    public LimitClause getLimitClause() {
+        return statement.getLimitClause();
+    }
+
+    public boolean hasLimit() {
+        return statement.hasLimit();
+    }
+
+    // ==================================================
+    // FETCH
+    // ==================================================
+
+    public FetchClause getFetchClause() {
+        return statement.getFetchClause();
+    }
+
+    public boolean hasFetch() {
+        return statement.hasFetch();
+    }
+
+    // ==================================================
+    // TO STRING
+    // ==================================================
 
     @Override
     public String toString() {
+
         return "SelectCommand{" +
-                "tableName='" + tableName + '\'' +
-                ", selectedColumns=" + selectedColumns +
-                ", selectAll=" + selectAll +
-                ", whereExpression=" + whereExpression +
+                "statement=" + statement +
                 '}';
     }
 }
