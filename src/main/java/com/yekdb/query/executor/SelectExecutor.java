@@ -6,6 +6,8 @@ import com.yekdb.query.optimizer.QueryOptimizer;
 import com.yekdb.query.optimizer.QueryPlan;
 import com.yekdb.query.result.QueryResult;
 import com.yekdb.query.statement.GroupByClause;
+import com.yekdb.query.statement.JoinClause;
+import com.yekdb.query.statement.TableReference;
 import com.yekdb.query.statement.SelectItem;
 import com.yekdb.query.statement.SelectStatement;
 import com.yekdb.storage.record.Row;
@@ -74,6 +76,8 @@ public final class SelectExecutor {
 
     private final ExpressionEvaluator expressionEvaluator;
 
+    private final JoinExecutor joinExecutor;
+
     // ==================================================
     // CONSTRUCTORS
     // ==================================================
@@ -89,7 +93,8 @@ public final class SelectExecutor {
                 new GroupByExecutor(),
                 new AggregateExecutor(),
                 new LimitExecutor(),
-                new ExpressionEvaluator()
+                new ExpressionEvaluator(),
+                new JoinExecutor()
         );
     }
 
@@ -106,7 +111,8 @@ public final class SelectExecutor {
                 new GroupByExecutor(),
                 new AggregateExecutor(),
                 new LimitExecutor(),
-                new ExpressionEvaluator()
+                new ExpressionEvaluator(),
+                new JoinExecutor()
         );
     }
 
@@ -125,7 +131,8 @@ public final class SelectExecutor {
                 new GroupByExecutor(),
                 new AggregateExecutor(),
                 new LimitExecutor(),
-                new ExpressionEvaluator()
+                new ExpressionEvaluator(),
+                new JoinExecutor()
         );
     }
 
@@ -140,6 +147,30 @@ public final class SelectExecutor {
             AggregateExecutor aggregateExecutor,
             LimitExecutor limitExecutor,
             ExpressionEvaluator expressionEvaluator
+    ) {
+
+        this(
+                queryOptimizer,
+                orderByExecutor,
+                groupByExecutor,
+                aggregateExecutor,
+                limitExecutor,
+                expressionEvaluator,
+                new JoinExecutor()
+        );
+    }
+
+    /**
+     * Sprint 00-15 tam dependency-injection constructor.
+     */
+    public SelectExecutor(
+            QueryOptimizer queryOptimizer,
+            OrderByExecutor orderByExecutor,
+            GroupByExecutor groupByExecutor,
+            AggregateExecutor aggregateExecutor,
+            LimitExecutor limitExecutor,
+            ExpressionEvaluator expressionEvaluator,
+            JoinExecutor joinExecutor
     ) {
 
         this.queryOptimizer =
@@ -176,6 +207,12 @@ public final class SelectExecutor {
                 Objects.requireNonNull(
                         expressionEvaluator,
                         "ExpressionEvaluator cannot be null."
+                );
+
+        this.joinExecutor =
+                Objects.requireNonNull(
+                        joinExecutor,
+                        "JoinExecutor cannot be null."
                 );
     }
 
@@ -261,6 +298,14 @@ public final class SelectExecutor {
                 statement,
                 "SelectStatement cannot be null."
         );
+
+        if (statement.hasJoins()) {
+
+            throw new QueryExecutionException(
+                    "JOIN statement requires the JOIN-aware executeStatement "
+                            + "overload with right table rows."
+            );
+        }
 
         long startTime =
                 System.nanoTime();
@@ -395,6 +440,710 @@ public final class SelectExecutor {
                 currentColumns,
                 currentRows,
                 executionTime
+        );
+    }
+
+
+    // ==================================================
+    // SPRINT 00-15 - JOIN-AWARE SELECT PIPELINE
+    // ==================================================
+
+    /**
+     * Sprint 00-15 JOIN-aware SELECT execution.
+     *
+     * Bu overload tek bir INNER JOIN'i destekler.
+     * Çoklu JOIN ve JOIN + aggregate/group desteği
+     * sonraki JOIN sprintlerinde genişletilecektir.
+     *
+     * Execution sırası:
+     *
+     * 1 - INNER JOIN
+     * 2 - WHERE
+     * 3 - SELECT projection
+     * 4 - ORDER BY
+     * 5 - LIMIT / FETCH
+     * 6 - QueryResult
+     */
+    public QueryResult executeStatement(
+            Table leftTable,
+            List<Row> leftRows,
+            Table rightTable,
+            List<Row> rightRows,
+            SelectStatement statement
+    ) {
+
+        Objects.requireNonNull(
+                leftTable,
+                "Left table cannot be null."
+        );
+
+        Objects.requireNonNull(
+                leftRows,
+                "Left row list cannot be null."
+        );
+
+        Objects.requireNonNull(
+                rightTable,
+                "Right table cannot be null."
+        );
+
+        Objects.requireNonNull(
+                rightRows,
+                "Right row list cannot be null."
+        );
+
+        Objects.requireNonNull(
+                statement,
+                "SelectStatement cannot be null."
+        );
+
+        if (!statement.hasJoins()) {
+
+            return executeStatement(
+                    leftTable,
+                    leftRows,
+                    statement
+            );
+        }
+
+        if (statement.getJoinCount() != 1) {
+
+            throw new QueryExecutionException(
+                    "Sprint 00-15 supports exactly one JOIN per SELECT statement."
+            );
+        }
+
+        boolean containsAggregate =
+                containsAggregateExpression(
+                        statement.getSelectItems()
+                );
+
+        if (statement.hasGroupBy()
+                || statement.hasHaving()
+                || containsAggregate) {
+
+            throw new QueryExecutionException(
+                    "Sprint 00-15 JOIN foundation does not yet support "
+                            + "JOIN with GROUP BY, HAVING or aggregate expressions."
+            );
+        }
+
+        long startTime =
+                System.nanoTime();
+
+        JoinClause joinClause =
+                statement.getJoins()
+                        .get(0);
+
+        List<Map<String, Object>> leftRowMaps =
+                convertRowsToMaps(
+                        leftTable,
+                        leftRows
+                );
+
+        List<Map<String, Object>> rightRowMaps =
+                convertRowsToMaps(
+                        rightTable,
+                        rightRows
+                );
+
+        List<Map<String, Object>> joinedMaps =
+                joinExecutor.execute(
+                        statement.getTable(),
+                        leftRowMaps,
+                        joinClause,
+                        rightRowMaps
+                );
+
+        // ----------------------------------------------
+        // 2 - WHERE
+        // ----------------------------------------------
+
+        if (statement.hasWhereClause()) {
+
+            joinedMaps =
+                    applyWhereToJoinedRows(
+                            joinedMaps,
+                            statement.getWhereExpression()
+                    );
+        }
+
+        // ----------------------------------------------
+        // 3 - SELECT projection
+        // ----------------------------------------------
+
+        JoinedProjection projection =
+                projectJoinedRows(
+                        leftTable,
+                        rightTable,
+                        statement,
+                        joinClause,
+                        joinedMaps
+                );
+
+        List<Column> currentColumns =
+                new ArrayList<>(
+                        projection.columns()
+                );
+
+        List<Row> currentRows =
+                new ArrayList<>(
+                        projection.rows()
+                );
+
+        // ----------------------------------------------
+        // 4 - ORDER BY
+        // ----------------------------------------------
+
+        if (statement.hasOrderBy()) {
+
+            currentRows =
+                    orderByExecutor.execute(
+                            currentRows,
+                            currentColumns,
+                            statement.getOrderByItems()
+                    );
+        }
+
+        // ----------------------------------------------
+        // 5 - LIMIT
+        // ----------------------------------------------
+
+        if (statement.hasLimit()) {
+
+            currentRows =
+                    limitExecutor.execute(
+                            currentRows,
+                            statement.getLimitClause()
+                    );
+        }
+
+        // ----------------------------------------------
+        // 5 - FETCH
+        // ----------------------------------------------
+
+        if (statement.hasFetch()) {
+
+            currentRows =
+                    limitExecutor.execute(
+                            currentRows,
+                            statement.getFetchClause()
+                    );
+        }
+
+        long executionTime =
+                System.nanoTime()
+                        - startTime;
+
+        return QueryResult.selectSuccess(
+                currentColumns,
+                currentRows,
+                executionTime
+        );
+    }
+
+    /**
+     * Storage Row listesini JoinExecutor'ın kullandığı
+     * column -> value map biçimine dönüştürür.
+     */
+    private List<Map<String, Object>> convertRowsToMaps(
+            Table table,
+            List<Row> rows
+    ) {
+
+        List<Column> columns =
+                table.getColumns();
+
+        List<Map<String, Object>> result =
+                new ArrayList<>();
+
+        for (Row row : rows) {
+
+            Map<String, Object> values =
+                    new LinkedHashMap<>();
+
+            for (int i = 0;
+                 i < columns.size();
+                 i++) {
+
+                values.put(
+                        columns.get(i)
+                                .getName(),
+                        row.getValue(i)
+                );
+            }
+
+            result.add(
+                    values
+            );
+        }
+
+        return result;
+    }
+
+    /**
+     * JOIN sonrasında WHERE filtresi uygular.
+     *
+     * Qualified kolonlar ExpressionEvaluator tarafından
+     * doğrudan çözülebilir:
+     *
+     * e.name
+     * d.name
+     */
+    private List<Map<String, Object>> applyWhereToJoinedRows(
+            List<Map<String, Object>> rows,
+            Expression whereExpression
+    ) {
+
+        List<Map<String, Object>> matched =
+                new ArrayList<>();
+
+        for (Map<String, Object> row : rows) {
+
+            if (expressionEvaluator.evaluate(
+                    whereExpression,
+                    row
+            )) {
+
+                matched.add(
+                        row
+                );
+            }
+        }
+
+        return matched;
+    }
+
+    /**
+     * JOIN edilmiş map satırlarını SELECT projection
+     * sonucuna dönüştürür.
+     */
+    private JoinedProjection projectJoinedRows(
+            Table leftTable,
+            Table rightTable,
+            SelectStatement statement,
+            JoinClause joinClause,
+            List<Map<String, Object>> joinedRows
+    ) {
+
+        TableReference leftReference =
+                statement.getTable();
+
+        TableReference rightReference =
+                new TableReference(
+                        joinClause.getTableName(),
+                        joinClause.getAlias()
+                );
+
+        if (statement.selectsAllColumns()) {
+
+            return projectAllJoinedColumns(
+                    leftTable,
+                    rightTable,
+                    leftReference,
+                    rightReference,
+                    joinedRows
+            );
+        }
+
+        List<Column> resultColumns =
+                new ArrayList<>();
+
+        List<SelectedJoinedColumn> selectedColumns =
+                new ArrayList<>();
+
+        for (SelectItem item
+                : statement.getSelectItems()) {
+
+            String expression =
+                    item.getExpression()
+                            .trim();
+
+            JoinedSourceColumn sourceColumn =
+                    resolveJoinedSourceColumn(
+                            expression,
+                            leftTable,
+                            rightTable,
+                            leftReference,
+                            rightReference
+                    );
+
+            String outputName =
+                    getOutputColumnName(
+                            item
+                    );
+
+            boolean duplicate =
+                    resultColumns.stream()
+                            .anyMatch(
+                                    column ->
+                                            column.getName()
+                                                    .equalsIgnoreCase(
+                                                            outputName
+                                                    )
+                            );
+
+            if (duplicate) {
+
+                throw new QueryExecutionException(
+                        "Duplicate SELECT result column: "
+                                + outputName
+                );
+            }
+
+            resultColumns.add(
+                    new Column(
+                            outputName,
+                            sourceColumn.column()
+                                    .getDataType()
+                    )
+            );
+
+            selectedColumns.add(
+                    new SelectedJoinedColumn(
+                            sourceColumn.mapKey(),
+                            outputName
+                    )
+            );
+        }
+
+        List<Row> resultRows =
+                new ArrayList<>();
+
+        for (Map<String, Object> joinedRow
+                : joinedRows) {
+
+            List<Object> values =
+                    new ArrayList<>();
+
+            for (SelectedJoinedColumn selectedColumn
+                    : selectedColumns) {
+
+                if (!containsKeyIgnoreCase(
+                        joinedRow,
+                        selectedColumn.mapKey()
+                )) {
+
+                    throw new QueryExecutionException(
+                            "Column not found in JOIN result: "
+                                    + selectedColumn.mapKey()
+                    );
+                }
+
+                values.add(
+                        getValueIgnoreCase(
+                                joinedRow,
+                                selectedColumn.mapKey()
+                        )
+                );
+            }
+
+            resultRows.add(
+                    new Row(
+                            values
+                    )
+            );
+        }
+
+        return new JoinedProjection(
+                List.copyOf(resultColumns),
+                resultRows
+        );
+    }
+
+    /**
+     * SELECT * JOIN projection.
+     *
+     * Çakışmayı önlemek için result kolonları
+     * effective table name ile qualified üretilir.
+     *
+     * Örnek:
+     *
+     * e.id
+     * e.name
+     * d.id
+     * d.name
+     */
+    private JoinedProjection projectAllJoinedColumns(
+            Table leftTable,
+            Table rightTable,
+            TableReference leftReference,
+            TableReference rightReference,
+            List<Map<String, Object>> joinedRows
+    ) {
+
+        List<Column> resultColumns =
+                new ArrayList<>();
+
+        List<String> mapKeys =
+                new ArrayList<>();
+
+        addAllProjectionColumns(
+                resultColumns,
+                mapKeys,
+                leftTable,
+                leftReference
+        );
+
+        addAllProjectionColumns(
+                resultColumns,
+                mapKeys,
+                rightTable,
+                rightReference
+        );
+
+        List<Row> resultRows =
+                new ArrayList<>();
+
+        for (Map<String, Object> joinedRow
+                : joinedRows) {
+
+            List<Object> values =
+                    new ArrayList<>();
+
+            for (String mapKey : mapKeys) {
+
+                values.add(
+                        getValueIgnoreCase(
+                                joinedRow,
+                                mapKey
+                        )
+                );
+            }
+
+            resultRows.add(
+                    new Row(
+                            values
+                    )
+            );
+        }
+
+        return new JoinedProjection(
+                List.copyOf(resultColumns),
+                resultRows
+        );
+    }
+
+    private void addAllProjectionColumns(
+            List<Column> resultColumns,
+            List<String> mapKeys,
+            Table table,
+            TableReference reference
+    ) {
+
+        String qualifier =
+                reference.getEffectiveName();
+
+        for (Column column
+                : table.getColumns()) {
+
+            String qualifiedName =
+                    qualifier
+                            + "."
+                            + column.getName();
+
+            resultColumns.add(
+                    new Column(
+                            qualifiedName,
+                            column.getDataType()
+                    )
+            );
+
+            mapKeys.add(
+                    qualifiedName
+            );
+        }
+    }
+
+    /**
+     * SELECT item'ın hangi JOIN tarafına ait olduğunu çözer.
+     *
+     * Qualified kolonlar doğrudan qualifier üzerinden,
+     * unqualified kolonlar ise ambiguity kontrolü ile çözülür.
+     */
+    private JoinedSourceColumn resolveJoinedSourceColumn(
+            String expression,
+            Table leftTable,
+            Table rightTable,
+            TableReference leftReference,
+            TableReference rightReference
+    ) {
+
+        String trimmed =
+                Objects.requireNonNull(
+                                expression,
+                                "SELECT expression cannot be null."
+                        )
+                        .trim();
+
+        int dotIndex =
+                trimmed.lastIndexOf('.');
+
+        if (dotIndex >= 0) {
+
+            String qualifier =
+                    trimmed.substring(
+                            0,
+                            dotIndex
+                    );
+
+            String columnName =
+                    trimmed.substring(
+                            dotIndex + 1
+                    );
+
+            if (leftReference.matches(
+                    qualifier
+            )) {
+
+                Column column =
+                        findColumn(
+                                leftTable.getColumns(),
+                                columnName
+                        );
+
+                return new JoinedSourceColumn(
+                        column,
+                        leftReference.getEffectiveName()
+                                + "."
+                                + column.getName()
+                );
+            }
+
+            if (rightReference.matches(
+                    qualifier
+            )) {
+
+                Column column =
+                        findColumn(
+                                rightTable.getColumns(),
+                                columnName
+                        );
+
+                return new JoinedSourceColumn(
+                        column,
+                        rightReference.getEffectiveName()
+                                + "."
+                                + column.getName()
+                );
+            }
+
+            throw new QueryExecutionException(
+                    "Unknown table or alias in SELECT column: "
+                            + expression
+            );
+        }
+
+        Column leftColumn =
+                findColumnOrNull(
+                        leftTable.getColumns(),
+                        trimmed
+                );
+
+        Column rightColumn =
+                findColumnOrNull(
+                        rightTable.getColumns(),
+                        trimmed
+                );
+
+        if (leftColumn != null
+                && rightColumn != null) {
+
+            throw new QueryExecutionException(
+                    "Ambiguous column reference: "
+                            + expression
+            );
+        }
+
+        if (leftColumn != null) {
+
+            return new JoinedSourceColumn(
+                    leftColumn,
+                    leftReference.getEffectiveName()
+                            + "."
+                            + leftColumn.getName()
+            );
+        }
+
+        if (rightColumn != null) {
+
+            return new JoinedSourceColumn(
+                    rightColumn,
+                    rightReference.getEffectiveName()
+                            + "."
+                            + rightColumn.getName()
+            );
+        }
+
+        throw new QueryExecutionException(
+                "Column not found: "
+                        + expression
+        );
+    }
+
+    private Column findColumnOrNull(
+            List<Column> columns,
+            String columnName
+    ) {
+
+        String normalized =
+                normalizeColumnName(
+                        columnName
+                );
+
+        for (Column column : columns) {
+
+            if (column.getName()
+                    .equalsIgnoreCase(
+                            normalized
+                    )) {
+
+                return column;
+            }
+        }
+
+        return null;
+    }
+
+    private boolean containsKeyIgnoreCase(
+            Map<String, Object> values,
+            String key
+    ) {
+
+        for (String existingKey
+                : values.keySet()) {
+
+            if (existingKey.equalsIgnoreCase(
+                    key
+            )) {
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private Object getValueIgnoreCase(
+            Map<String, Object> values,
+            String key
+    ) {
+
+        for (Map.Entry<String, Object> entry
+                : values.entrySet()) {
+
+            if (entry.getKey()
+                    .equalsIgnoreCase(
+                            key
+                    )) {
+
+                return entry.getValue();
+            }
+        }
+
+        throw new QueryExecutionException(
+                "Column not found in JOIN result: "
+                        + key
         );
     }
 
@@ -1107,6 +1856,33 @@ public final class SelectExecutor {
     // ==================================================
     // INTERNAL RESULT TYPES
     // ==================================================
+
+    /**
+     * JOIN projection sonucu.
+     */
+    private record JoinedProjection(
+            List<Column> columns,
+            List<Row> rows
+    ) {
+    }
+
+    /**
+     * JOIN SELECT item çözümleme sonucu.
+     */
+    private record JoinedSourceColumn(
+            Column column,
+            String mapKey
+    ) {
+    }
+
+    /**
+     * Projection sırasında kullanılan seçilmiş JOIN kolonu.
+     */
+    private record SelectedJoinedColumn(
+            String mapKey,
+            String outputName
+    ) {
+    }
 
     /**
      * GROUP BY + Aggregate execution sonucu.

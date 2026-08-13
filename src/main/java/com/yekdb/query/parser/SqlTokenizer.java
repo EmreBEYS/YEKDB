@@ -8,88 +8,263 @@ import java.util.Map;
 /**
  * SQL metnini anlamlı token parçalarına ayırır.
  *
- * <p>Desteklenen temel yapılar:</p>
+ * Desteklenen temel yapılar:
  *
- * <ul>
- *     <li>SQL anahtar kelimeleri</li>
- *     <li>Tanımlayıcılar</li>
- *     <li>Metin, sayı, boolean ve null değerleri</li>
- *     <li>Karşılaştırma operatörleri</li>
- *     <li>Parantez, virgül, nokta, yıldız ve noktalı virgül</li>
- * </ul>
+ * - SQL anahtar kelimeleri
+ * - Tanımlayıcılar
+ * - Metin, sayı, boolean ve null değerleri
+ * - Karşılaştırma operatörleri
+ * - Parantez, virgül, nokta, yıldız ve noktalı virgül
+ *
+ * Sprint 00-14:
+ *
+ * - AS
+ * - BETWEEN
+ * - IN
+ * - LIKE / ILIKE
+ * - NOT
+ * - ORDER BY
+ * - LIMIT
+ * - FETCH
+ * - GROUP BY
+ * - HAVING
+ *
+ * Sprint 00-15:
+ *
+ * - INNER
+ * - JOIN
+ * - ON
  */
 public final class SqlTokenizer {
+
+    // ==================================================
+    // KEYWORDS
+    // ==================================================
 
     private static final Map<String, SqlTokenType> KEYWORDS =
             Map.ofEntries(
 
-                    /*
-                     * Temel SQL keyword'leri
-                     */
-                    Map.entry("SELECT", SqlTokenType.SELECT),
-                    Map.entry("INSERT", SqlTokenType.INSERT),
-                    Map.entry("UPDATE", SqlTokenType.UPDATE),
-                    Map.entry("DELETE", SqlTokenType.DELETE),
+                    // ------------------------------------------
+                    // Core SQL
+                    // ------------------------------------------
 
-                    Map.entry("INTO", SqlTokenType.INTO),
-                    Map.entry("VALUES", SqlTokenType.VALUES),
-                    Map.entry("FROM", SqlTokenType.FROM),
-                    Map.entry("SET", SqlTokenType.SET),
-                    Map.entry("WHERE", SqlTokenType.WHERE),
+                    Map.entry(
+                            "SELECT",
+                            SqlTokenType.SELECT
+                    ),
 
-                    Map.entry("CREATE", SqlTokenType.CREATE),
-                    Map.entry("DROP", SqlTokenType.DROP),
-                    Map.entry("DATABASE", SqlTokenType.DATABASE),
-                    Map.entry("TABLE", SqlTokenType.TABLE),
-                    Map.entry("USE", SqlTokenType.USE),
+                    Map.entry(
+                            "INSERT",
+                            SqlTokenType.INSERT
+                    ),
 
-                    /*
-                     * Sprint 00-14
-                     * Alias
-                     */
-                    Map.entry("AS", SqlTokenType.AS),
+                    Map.entry(
+                            "UPDATE",
+                            SqlTokenType.UPDATE
+                    ),
 
-                    /*
-                     * Sprint 00-14
-                     * Predicate / Filtering
-                     */
-                    Map.entry("BETWEEN", SqlTokenType.BETWEEN),
-                    Map.entry("IN", SqlTokenType.IN),
-                    Map.entry("LIKE", SqlTokenType.LIKE),
-                    Map.entry("ILIKE", SqlTokenType.ILIKE),
-                    Map.entry("NOT", SqlTokenType.NOT),
+                    Map.entry(
+                            "DELETE",
+                            SqlTokenType.DELETE
+                    ),
 
-                    /*
-                     * Sprint 00-14
-                     * Ordering
-                     */
-                    Map.entry("ORDER", SqlTokenType.ORDER),
-                    Map.entry("BY", SqlTokenType.BY),
-                    Map.entry("ASC", SqlTokenType.ASC),
-                    Map.entry("DESC", SqlTokenType.DESC),
+                    Map.entry(
+                            "INTO",
+                            SqlTokenType.INTO
+                    ),
 
-                    /*
-                     * Sprint 00-14
-                     * Result limiting
-                     */
-                    Map.entry("LIMIT", SqlTokenType.LIMIT),
-                    Map.entry("FETCH", SqlTokenType.FETCH),
-                    Map.entry("FIRST", SqlTokenType.FIRST),
-                    Map.entry("NEXT", SqlTokenType.NEXT),
-                    Map.entry("ROW", SqlTokenType.ROW),
-                    Map.entry("ROWS", SqlTokenType.ROWS),
-                    Map.entry("ONLY", SqlTokenType.ONLY),
+                    Map.entry(
+                            "VALUES",
+                            SqlTokenType.VALUES
+                    ),
 
-                    /*
-                     * Sprint 00-14
-                     * Grouping
-                     */
-                    Map.entry("GROUP", SqlTokenType.GROUP),
-                    Map.entry("HAVING", SqlTokenType.HAVING)
+                    Map.entry(
+                            "FROM",
+                            SqlTokenType.FROM
+                    ),
+
+                    Map.entry(
+                            "SET",
+                            SqlTokenType.SET
+                    ),
+
+                    Map.entry(
+                            "WHERE",
+                            SqlTokenType.WHERE
+                    ),
+
+                    Map.entry(
+                            "CREATE",
+                            SqlTokenType.CREATE
+                    ),
+
+                    Map.entry(
+                            "DROP",
+                            SqlTokenType.DROP
+                    ),
+
+                    Map.entry(
+                            "DATABASE",
+                            SqlTokenType.DATABASE
+                    ),
+
+                    Map.entry(
+                            "TABLE",
+                            SqlTokenType.TABLE
+                    ),
+
+                    Map.entry(
+                            "USE",
+                            SqlTokenType.USE
+                    ),
+
+                    // ------------------------------------------
+                    // Sprint 00-14
+                    // Alias
+                    // ------------------------------------------
+
+                    Map.entry(
+                            "AS",
+                            SqlTokenType.AS
+                    ),
+
+                    // ------------------------------------------
+                    // Sprint 00-14
+                    // Predicate / Filtering
+                    // ------------------------------------------
+
+                    Map.entry(
+                            "BETWEEN",
+                            SqlTokenType.BETWEEN
+                    ),
+
+                    Map.entry(
+                            "IN",
+                            SqlTokenType.IN
+                    ),
+
+                    Map.entry(
+                            "LIKE",
+                            SqlTokenType.LIKE
+                    ),
+
+                    Map.entry(
+                            "ILIKE",
+                            SqlTokenType.ILIKE
+                    ),
+
+                    Map.entry(
+                            "NOT",
+                            SqlTokenType.NOT
+                    ),
+
+                    // ------------------------------------------
+                    // Sprint 00-14
+                    // Ordering
+                    // ------------------------------------------
+
+                    Map.entry(
+                            "ORDER",
+                            SqlTokenType.ORDER
+                    ),
+
+                    Map.entry(
+                            "BY",
+                            SqlTokenType.BY
+                    ),
+
+                    Map.entry(
+                            "ASC",
+                            SqlTokenType.ASC
+                    ),
+
+                    Map.entry(
+                            "DESC",
+                            SqlTokenType.DESC
+                    ),
+
+                    // ------------------------------------------
+                    // Sprint 00-14
+                    // Result limiting
+                    // ------------------------------------------
+
+                    Map.entry(
+                            "LIMIT",
+                            SqlTokenType.LIMIT
+                    ),
+
+                    Map.entry(
+                            "FETCH",
+                            SqlTokenType.FETCH
+                    ),
+
+                    Map.entry(
+                            "FIRST",
+                            SqlTokenType.FIRST
+                    ),
+
+                    Map.entry(
+                            "NEXT",
+                            SqlTokenType.NEXT
+                    ),
+
+                    Map.entry(
+                            "ROW",
+                            SqlTokenType.ROW
+                    ),
+
+                    Map.entry(
+                            "ROWS",
+                            SqlTokenType.ROWS
+                    ),
+
+                    Map.entry(
+                            "ONLY",
+                            SqlTokenType.ONLY
+                    ),
+
+                    // ------------------------------------------
+                    // Sprint 00-14
+                    // Grouping
+                    // ------------------------------------------
+
+                    Map.entry(
+                            "GROUP",
+                            SqlTokenType.GROUP
+                    ),
+
+                    Map.entry(
+                            "HAVING",
+                            SqlTokenType.HAVING
+                    ),
+
+                    // ------------------------------------------
+                    // Sprint 00-15
+                    // JOIN Foundation
+                    // ------------------------------------------
+
+                    Map.entry(
+                            "INNER",
+                            SqlTokenType.INNER
+                    ),
+
+                    Map.entry(
+                            "JOIN",
+                            SqlTokenType.JOIN
+                    ),
+
+                    Map.entry(
+                            "ON",
+                            SqlTokenType.ON
+                    )
             );
 
     private String sql;
     private int position;
+
+    // ==================================================
+    // TOKENIZE
+    // ==================================================
 
     /**
      * Verilen SQL metnini token listesine dönüştürür.
@@ -97,17 +272,23 @@ public final class SqlTokenizer {
      * @param sql tokenize edilecek SQL
      * @return değiştirilemez token listesi
      */
-    public List<SqlToken> tokenize(String sql) {
+    public List<SqlToken> tokenize(
+            String sql
+    ) {
 
-        if (sql == null || sql.isBlank()) {
+        if (sql == null
+                || sql.isBlank()) {
 
             throw new ParserException(
                     "SQL cannot be null or blank."
             );
         }
 
-        this.sql = sql;
-        this.position = 0;
+        this.sql =
+                sql;
+
+        this.position =
+                0;
 
         List<SqlToken> tokens =
                 new ArrayList<>();
@@ -117,19 +298,26 @@ public final class SqlTokenizer {
             char current =
                     currentCharacter();
 
-            /*
-             * Whitespace
-             */
-            if (Character.isWhitespace(current)) {
+            // ------------------------------------------
+            // Whitespace
+            // ------------------------------------------
+
+            if (Character.isWhitespace(
+                    current
+            )) {
 
                 position++;
+
                 continue;
             }
 
-            /*
-             * Identifier veya keyword
-             */
-            if (isIdentifierStart(current)) {
+            // ------------------------------------------
+            // Identifier / Keyword
+            // ------------------------------------------
+
+            if (isIdentifierStart(
+                    current
+            )) {
 
                 tokens.add(
                         readWord()
@@ -138,10 +326,13 @@ public final class SqlTokenizer {
                 continue;
             }
 
-            /*
-             * Sayısal değer
-             */
-            if (Character.isDigit(current)
+            // ------------------------------------------
+            // Number
+            // ------------------------------------------
+
+            if (Character.isDigit(
+                    current
+            )
                     || isNegativeNumberStart()) {
 
                 tokens.add(
@@ -151,9 +342,10 @@ public final class SqlTokenizer {
                 continue;
             }
 
-            /*
-             * String literal
-             */
+            // ------------------------------------------
+            // String
+            // ------------------------------------------
+
             if (current == '\'') {
 
                 tokens.add(
@@ -163,9 +355,10 @@ public final class SqlTokenizer {
                 continue;
             }
 
-            /*
-             * Operator / punctuation
-             */
+            // ------------------------------------------
+            // Operator / punctuation
+            // ------------------------------------------
+
             tokens.add(
                     readSymbol()
             );
@@ -182,6 +375,10 @@ public final class SqlTokenizer {
                 tokens
         );
     }
+
+    // ==================================================
+    // WORD
+    // ==================================================
 
     /**
      * Anahtar kelime veya identifier okur.
@@ -212,11 +409,16 @@ public final class SqlTokenizer {
                         Locale.ROOT
                 );
 
-        /*
-         * Boolean literal
-         */
-        if ("TRUE".equals(upperValue)
-                || "FALSE".equals(upperValue)) {
+        // ------------------------------------------
+        // Boolean literal
+        // ------------------------------------------
+
+        if ("TRUE".equals(
+                upperValue
+        )
+                || "FALSE".equals(
+                upperValue
+        )) {
 
             return new SqlToken(
                     SqlTokenType.BOOLEAN_LITERAL,
@@ -226,10 +428,13 @@ public final class SqlTokenizer {
             );
         }
 
-        /*
-         * NULL literal
-         */
-        if ("NULL".equals(upperValue)) {
+        // ------------------------------------------
+        // NULL
+        // ------------------------------------------
+
+        if ("NULL".equals(
+                upperValue
+        )) {
 
             return new SqlToken(
                     SqlTokenType.NULL_LITERAL,
@@ -237,9 +442,10 @@ public final class SqlTokenizer {
             );
         }
 
-        /*
-         * SQL keyword
-         */
+        // ------------------------------------------
+        // Keyword
+        // ------------------------------------------
+
         SqlTokenType keywordType =
                 KEYWORDS.get(
                         upperValue
@@ -253,36 +459,43 @@ public final class SqlTokenizer {
             );
         }
 
-        /*
-         * Normal identifier
-         */
+        // ------------------------------------------
+        // Identifier
+        // ------------------------------------------
+
         return new SqlToken(
                 SqlTokenType.IDENTIFIER,
                 value
         );
     }
 
+    // ==================================================
+    // NUMBER
+    // ==================================================
+
     /**
      * Tam sayı veya ondalıklı sayı okur.
      *
-     * <p>Negatif sayılar da desteklenir.</p>
+     * Negatif sayılar da desteklenir.
      */
     private SqlToken readNumber() {
 
         int start =
                 position;
 
-        /*
-         * Negatif sayı
-         */
+        // ------------------------------------------
+        // Negative
+        // ------------------------------------------
+
         if (currentCharacter() == '-') {
 
             position++;
         }
 
-        /*
-         * Tam sayı kısmı
-         */
+        // ------------------------------------------
+        // Integer section
+        // ------------------------------------------
+
         while (!isAtEnd()
                 && Character.isDigit(
                 currentCharacter()
@@ -291,9 +504,10 @@ public final class SqlTokenizer {
             position++;
         }
 
-        /*
-         * Ondalık sayı kısmı
-         */
+        // ------------------------------------------
+        // Decimal section
+        // ------------------------------------------
+
         if (!isAtEnd()
                 && currentCharacter() == '.'
                 && hasNextCharacter()
@@ -321,19 +535,23 @@ public final class SqlTokenizer {
         );
     }
 
+    // ==================================================
+    // STRING
+    // ==================================================
+
     /**
      * Tek tırnak içerisindeki metin değerini okur.
      *
-     * <p>SQL biçimindeki iki tek tırnak kaçışını destekler:</p>
+     * SQL biçimindeki iki tek tırnak kaçışını destekler.
      *
-     * <pre>
+     * Örnek:
+     *
      * 'Emre''nin'
-     * </pre>
      */
     private SqlToken readStringLiteral() {
 
         /*
-         * Açılış tek tırnağını atla.
+         * Opening quote.
          */
         position++;
 
@@ -352,12 +570,14 @@ public final class SqlTokenizer {
                  *
                  * ''
                  *
-                 * tek bir ' karakteri anlamına gelir.
+                 * tek bir quote anlamına gelir.
                  */
                 if (hasNextCharacter()
                         && nextCharacter() == '\'') {
 
-                    builder.append('\'');
+                    builder.append(
+                            '\''
+                    );
 
                     position += 2;
 
@@ -365,7 +585,7 @@ public final class SqlTokenizer {
                 }
 
                 /*
-                 * String sonu
+                 * String sonu.
                  */
                 position++;
 
@@ -386,6 +606,10 @@ public final class SqlTokenizer {
                 "Unterminated string literal."
         );
     }
+
+    // ==================================================
+    // SYMBOL
+    // ==================================================
 
     /**
      * Operatör veya noktalama işareti okur.
@@ -417,11 +641,9 @@ public final class SqlTokenizer {
                     );
 
             /*
-             * Sprint 00-14
-             *
              * Qualified column:
              *
-             * u.name
+             * e.name
              * d.id
              */
             case '.' ->
@@ -458,9 +680,10 @@ public final class SqlTokenizer {
         };
     }
 
-    /**
-     * != operatörünü okur.
-     */
+    // ==================================================
+    // !=
+    // ==================================================
+
     private SqlToken readNotEquals() {
 
         if (!hasNextCharacter()
@@ -479,9 +702,10 @@ public final class SqlTokenizer {
         );
     }
 
-    /**
-     * > veya >= operatörünü okur.
-     */
+    // ==================================================
+    // > >=
+    // ==================================================
+
     private SqlToken readGreaterThanOperator() {
 
         position++;
@@ -503,18 +727,17 @@ public final class SqlTokenizer {
         );
     }
 
-    /**
-     * <, <= veya <> operatörünü okur.
-     */
+    // ==================================================
+    // < <= <>
+    // ==================================================
+
     private SqlToken readLessThanOperator() {
 
         position++;
 
         if (!isAtEnd()) {
 
-            /*
-             * <=
-             */
+            // <=
             if (currentCharacter() == '=') {
 
                 position++;
@@ -525,12 +748,7 @@ public final class SqlTokenizer {
                 );
             }
 
-            /*
-             * SQL standardında
-             * alternatif NOT EQUALS:
-             *
-             * <>
-             */
+            // <>
             if (currentCharacter() == '>') {
 
                 position++;
@@ -548,9 +766,10 @@ public final class SqlTokenizer {
         );
     }
 
-    /**
-     * Tek karakterlik token üretir.
-     */
+    // ==================================================
+    // SINGLE CHARACTER
+    // ==================================================
+
     private SqlToken singleCharacterToken(
             SqlTokenType tokenType
     ) {
@@ -568,10 +787,10 @@ public final class SqlTokenizer {
         );
     }
 
-    /**
-     * '-' karakterinin negatif bir sayının
-     * başlangıcı olup olmadığını kontrol eder.
-     */
+    // ==================================================
+    // NEGATIVE NUMBER
+    // ==================================================
+
     private boolean isNegativeNumberStart() {
 
         return currentCharacter() == '-'
@@ -581,33 +800,34 @@ public final class SqlTokenizer {
         );
     }
 
-    /**
-     * Identifier başlangıç karakteri.
-     */
+    // ==================================================
+    // IDENTIFIER
+    // ==================================================
+
     private boolean isIdentifierStart(
             char character
     ) {
 
         return Character.isLetter(
                 character
-        ) || character == '_';
+        )
+                || character == '_';
     }
 
-    /**
-     * Identifier devam karakteri.
-     */
     private boolean isIdentifierPart(
             char character
     ) {
 
         return Character.isLetterOrDigit(
                 character
-        ) || character == '_';
+        )
+                || character == '_';
     }
 
-    /**
-     * Mevcut karakter.
-     */
+    // ==================================================
+    // CHARACTER HELPERS
+    // ==================================================
+
     private char currentCharacter() {
 
         return sql.charAt(
@@ -615,9 +835,6 @@ public final class SqlTokenizer {
         );
     }
 
-    /**
-     * Bir sonraki karakter.
-     */
     private char nextCharacter() {
 
         return sql.charAt(
@@ -625,27 +842,22 @@ public final class SqlTokenizer {
         );
     }
 
-    /**
-     * Bir sonraki karakter mevcut mu?
-     */
     private boolean hasNextCharacter() {
 
         return position + 1
                 < sql.length();
     }
 
-    /**
-     * SQL sonuna ulaşıldı mı?
-     */
     private boolean isAtEnd() {
 
         return position
                 >= sql.length();
     }
 
-    /**
-     * Tokenization hatası oluşturur.
-     */
+    // ==================================================
+    // ERROR
+    // ==================================================
+
     private ParserException tokenizationError(
             String message
     ) {

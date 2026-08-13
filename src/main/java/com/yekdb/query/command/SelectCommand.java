@@ -1,14 +1,7 @@
 package com.yekdb.query.command;
 
 import com.yekdb.query.expression.Expression;
-import com.yekdb.query.statement.FetchClause;
-import com.yekdb.query.statement.GroupByClause;
-import com.yekdb.query.statement.HavingClause;
-import com.yekdb.query.statement.LimitClause;
-import com.yekdb.query.statement.OrderByItem;
-import com.yekdb.query.statement.SelectItem;
-import com.yekdb.query.statement.SelectStatement;
-import com.yekdb.query.statement.TableReference;
+import com.yekdb.query.statement.*;
 
 import java.util.List;
 import java.util.Objects;
@@ -296,6 +289,22 @@ public final class SelectCommand implements Command {
     }
 
     // ==================================================
+    // SPRINT 00-15 - JOIN
+    // ==================================================
+
+    public List<JoinClause> getJoins() {
+        return statement.getJoins();
+    }
+
+    public boolean hasJoins() {
+        return statement.hasJoins();
+    }
+
+    public int getJoinCount() {
+        return statement.getJoinCount();
+    }
+
+    // ==================================================
     // TO STRING
     // ==================================================
 
@@ -306,4 +315,5 @@ public final class SelectCommand implements Command {
                 "statement=" + statement +
                 '}';
     }
+
 }

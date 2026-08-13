@@ -37,41 +37,73 @@ The project focuses on areas such as:
 - Transaction Management
 - Client / Server Architecture
 
-YEKDB can currently execute SQL text through its parser, mapper, command, and execution layers; persist INSERT, UPDATE, and DELETE operations to its own physical `.data` files; and execute advanced SELECT queries with filtering, grouping, aggregation, ordering, and result limiting.
+YEKDB can currently execute SQL text through its parser, mapper, command, and execution layers; persist INSERT, UPDATE, and DELETE operations to its own physical `.data` files; execute advanced SELECT queries with filtering, grouping, aggregation, ordering, and result limiting; and execute single-table INNER JOIN queries end-to-end.
 
 ---
 
-# 🚀 Sprint 00-14 Status
+# 🚀 Sprint 00-15 Status
 
-Sprint 00-14 completes the advanced SELECT execution pipeline of YEKDB.
+Sprint 00-15 introduces the first relational JOIN execution foundation of YEKDB.
 
-## Completed Query Capabilities
+## Completed JOIN Capabilities
 
 | Feature | Status |
 |---|---|
-| AND / OR / NOT | ✅ |
-| Parentheses & precedence | ✅ |
-| BETWEEN / NOT BETWEEN | ✅ |
-| IN / NOT IN | ✅ |
-| LIKE / NOT LIKE | ✅ |
-| ILIKE / NOT ILIKE | ✅ |
-| Table / column aliases | ✅ |
-| ORDER BY ASC / DESC | ✅ |
-| LIMIT | ✅ |
-| FETCH FIRST / NEXT | ✅ |
-| GROUP BY | ✅ |
-| HAVING | ✅ |
-| COUNT / SUM / AVG / MIN / MAX | ✅ |
-| Advanced SELECT parser integration | ✅ |
-| Statement → Command preservation | ✅ |
-| Full SELECT execution pipeline | ✅ |
-| Maven verification | ✅ — 805 tests passed |
+| INNER JOIN | ✅ |
+| JOIN shorthand as INNER JOIN | ✅ |
+| Qualified column references | ✅ |
+| Table aliases in JOIN queries | ✅ |
+| Column-to-column ON conditions | ✅ |
+| Nested Loop Join execution | ✅ |
+| JOIN + WHERE | ✅ |
+| JOIN + SELECT projection | ✅ |
+| JOIN + ORDER BY | ✅ |
+| JOIN + LIMIT / FETCH | ✅ |
+| Ambiguous column detection | ✅ |
+| SQL Parser integration | ✅ |
+| SelectStatement JOIN preservation | ✅ |
+| QueryExecutor JOIN wiring | ✅ |
+| End-to-end JOIN integration tests | ✅ |
+| Maven regression verification | ✅ — 842 tests passed |
+
+### Sprint 00-15 Scope
+
+Sprint 00-15 intentionally focuses on a stable **single INNER JOIN foundation**.
+
+Currently supported:
+
+```sql
+SELECT e.name, d.name
+FROM employee e
+INNER JOIN department d
+ON e.department_id = d.id
+WHERE d.name = 'IT';
+```
+
+The shorter SQL form is also supported:
+
+```sql
+SELECT e.name, d.name
+FROM employee e
+JOIN department d
+ON e.department_id = d.id;
+```
+
+The following JOIN capabilities are intentionally deferred to later work:
+
+- LEFT JOIN
+- RIGHT JOIN
+- FULL JOIN
+- Multiple JOIN chains
+- JOIN + GROUP BY / HAVING
+- JOIN + aggregate expressions
+- Advanced JOIN optimization
 
 ---
 
 # 🧠 Current Query Architecture
 
-SQL statements are not sent directly to an executor. The query layer preserves the parsed statement model until execution so advanced SELECT clauses are not lost during mapping.
+SQL statements are not sent directly to an executor. The parsed statement model is preserved through the mapping and command layers so advanced SELECT and JOIN information is available when execution begins.
 
 ```text
 SQL
@@ -103,6 +135,10 @@ QueryExecutor
  ├── DeleteExecutor
  └── SelectExecutor
         │
+        ├── JoinExecutor
+        │      └── Nested Loop INNER JOIN
+        │
+        ├── ExpressionEvaluator
         ├── WHERE
         ├── GROUP BY
         ├── AggregateExecutor
@@ -114,7 +150,9 @@ QueryExecutor
 QueryResult / Storage Layer
 ```
 
-For advanced SELECT statements, `SelectCommand` preserves the complete `SelectStatement`, including aliases, grouping, HAVING, ordering, limiting, and aggregate expressions.
+For SELECT statements, `SelectCommand` preserves the complete `SelectStatement`. Sprint 00-15 extends that model with JOIN clauses, allowing the parser-generated JOIN definition to reach `QueryExecutor` and `SelectExecutor` without being rebuilt or lost.
+
+For JOIN queries, `QueryExecutor` loads both the left and right tables from `QueryDataSource` and dispatches execution to the JOIN-aware `SelectExecutor` pipeline.
 
 ---
 
@@ -357,6 +395,128 @@ QueryResult
 
 ---
 
+# 🔗 INNER JOIN Foundation
+
+Sprint 00-15 adds relational table combination to the query engine.
+
+The initial implementation uses a **Nested Loop Join** strategy.
+
+Example:
+
+```sql
+SELECT e.name, d.name
+FROM employee e
+INNER JOIN department d
+ON e.department_id = d.id
+WHERE d.name = 'IT';
+```
+
+Execution flow:
+
+```text
+SQL Text
+   ↓
+SqlTokenizer
+   ↓
+SqlParser
+   ↓
+SelectStatement
+   ├── TableReference
+   └── JoinClause
+           ↓
+StatementCommandMapper
+   ↓
+SelectMapper
+   ↓
+SelectCommand
+   ↓
+QueryExecutor
+   ├── Load left table / rows
+   └── Load right table / rows
+           ↓
+SelectExecutor
+   ↓
+JoinExecutor
+   ↓
+Nested Loop Join
+   ↓
+ExpressionEvaluator (ON)
+   ↓
+WHERE
+   ↓
+SELECT Projection
+   ↓
+ORDER BY
+   ↓
+LIMIT / FETCH
+   ↓
+QueryResult
+```
+
+### JOIN Model
+
+Sprint 00-15 introduces and integrates:
+
+```text
+JoinType
+JoinClause
+ColumnExpression
+ComparisonExpression column-to-column support
+```
+
+Qualified references such as:
+
+```text
+e.department_id
+d.id
+d.name
+```
+
+are preserved and resolved during JOIN execution.
+
+### Ambiguous Columns
+
+When both tables contain the same column name, unqualified references are rejected when the source cannot be determined safely.
+
+Example:
+
+```sql
+SELECT id
+FROM employee e
+INNER JOIN department d
+ON e.department_id = d.id;
+```
+
+Because both tables contain `id`, the query must use a qualified reference such as:
+
+```sql
+SELECT e.id
+```
+
+or:
+
+```sql
+SELECT d.id
+```
+
+### Current JOIN Execution Order
+
+```text
+INNER JOIN
+   ↓
+WHERE
+   ↓
+SELECT Projection
+   ↓
+ORDER BY
+   ↓
+LIMIT / FETCH
+   ↓
+QueryResult
+```
+
+---
+
 # 🧪 CRUD Mutation Demo
 
 At the end of Sprint 00-12, an end-to-end CRUD mutation demo was completed successfully.
@@ -431,24 +591,36 @@ This confirms that INSERT, UPDATE, and DELETE operations are persisted through t
 
 # 🧪 Testing
 
-YEKDB uses **JUnit 5** and Maven for component, parser, execution, integration, and persistence verification.
+YEKDB uses **JUnit 5** and Maven for component, parser, execution, integration, persistence, and regression verification.
 
-Sprint 00-14 verifies:
-
-- BETWEEN / IN / LIKE / ILIKE predicates
-- ORDER BY with multiple columns and directions
-- LIMIT and FETCH
-- GROUP BY and HAVING
-- COUNT / SUM / AVG / MIN / MAX
-- Aggregate aliases
-- WHERE → GROUP BY → HAVING → ORDER BY → LIMIT execution order
-- SQL → Parser → Mapper → Command → QueryExecutor → SelectExecutor wiring
-- Backward compatibility of the existing query APIs
-
-Final Maven verification:
+Sprint 00-15 adds dedicated JOIN coverage at multiple levels:
 
 ```text
-Tests run: 805
+JoinExecutorTest                  12 / 12
+SelectExecutorJoinTest             8 / 8
+SqlParserJoinTest                  8 / 8
+QueryExecutorJoinIntegrationTest   8 / 8
+```
+
+The JOIN integration suite verifies:
+
+- INNER JOIN execution
+- `JOIN` shorthand
+- aliases
+- qualified column references
+- column-to-column ON conditions
+- JOIN + WHERE
+- SELECT * with joined tables
+- exclusion of unmatched rows
+- ambiguous column rejection
+- missing JOIN table handling
+- backward compatibility of non-JOIN SELECT execution
+- complete SQL → Parser → Mapper → Command → QueryExecutor → SelectExecutor → JoinExecutor wiring
+
+Final Maven regression verification:
+
+```text
+Tests run: 842
 Failures: 0
 Errors: 0
 BUILD SUCCESS
@@ -517,6 +689,9 @@ InsertStatement
 UpdateStatement
 DeleteStatement
 SelectStatement
+JoinClause
+JoinType
+TableReference
 ```
 
 ## parser
@@ -551,6 +726,7 @@ InsertExecutor
 UpdateExecutor
 DeleteExecutor
 SelectExecutor
+JoinExecutor
 TableScanExecutor
 ```
 
@@ -560,6 +736,7 @@ Contains the execution model used by WHERE conditions.
 
 ```text
 Expression
+ColumnExpression
 ComparisonExpression
 ComparisonOperator
 LogicalExpression
@@ -685,6 +862,22 @@ NotExpression
 - Advanced SELECT integration tests
 - 805-test Maven verification
 
+## Sprint 00-15
+
+- INNER JOIN foundation
+- `JOIN` shorthand support
+- JoinType / JoinClause model
+- ColumnExpression qualified references
+- Column-to-column comparison support
+- Nested Loop JoinExecutor
+- JOIN-aware SelectExecutor
+- JOIN-aware SqlTokenizer / SqlParser
+- QueryExecutor dual-table loading and dispatch
+- Ambiguous column detection
+- End-to-end SQL JOIN integration
+- Backward compatibility verification
+- 842-test Maven verification
+
 ---
 
 # 🛣️ Roadmap
@@ -706,7 +899,9 @@ YEKDB is still under active development.
 - [x] LIMIT / FETCH
 - [x] GROUP BY / HAVING
 - [x] Aggregate Functions
-- [ ] JOIN
+- [x] INNER JOIN foundation
+- [ ] LEFT / RIGHT / FULL JOIN
+- [ ] Multiple JOIN chains
 
 ## Storage Engine
 

@@ -1,11 +1,16 @@
 package com.yekdb.query.parser;
 
+import com.yekdb.query.expression.ColumnExpression;
+import com.yekdb.query.expression.ComparisonExpression;
+import com.yekdb.query.expression.ComparisonOperator;
 import com.yekdb.query.expression.Expression;
 import com.yekdb.query.statement.DeleteStatement;
 import com.yekdb.query.statement.FetchClause;
 import com.yekdb.query.statement.GroupByClause;
 import com.yekdb.query.statement.HavingClause;
 import com.yekdb.query.statement.InsertStatement;
+import com.yekdb.query.statement.JoinClause;
+import com.yekdb.query.statement.JoinType;
 import com.yekdb.query.statement.LimitClause;
 import com.yekdb.query.statement.OrderByItem;
 import com.yekdb.query.statement.SelectItem;
@@ -51,6 +56,14 @@ import java.util.Objects;
  * - LIMIT
  * - FETCH FIRST
  * - FETCH NEXT
+ *
+ * Sprint 00-15 JOIN Foundation:
+ *
+ * - INNER JOIN
+ * - JOIN (INNER JOIN shorthand)
+ * - Table aliases on joined tables
+ * - Qualified ON column references
+ * - Column-to-column equality conditions
  */
 public final class SqlParser {
 
@@ -292,6 +305,8 @@ public final class SqlParser {
      *
      * SELECT
      * FROM
+     * INNER JOIN / JOIN
+     * ON
      * WHERE
      * GROUP BY
      * HAVING
@@ -388,6 +403,55 @@ public final class SqlParser {
                         tableName,
                         tableAlias
                 );
+
+        // ----------------------------------------------
+        // SPRINT 00-15 - JOIN
+        // ----------------------------------------------
+
+        List<JoinClause> joins =
+                new ArrayList<>();
+
+        /*
+         * Sprint 00-15:
+         *
+         * SELECT ...
+         * FROM employee e
+         * INNER JOIN department d
+         * ON e.department_id = d.id
+         *
+         * SQL'deki sade JOIN de INNER JOIN olarak
+         * değerlendirilir:
+         *
+         * JOIN department d ON ...
+         */
+        if (check(
+                SqlTokenType.INNER
+        )
+                || check(
+                SqlTokenType.JOIN
+        )) {
+
+            joins.add(
+                    parseInnerJoin()
+            );
+        }
+
+        /*
+         * Sprint 00-15 executor yalnızca tek JOIN
+         * desteklediği için parser katmanında da
+         * ikinci JOIN açık şekilde reddedilir.
+         */
+        if (check(
+                SqlTokenType.INNER
+        )
+                || check(
+                SqlTokenType.JOIN
+        )) {
+
+            throw error(
+                    "Sprint 00-15 supports exactly one JOIN per SELECT statement."
+            );
+        }
 
         // ----------------------------------------------
         // WHERE
@@ -611,12 +675,133 @@ public final class SqlParser {
         return new SelectStatement(
                 table,
                 selectItems,
+                joins,
                 whereExpression,
                 groupByClause,
                 havingClause,
                 orderByItems,
                 limitClause,
                 fetchClause
+        );
+    }
+
+
+    // ==================================================
+    // SPRINT 00-15 - JOIN
+    // ==================================================
+
+    /**
+     * Tek bir INNER JOIN ifadesini parse eder.
+     *
+     * Desteklenen biçimler:
+     *
+     * INNER JOIN department d
+     * ON e.department_id = d.id
+     *
+     * JOIN department d
+     * ON e.department_id = d.id
+     *
+     * Sprint 00-15 kapsamında JOIN, INNER JOIN ile
+     * aynı anlama gelir.
+     */
+    private JoinClause parseInnerJoin() {
+
+        /*
+         * INNER opsiyoneldir.
+         *
+         * INNER JOIN ...
+         * JOIN ...
+         */
+        match(
+                SqlTokenType.INNER
+        );
+
+        expect(
+                SqlTokenType.JOIN,
+                "Expected JOIN keyword."
+        );
+
+        String tableName =
+                consumeIdentifier(
+                        "Expected table name after JOIN."
+                );
+
+        String alias =
+                null;
+
+        /*
+         * JOIN department AS d
+         */
+        if (match(
+                SqlTokenType.AS
+        )) {
+
+            alias =
+                    consumeIdentifier(
+                            "Expected table alias after AS."
+                    );
+
+            /*
+             * JOIN department d
+             */
+        } else if (check(
+                SqlTokenType.IDENTIFIER
+        )) {
+
+            alias =
+                    consumeIdentifier(
+                            "Expected table alias after JOIN table name."
+                    );
+        }
+
+        expect(
+                SqlTokenType.ON,
+                "Expected ON after JOIN table reference."
+        );
+
+        Expression condition =
+                parseJoinCondition();
+
+        return new JoinClause(
+                JoinType.INNER,
+                tableName,
+                alias,
+                condition
+        );
+    }
+
+    /**
+     * Sprint 00-15 JOIN condition parser.
+     *
+     * Şimdilik güvenli ve açık biçimde yalnızca
+     * kolon-kolon equality karşılaştırması desteklenir:
+     *
+     * e.department_id = d.id
+     *
+     * Daha karmaşık ON ifadeleri sonraki JOIN
+     * sprintlerinde ExpressionParser ile genişletilebilir.
+     */
+    private Expression parseJoinCondition() {
+
+        String leftReference =
+                parseColumnReference();
+
+        expect(
+                SqlTokenType.EQUALS,
+                "Expected '=' in JOIN ON condition."
+        );
+
+        String rightReference =
+                parseColumnReference();
+
+        return new ComparisonExpression(
+                ColumnExpression.parse(
+                        leftReference
+                ),
+                ComparisonOperator.EQUALS,
+                ColumnExpression.parse(
+                        rightReference
+                )
         );
     }
 
@@ -1375,7 +1560,39 @@ public final class SqlParser {
             SqlToken token
     ) {
 
-        if (!builder.isEmpty()) {
+        /*
+         * Qualified column:
+         *
+         * d.name
+         * e.department_id
+         *
+         * DOT öncesine ve sonrasına boşluk konmaz.
+         */
+        if (token.is(
+                SqlTokenType.DOT
+        )) {
+
+            builder.append(
+                    '.'
+            );
+
+            return;
+        }
+
+        /*
+         * Önceki token DOT ise yeni identifier
+         * doğrudan devam eder:
+         *
+         * d. + name -> d.name
+         */
+        boolean previousTokenWasDot =
+                !builder.isEmpty()
+                        && builder.charAt(
+                        builder.length() - 1
+                ) == '.';
+
+        if (!builder.isEmpty()
+                && !previousTokenWasDot) {
 
             builder.append(
                     ' '

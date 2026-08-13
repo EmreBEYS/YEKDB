@@ -10,9 +10,11 @@ import java.util.Objects;
 /**
  * SELECT statement modeli.
  *
- * Sprint 00-14:
+ * Sprint 00-15:
  *
  * - Table / column alias
+ * - INNER JOIN foundation
+ * - Multiple JOIN clause support
  * - WHERE
  * - GROUP BY
  * - HAVING
@@ -22,11 +24,36 @@ import java.util.Objects;
  *
  * Aggregate ifadeleri SelectItem.expression içerisinde
  * COUNT(*), SUM(salary), AVG(age) vb. biçimde tutulabilir.
+ *
+ * JOIN ifadeleri JoinClause listesi içerisinde tutulur.
+ *
+ * Örnek:
+ *
+ * SELECT e.name, d.name
+ * FROM employee e
+ * INNER JOIN department d
+ * ON e.department_id = d.id;
  */
 public final class SelectStatement implements Statement {
 
     private final TableReference table;
     private final List<SelectItem> selectItems;
+
+    /*
+     * Sprint 00-15
+     *
+     * SELECT sorgusuna bağlı JOIN ifadeleri.
+     *
+     * Liste kullanılmasının sebebi ileride:
+     *
+     * employee e
+     * JOIN department d ...
+     * JOIN company c ...
+     *
+     * gibi çoklu JOIN desteğinin doğrudan
+     * eklenebilmesini sağlamaktır.
+     */
+    private final List<JoinClause> joins;
 
     private final Expression whereExpression;
 
@@ -38,12 +65,19 @@ public final class SelectStatement implements Statement {
     private final LimitClause limitClause;
     private final FetchClause fetchClause;
 
+    // --------------------------------------------------
+    // Sprint 00-15 main constructor
+    // --------------------------------------------------
+
     /**
-     * Sprint 00-14 ana constructor.
+     * Sprint 00-15 ana constructor.
+     *
+     * JOIN destekli tam SELECT statement modeli.
      */
     public SelectStatement(
             TableReference table,
             List<SelectItem> selectItems,
+            List<JoinClause> joins,
             Expression whereExpression,
             GroupByClause groupByClause,
             HavingClause havingClause,
@@ -61,9 +95,24 @@ public final class SelectStatement implements Statement {
         this.selectItems =
                 selectItems == null
                         ? new ArrayList<>()
-                        : new ArrayList<>(
-                        selectItems
-                );
+                        : new ArrayList<>(selectItems);
+
+        this.joins =
+                joins == null
+                        ? new ArrayList<>()
+                        : new ArrayList<>(joins);
+
+        /*
+         * JOIN listesi içerisinde null eleman
+         * bulunmasına izin vermiyoruz.
+         */
+        for (JoinClause join : this.joins) {
+
+            Objects.requireNonNull(
+                    join,
+                    "join clause cannot be null"
+            );
+        }
 
         this.whereExpression =
                 whereExpression;
@@ -77,9 +126,7 @@ public final class SelectStatement implements Statement {
         this.orderByItems =
                 orderByItems == null
                         ? new ArrayList<>()
-                        : new ArrayList<>(
-                        orderByItems
-                );
+                        : new ArrayList<>(orderByItems);
 
         this.limitClause =
                 limitClause;
@@ -102,8 +149,8 @@ public final class SelectStatement implements Statement {
         /*
          * HAVING normalde GROUP BY sonucunu filtreler.
          *
-         * Sprint 00-14 için HAVING kullanımını
-         * GROUP BY ile sınırlandırıyoruz.
+         * Şimdilik HAVING kullanımını GROUP BY
+         * ile sınırlandırıyoruz.
          */
         if (havingClause != null
                 && groupByClause == null) {
@@ -113,6 +160,91 @@ public final class SelectStatement implements Statement {
             );
         }
     }
+
+    // --------------------------------------------------
+    // Sprint 00-14 compatibility constructor
+    // --------------------------------------------------
+
+    /**
+     * Sprint 00-14 ana constructor.
+     *
+     * JOIN içermeyen mevcut kodların ve testlerin
+     * geriye dönük uyumluluğunu korur.
+     */
+    public SelectStatement(
+            TableReference table,
+            List<SelectItem> selectItems,
+            Expression whereExpression,
+            GroupByClause groupByClause,
+            HavingClause havingClause,
+            List<OrderByItem> orderByItems,
+            LimitClause limitClause,
+            FetchClause fetchClause
+    ) {
+
+        this(
+                table,
+                selectItems,
+                List.of(),
+                whereExpression,
+                groupByClause,
+                havingClause,
+                orderByItems,
+                limitClause,
+                fetchClause
+        );
+    }
+
+    // --------------------------------------------------
+    // JOIN convenience constructor
+    // --------------------------------------------------
+
+    /**
+     * JOIN içeren fakat GROUP BY / HAVING /
+     * ORDER BY / LIMIT / FETCH içermeyen
+     * temel SELECT sorguları için.
+     */
+    public SelectStatement(
+            TableReference table,
+            List<SelectItem> selectItems,
+            List<JoinClause> joins,
+            Expression whereExpression
+    ) {
+
+        this(
+                table,
+                selectItems,
+                joins,
+                whereExpression,
+                null,
+                null,
+                List.of(),
+                null,
+                null
+        );
+    }
+
+    /**
+     * Sadece SELECT + FROM + JOIN kullanan
+     * sorgular için.
+     */
+    public SelectStatement(
+            TableReference table,
+            List<SelectItem> selectItems,
+            List<JoinClause> joins
+    ) {
+
+        this(
+                table,
+                selectItems,
+                joins,
+                null
+        );
+    }
+
+    // --------------------------------------------------
+    // Existing compatibility constructors
+    // --------------------------------------------------
 
     /**
      * ORDER BY entegrasyonunda kullanılan
@@ -128,6 +260,7 @@ public final class SelectStatement implements Statement {
         this(
                 table,
                 selectItems,
+                List.of(),
                 whereExpression,
                 null,
                 null,
@@ -149,6 +282,7 @@ public final class SelectStatement implements Statement {
         this(
                 table,
                 selectItems,
+                List.of(),
                 whereExpression,
                 null,
                 null,
@@ -169,6 +303,12 @@ public final class SelectStatement implements Statement {
         this(
                 table,
                 selectItems,
+                List.of(),
+                null,
+                null,
+                null,
+                List.of(),
+                null,
                 null
         );
     }
@@ -208,6 +348,10 @@ public final class SelectStatement implements Statement {
         );
     }
 
+    // --------------------------------------------------
+    // Column conversion
+    // --------------------------------------------------
+
     private static List<SelectItem> convertColumns(
             List<String> columns
     ) {
@@ -232,6 +376,10 @@ public final class SelectStatement implements Statement {
         return items;
     }
 
+    // --------------------------------------------------
+    // TABLE
+    // --------------------------------------------------
+
     public TableReference getTable() {
 
         return table;
@@ -251,6 +399,10 @@ public final class SelectStatement implements Statement {
 
         return table.hasAlias();
     }
+
+    // --------------------------------------------------
+    // SELECT ITEMS
+    // --------------------------------------------------
 
     public List<SelectItem> getSelectItems() {
 
@@ -295,6 +447,41 @@ public final class SelectStatement implements Statement {
                         .get(0)
                         .getExpression()
         );
+    }
+
+    // --------------------------------------------------
+    // JOIN
+    // --------------------------------------------------
+
+    /**
+     * SELECT sorgusuna bağlı tüm JOIN ifadelerini
+     * değiştirilemez liste olarak döndürür.
+     */
+    public List<JoinClause> getJoins() {
+
+        return Collections.unmodifiableList(
+                joins
+        );
+    }
+
+    /**
+     * Sorguda en az bir JOIN olup olmadığını
+     * belirtir.
+     */
+    public boolean hasJoins() {
+
+        return !joins.isEmpty();
+    }
+
+    /**
+     * JOIN sayısını döndürür.
+     *
+     * İleride çoklu JOIN executor işlemlerinde
+     * ve testlerde kullanılabilir.
+     */
+    public int getJoinCount() {
+
+        return joins.size();
     }
 
     // --------------------------------------------------
@@ -384,6 +571,8 @@ public final class SelectStatement implements Statement {
     }
 
     // --------------------------------------------------
+    // STATEMENT
+    // --------------------------------------------------
 
     @Override
     public StatementType getType() {
@@ -391,12 +580,17 @@ public final class SelectStatement implements Statement {
         return StatementType.SELECT;
     }
 
+    // --------------------------------------------------
+    // DEBUG
+    // --------------------------------------------------
+
     @Override
     public String toString() {
 
         return "SelectStatement{" +
                 "table=" + table +
                 ", selectItems=" + selectItems +
+                ", joins=" + joins +
                 ", whereExpression=" + whereExpression +
                 ", groupByClause=" + groupByClause +
                 ", havingClause=" + havingClause +

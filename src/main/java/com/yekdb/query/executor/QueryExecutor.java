@@ -15,6 +15,8 @@ import com.yekdb.query.command.UseDatabaseCommand;
 import com.yekdb.query.datasource.QueryDataSource;
 import com.yekdb.query.mapper.StatementCommandMapper;
 import com.yekdb.query.parser.SqlParser;
+import com.yekdb.query.statement.JoinClause;
+import com.yekdb.query.statement.SelectStatement;
 import com.yekdb.query.statement.Statement;
 import com.yekdb.query.result.QueryResult;
 import com.yekdb.storage.record.Row;
@@ -807,7 +809,7 @@ public final class QueryExecutor implements AutoCloseable {
     /**
      * SELECT komutunu çalıştırır.
      *
-     * Sprint 00-14 final SELECT pipeline:
+     * Sprint 00-15 SELECT + JOIN pipeline:
      *
      * SQL
      *   ->
@@ -821,7 +823,7 @@ public final class QueryExecutor implements AutoCloseable {
      *   ->
      * SelectExecutor.executeStatement(...)
      *
-     * Execution:
+     * Execution (JOIN yoksa):
      *
      * WHERE
      *   ->
@@ -882,24 +884,85 @@ public final class QueryExecutor implements AutoCloseable {
         /*
          * Sprint 00-14:
          *
-         * Eski:
+         * Tam SelectStatement execution katmanına taşınır.
          *
-         * selectExecutor.execute(
-         *     table,
-         *     rows,
-         *     command.getWhereExpression()
-         * )
+         * Sprint 00-15:
          *
-         * kullanılmaz.
-         *
-         * Artık tam SelectStatement gönderilir.
+         * Statement JOIN içeriyorsa sağ tablo ve satırlar
+         * QueryDataSource üzerinden ayrıca yüklenir ve
+         * JOIN-aware SelectExecutor overload'ına gönderilir.
          */
-        QueryResult queryResult =
-                selectExecutor.executeStatement(
-                        table,
-                        rows,
-                        command.getStatement()
+        SelectStatement statement =
+                command.getStatement();
+
+        QueryResult queryResult;
+
+        if (!statement.hasJoins()) {
+
+            queryResult =
+                    selectExecutor.executeStatement(
+                            table,
+                            rows,
+                            statement
+                    );
+
+        } else {
+
+            /*
+             * Sprint 00-15 yalnızca tek JOIN destekler.
+             *
+             * Parser ve SelectExecutor tarafında da aynı
+             * sprint sınırı korunmaktadır.
+             */
+            if (statement.getJoinCount() != 1) {
+
+                throw new QueryExecutionException(
+                        "Sprint 00-15 supports exactly one JOIN per SELECT statement."
                 );
+            }
+
+            JoinClause joinClause =
+                    statement.getJoins()
+                            .get(0);
+
+            String rightTableName =
+                    joinClause.getTableName();
+
+            Table rightTable =
+                    activeDataSource.getTable(
+                            rightTableName
+                    );
+
+            if (rightTable == null) {
+
+                throw new QueryExecutionException(
+                        "QueryDataSource returned null JOIN table for: "
+                                + rightTableName
+                );
+            }
+
+            List<Row> rightRows =
+                    activeDataSource.getRows(
+                            rightTableName
+                    );
+
+            if (rightRows == null) {
+
+                throw new QueryExecutionException(
+                        "QueryDataSource returned null row list for JOIN table: "
+                                + rightTableName
+                );
+            }
+
+            queryResult =
+                    selectExecutor.executeStatement(
+                            table,
+                            rows,
+                            rightTable,
+                            rightRows,
+                            statement
+                    );
+        }
 
         if (queryResult == null) {
 

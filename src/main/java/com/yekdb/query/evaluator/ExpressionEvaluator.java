@@ -1,6 +1,7 @@
 package com.yekdb.query.evaluator;
 
 import com.yekdb.query.expression.BetweenExpression;
+import com.yekdb.query.expression.ColumnExpression;
 import com.yekdb.query.expression.ComparisonExpression;
 import com.yekdb.query.expression.Expression;
 import com.yekdb.query.expression.InExpression;
@@ -16,23 +17,32 @@ import java.util.regex.Pattern;
 /**
  * Expression ağacını bir satırdaki sütun değerlerine karşı değerlendirir.
  *
- * <p>Desteklenen expression türleri:</p>
+ * Desteklenen expression türleri:
  *
- * <ul>
- *     <li>ComparisonExpression</li>
- *     <li>BetweenExpression</li>
- *     <li>InExpression</li>
- *     <li>LikeExpression</li>
- *     <li>LogicalExpression</li>
- *     <li>NotExpression</li>
- * </ul>
+ * - ComparisonExpression
+ * - BetweenExpression
+ * - InExpression
+ * - LikeExpression
+ * - LogicalExpression
+ * - NotExpression
  *
  * Sprint 00-14:
- * BETWEEN / NOT BETWEEN
- * IN / NOT IN
- * LIKE / NOT LIKE
- * ILIKE / NOT ILIKE
- * desteği eklenmiştir.
+ *
+ * - BETWEEN / NOT BETWEEN
+ * - IN / NOT IN
+ * - LIKE / NOT LIKE
+ * - ILIKE / NOT ILIKE
+ *
+ * Sprint 00-15:
+ *
+ * - Qualified column çözümleme
+ * - table.column / alias.column desteği
+ * - Column-to-column karşılaştırma
+ * - JOIN ON condition evaluation
+ *
+ * Örnek:
+ *
+ * e.department_id = d.id
  */
 public final class ExpressionEvaluator {
 
@@ -40,7 +50,7 @@ public final class ExpressionEvaluator {
      * Expression sonucunu değerlendirir.
      *
      * @param expression değerlendirilecek expression
-     * @param rowValues  sütun adı -> değer eşleşmeleri
+     * @param rowValues sütun adı -> değer eşleşmeleri
      * @return expression doğruysa true
      */
     public boolean evaluate(
@@ -58,7 +68,8 @@ public final class ExpressionEvaluator {
                 "Row values cannot be null."
         );
 
-        if (expression instanceof ComparisonExpression comparisonExpression) {
+        if (expression
+                instanceof ComparisonExpression comparisonExpression) {
 
             return evaluateComparison(
                     comparisonExpression,
@@ -66,7 +77,8 @@ public final class ExpressionEvaluator {
             );
         }
 
-        if (expression instanceof BetweenExpression betweenExpression) {
+        if (expression
+                instanceof BetweenExpression betweenExpression) {
 
             return evaluateBetween(
                     betweenExpression,
@@ -74,7 +86,8 @@ public final class ExpressionEvaluator {
             );
         }
 
-        if (expression instanceof InExpression inExpression) {
+        if (expression
+                instanceof InExpression inExpression) {
 
             return evaluateIn(
                     inExpression,
@@ -82,7 +95,8 @@ public final class ExpressionEvaluator {
             );
         }
 
-        if (expression instanceof LikeExpression likeExpression) {
+        if (expression
+                instanceof LikeExpression likeExpression) {
 
             return evaluateLike(
                     likeExpression,
@@ -90,7 +104,8 @@ public final class ExpressionEvaluator {
             );
         }
 
-        if (expression instanceof LogicalExpression logicalExpression) {
+        if (expression
+                instanceof LogicalExpression logicalExpression) {
 
             return evaluateLogical(
                     logicalExpression,
@@ -98,7 +113,8 @@ public final class ExpressionEvaluator {
             );
         }
 
-        if (expression instanceof NotExpression notExpression) {
+        if (expression
+                instanceof NotExpression notExpression) {
 
             return evaluateNot(
                     notExpression,
@@ -112,41 +128,51 @@ public final class ExpressionEvaluator {
         );
     }
 
+    // --------------------------------------------------
+    // COMPARISON
+    // --------------------------------------------------
+
     /**
-     * Tek bir karşılaştırmayı değerlendirir.
+     * Karşılaştırma expression'ını değerlendirir.
+     *
+     * Desteklenen örnekler:
+     *
+     * age > 18
+     *
+     * e.age > 18
+     *
+     * e.department_id = d.id
      */
     private boolean evaluateComparison(
             ComparisonExpression expression,
             Map<String, Object> rowValues
     ) {
 
-        String columnName =
-                expression.columnName();
-
-        if (!rowValues.containsKey(columnName)) {
-
-            throw new IllegalArgumentException(
-                    "Column not found: "
-                            + columnName
-            );
-        }
+        ColumnExpression leftColumn =
+                expression.getLeftColumnExpression();
 
         Object actualValue =
-                rowValues.get(columnName);
+                resolveColumnValue(
+                        leftColumn,
+                        rowValues
+                );
 
         Object expectedValue =
-                expression.expectedValue();
+                resolveExpectedValue(
+                        expression,
+                        rowValues
+                );
 
         return switch (expression.operator()) {
 
             case EQUALS ->
-                    Objects.equals(
+                    valuesEqual(
                             actualValue,
                             expectedValue
                     );
 
             case NOT_EQUALS ->
-                    !Objects.equals(
+                    !valuesEqual(
                             actualValue,
                             expectedValue
                     );
@@ -178,34 +204,65 @@ public final class ExpressionEvaluator {
     }
 
     /**
+     * ComparisonExpression sağ tarafını çözer.
+     *
+     * Normal WHERE:
+     *
+     * age > 18
+     *
+     * -> 18
+     *
+     *
+     * JOIN:
+     *
+     * e.department_id = d.id
+     *
+     * -> rowValues içerisindeki d.id değeri
+     */
+    private Object resolveExpectedValue(
+            ComparisonExpression expression,
+            Map<String, Object> rowValues
+    ) {
+
+        if (expression.isColumnToColumnComparison()) {
+
+            ColumnExpression rightColumn =
+                    expression.getRightColumnExpression();
+
+            return resolveColumnValue(
+                    rightColumn,
+                    rowValues
+            );
+        }
+
+        return expression.expectedValue();
+    }
+
+    // --------------------------------------------------
+    // BETWEEN
+    // --------------------------------------------------
+
+    /**
      * BETWEEN / NOT BETWEEN expression'ını değerlendirir.
      *
-     * <p>BETWEEN sınırları inclusive'dir.</p>
+     * BETWEEN sınırları inclusive'dir.
      *
-     * <pre>
      * age BETWEEN 18 AND 30
      *
      * age >= 18 AND age <= 30
-     * </pre>
      */
     private boolean evaluateBetween(
             BetweenExpression expression,
             Map<String, Object> rowValues
     ) {
 
-        String columnName =
-                expression.getColumnName();
-
-        if (!rowValues.containsKey(columnName)) {
-
-            throw new IllegalArgumentException(
-                    "Column not found: "
-                            + columnName
-            );
-        }
-
         Object actualValue =
-                rowValues.get(columnName);
+                resolveColumnValue(
+                        ColumnExpression.parse(
+                                expression.getColumnName()
+                        ),
+                        rowValues
+                );
 
         Object lowerBound =
                 expression.getLowerBound();
@@ -229,32 +286,29 @@ public final class ExpressionEvaluator {
                 : result;
     }
 
+    // --------------------------------------------------
+    // IN
+    // --------------------------------------------------
+
     /**
      * IN / NOT IN expression'ını değerlendirir.
      *
-     * <pre>
      * department IN ('IT', 'HR')
+     *
      * department NOT IN ('IT', 'HR')
-     * </pre>
      */
     private boolean evaluateIn(
             InExpression expression,
             Map<String, Object> rowValues
     ) {
 
-        String columnName =
-                expression.getColumnName();
-
-        if (!rowValues.containsKey(columnName)) {
-
-            throw new IllegalArgumentException(
-                    "Column not found: "
-                            + columnName
-            );
-        }
-
         Object actualValue =
-                rowValues.get(columnName);
+                resolveColumnValue(
+                        ColumnExpression.parse(
+                                expression.getColumnName()
+                        ),
+                        rowValues
+                );
 
         boolean result =
                 expression.getValues()
@@ -272,42 +326,41 @@ public final class ExpressionEvaluator {
                 : result;
     }
 
+    // --------------------------------------------------
+    // LIKE
+    // --------------------------------------------------
+
     /**
      * LIKE / NOT LIKE / ILIKE / NOT ILIKE
      * expression'ını değerlendirir.
      *
-     * <p>SQL wildcard desteği:</p>
+     * SQL wildcard desteği:
      *
-     * <ul>
-     *     <li>% -> sıfır veya daha fazla karakter</li>
-     *     <li>_ -> tam olarak bir karakter</li>
-     * </ul>
+     * % -> sıfır veya daha fazla karakter
+     * _ -> tam olarak bir karakter
      */
     private boolean evaluateLike(
             LikeExpression expression,
             Map<String, Object> rowValues
     ) {
 
-        String columnName =
-                expression.getColumnName();
-
-        if (!rowValues.containsKey(columnName)) {
-
-            throw new IllegalArgumentException(
-                    "Column not found: "
-                            + columnName
-            );
-        }
-
         Object actualValue =
-                rowValues.get(columnName);
+                resolveColumnValue(
+                        ColumnExpression.parse(
+                                expression.getColumnName()
+                        ),
+                        rowValues
+                );
 
         if (actualValue == null) {
+
             return false;
         }
 
         String actualText =
-                String.valueOf(actualValue);
+                String.valueOf(
+                        actualValue
+                );
 
         String regex =
                 toLikeRegex(
@@ -356,6 +409,10 @@ public final class ExpressionEvaluator {
                 : result;
     }
 
+    // --------------------------------------------------
+    // LOGICAL
+    // --------------------------------------------------
+
     /**
      * AND / OR expression'larını değerlendirir.
      */
@@ -390,6 +447,10 @@ public final class ExpressionEvaluator {
         };
     }
 
+    // --------------------------------------------------
+    // NOT
+    // --------------------------------------------------
+
     /**
      * NOT expression'ını değerlendirir.
      */
@@ -404,11 +465,244 @@ public final class ExpressionEvaluator {
         );
     }
 
+    // --------------------------------------------------
+    // COLUMN RESOLUTION
+    // --------------------------------------------------
+
     /**
-     * IN karşılaştırmalarında değer eşitliğini kontrol eder.
+     * ColumnExpression içerisindeki kolon değerini
+     * rowValues map'inden çözer.
      *
-     * <p>Farklı Number türleri ortak sayısal değer
-     * üzerinden karşılaştırılır.</p>
+     * Desteklenen örnekler:
+     *
+     * name
+     * employee.name
+     * e.name
+     *
+     * JOIN executor'ın rowValues içerisinde
+     * qualified key üretmesi beklenir.
+     *
+     * Örnek:
+     *
+     * e.id
+     * e.name
+     * e.department_id
+     * d.id
+     * d.name
+     */
+    private Object resolveColumnValue(
+            ColumnExpression column,
+            Map<String, Object> rowValues
+    ) {
+
+        Objects.requireNonNull(
+                column,
+                "Column expression cannot be null."
+        );
+
+        String qualifiedName =
+                column.getQualifiedName();
+
+        /*
+         * Öncelik doğrudan tam eşleşme.
+         *
+         * Örnek:
+         *
+         * e.department_id
+         */
+        if (rowValues.containsKey(
+                qualifiedName
+        )) {
+
+            return rowValues.get(
+                    qualifiedName
+            );
+        }
+
+        /*
+         * Qualified olmayan kolon.
+         *
+         * Örnek:
+         *
+         * age
+         */
+        if (!column.isQualified()) {
+
+            String columnName =
+                    column.getColumnName();
+
+            if (rowValues.containsKey(
+                    columnName
+            )) {
+
+                return rowValues.get(
+                        columnName
+                );
+            }
+
+            /*
+             * JOIN sonrası rowValues sadece qualified
+             * key içeriyorsa tek eşleşen kolonu bul.
+             *
+             * Örnek:
+             *
+             * e.name
+             *
+             * ama sorguda:
+             *
+             * WHERE name = 'Yunus'
+             */
+            return resolveUnqualifiedColumn(
+                    columnName,
+                    rowValues
+            );
+        }
+
+        throw new IllegalArgumentException(
+                "Column not found: "
+                        + qualifiedName
+        );
+    }
+
+    /**
+     * Qualified olmayan bir kolon adını
+     * JOIN satırı içerisinde çözmeye çalışır.
+     *
+     * Örnek:
+     *
+     * rowValues:
+     *
+     * e.id
+     * e.name
+     * d.id
+     * d.title
+     *
+     *
+     * name
+     *
+     * -> e.name
+     *
+     *
+     * id
+     *
+     * -> ambiguous
+     */
+    private Object resolveUnqualifiedColumn(
+            String columnName,
+            Map<String, Object> rowValues
+    ) {
+
+        Object matchedValue =
+                null;
+
+        String matchedKey =
+                null;
+
+        int matchCount =
+                0;
+
+        for (Map.Entry<String, Object> entry
+                : rowValues.entrySet()) {
+
+            String key =
+                    entry.getKey();
+
+            if (matchesColumnName(
+                    key,
+                    columnName
+            )) {
+
+                matchedValue =
+                        entry.getValue();
+
+                matchedKey =
+                        key;
+
+                matchCount++;
+            }
+        }
+
+        if (matchCount == 1) {
+
+            return matchedValue;
+        }
+
+        if (matchCount > 1) {
+
+            throw new IllegalArgumentException(
+                    "Ambiguous column reference: "
+                            + columnName
+            );
+        }
+
+        throw new IllegalArgumentException(
+                "Column not found: "
+                        + columnName
+        );
+    }
+
+    /**
+     * Qualified bir key'in verilen kolon adına
+     * ait olup olmadığını kontrol eder.
+     *
+     * e.name + name
+     *
+     * -> true
+     */
+    private boolean matchesColumnName(
+            String key,
+            String columnName
+    ) {
+
+        if (key == null
+                || columnName == null) {
+
+            return false;
+        }
+
+        if (key.equalsIgnoreCase(
+                columnName
+        )) {
+
+            return true;
+        }
+
+        int dotIndex =
+                key.lastIndexOf('.');
+
+        if (dotIndex < 0
+                || dotIndex == key.length() - 1) {
+
+            return false;
+        }
+
+        String keyColumnName =
+                key.substring(
+                        dotIndex + 1
+                );
+
+        return keyColumnName.equalsIgnoreCase(
+                columnName
+        );
+    }
+
+    // --------------------------------------------------
+    // EQUALITY
+    // --------------------------------------------------
+
+    /**
+     * Değer eşitliğini kontrol eder.
+     *
+     * Farklı Number türleri ortak sayısal değer
+     * üzerinden karşılaştırılır.
+     *
+     * Örnek:
+     *
+     * Integer(18)
+     * Long(18)
+     * Double(18.0)
+     *
+     * eşit kabul edilir.
      */
     private boolean valuesEqual(
             Object actualValue,
@@ -424,8 +718,11 @@ public final class ExpressionEvaluator {
             );
         }
 
-        if (actualValue instanceof Number actualNumber
-                && expectedValue instanceof Number expectedNumber) {
+        if (actualValue
+                instanceof Number actualNumber
+                &&
+                expectedValue
+                        instanceof Number expectedNumber) {
 
             return Double.compare(
                     actualNumber.doubleValue(),
@@ -439,15 +736,18 @@ public final class ExpressionEvaluator {
         );
     }
 
+    // --------------------------------------------------
+    // LIKE REGEX
+    // --------------------------------------------------
+
     /**
-     * SQL LIKE pattern'ini Java regex pattern'ine dönüştürür.
+     * SQL LIKE pattern'ini Java regex pattern'ine
+     * dönüştürür.
      *
-     * <p>
      * % -> .*
      * _ -> .
-     * </p>
      *
-     * <p>Regex özel karakterleri literal olarak korunur.</p>
+     * Regex özel karakterleri literal olarak korunur.
      */
     private String toLikeRegex(
             String sqlPattern
@@ -489,11 +789,15 @@ public final class ExpressionEvaluator {
                      '}' -> {
 
                     regex.append("\\")
-                            .append(character);
+                            .append(
+                                    character
+                            );
                 }
 
                 default ->
-                        regex.append(character);
+                        regex.append(
+                                character
+                        );
             }
         }
 
@@ -501,6 +805,10 @@ public final class ExpressionEvaluator {
 
         return regex.toString();
     }
+
+    // --------------------------------------------------
+    // ORDERING COMPARISON
+    // --------------------------------------------------
 
     /**
      * Sıralama gerektiren değerleri karşılaştırır.
@@ -521,13 +829,15 @@ public final class ExpressionEvaluator {
         /*
          * Sayısal türler farklı olabilir.
          *
-         * Örnek:
          * Integer(18)
          * Long(18)
          * Double(18.0)
          */
-        if (actualValue instanceof Number actualNumber
-                && expectedValue instanceof Number expectedNumber) {
+        if (actualValue
+                instanceof Number actualNumber
+                &&
+                expectedValue
+                        instanceof Number expectedNumber) {
 
             return Double.compare(
                     actualNumber.doubleValue(),
@@ -539,11 +849,17 @@ public final class ExpressionEvaluator {
          * Aynı tip Comparable değerler.
          *
          * Örnek:
+         *
          * String
          */
-        if (actualValue instanceof Comparable<?> comparable
-                && actualValue.getClass()
-                .isInstance(expectedValue)) {
+        if (actualValue
+                instanceof Comparable<?> comparable
+                &&
+                actualValue
+                        .getClass()
+                        .isInstance(
+                                expectedValue
+                        )) {
 
             return compareComparable(
                     comparable,
