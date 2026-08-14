@@ -445,24 +445,23 @@ public final class SelectExecutor {
 
 
     // ==================================================
-    // SPRINT 00-15 - JOIN-AWARE SELECT PIPELINE
+    // SPRINT 00-16 - JOIN-AWARE SELECT PIPELINE
     // ==================================================
 
     /**
-     * Sprint 00-15 JOIN-aware SELECT execution.
-     *
-     * Bu overload tek bir INNER JOIN'i destekler.
-     * Çoklu JOIN ve JOIN + aggregate/group desteği
-     * sonraki JOIN sprintlerinde genişletilecektir.
+     * Sprint 00-16 JOIN-aware SELECT execution.
      *
      * Execution sırası:
      *
-     * 1 - INNER JOIN
+     * 1 - JOIN
      * 2 - WHERE
-     * 3 - SELECT projection
-     * 4 - ORDER BY
-     * 5 - LIMIT / FETCH
-     * 6 - QueryResult
+     * 3 - GROUP BY
+     * 4 - Aggregate
+     * 5 - HAVING
+     * 6 - SELECT projection
+     * 7 - ORDER BY
+     * 8 - LIMIT / FETCH
+     * 9 - QueryResult
      */
     public QueryResult executeStatement(
             Table leftTable,
@@ -497,6 +496,9 @@ public final class SelectExecutor {
                 "SelectStatement cannot be null."
         );
 
+        /*
+         * JOIN yoksa eski SELECT pipeline aynen korunur.
+         */
         if (!statement.hasJoins()) {
 
             return executeStatement(
@@ -506,25 +508,18 @@ public final class SelectExecutor {
             );
         }
 
+        /*
+         * Bu overload fiziksel olarak tek sağ tablo aldığı
+         * için burada yalnızca tek JOIN çalıştırılır.
+         *
+         * Multiple JOIN için MultiJoinExecutor kullanan
+         * ayrı execution yolu eklenecektir.
+         */
         if (statement.getJoinCount() != 1) {
 
             throw new QueryExecutionException(
-                    "Sprint 00-15 supports exactly one JOIN per SELECT statement."
-            );
-        }
-
-        boolean containsAggregate =
-                containsAggregateExpression(
-                        statement.getSelectItems()
-                );
-
-        if (statement.hasGroupBy()
-                || statement.hasHaving()
-                || containsAggregate) {
-
-            throw new QueryExecutionException(
-                    "Sprint 00-15 JOIN foundation does not yet support "
-                            + "JOIN with GROUP BY, HAVING or aggregate expressions."
+                    "This SELECT overload supports exactly one JOIN. "
+                            + "Use the multi-JOIN execution overload instead."
             );
         }
 
@@ -534,6 +529,19 @@ public final class SelectExecutor {
         JoinClause joinClause =
                 statement.getJoins()
                         .get(0);
+
+        TableReference leftReference =
+                statement.getTable();
+
+        TableReference rightReference =
+                new TableReference(
+                        joinClause.getTableName(),
+                        joinClause.getAlias()
+                );
+
+        // ----------------------------------------------
+        // 1 - JOIN
+        // ----------------------------------------------
 
         List<Map<String, Object>> leftRowMaps =
                 convertRowsToMaps(
@@ -549,7 +557,7 @@ public final class SelectExecutor {
 
         List<Map<String, Object>> joinedMaps =
                 joinExecutor.execute(
-                        statement.getTable(),
+                        leftReference,
                         leftRowMaps,
                         joinClause,
                         rightRowMaps
@@ -568,31 +576,96 @@ public final class SelectExecutor {
                     );
         }
 
-        // ----------------------------------------------
-        // 3 - SELECT projection
-        // ----------------------------------------------
-
-        JoinedProjection projection =
-                projectJoinedRows(
-                        leftTable,
-                        rightTable,
-                        statement,
-                        joinClause,
-                        joinedMaps
+        boolean containsAggregate =
+                containsAggregateExpression(
+                        statement.getSelectItems()
                 );
 
-        List<Column> currentColumns =
-                new ArrayList<>(
-                        projection.columns()
-                );
+        List<Column> currentColumns;
+        List<Row> currentRows;
 
-        List<Row> currentRows =
-                new ArrayList<>(
-                        projection.rows()
-                );
+        /*
+         * GROUP BY, aggregate veya HAVING varsa
+         * JOIN-aware aggregate pipeline kullanılır.
+         */
+        if (statement.hasGroupBy()
+                || containsAggregate
+                || statement.hasHaving()) {
+
+            validateJoinedAggregateQuery(
+                    leftTable,
+                    rightTable,
+                    leftReference,
+                    rightReference,
+                    statement,
+                    containsAggregate
+            );
+
+            JoinedAggregateResult aggregateResult =
+                    executeJoinedAggregatePipeline(
+                            leftTable,
+                            rightTable,
+                            leftReference,
+                            rightReference,
+                            joinedMaps,
+                            statement,
+                            containsAggregate
+                    );
+
+            currentColumns =
+                    new ArrayList<>(
+                            aggregateResult.columns()
+                    );
+
+            currentRows =
+                    new ArrayList<>(
+                            aggregateResult.rows()
+                    );
+
+            // ------------------------------------------
+            // 5 - HAVING
+            // ------------------------------------------
+
+            if (statement.hasHaving()) {
+
+                currentRows =
+                        applyHaving(
+                                currentRows,
+                                currentColumns,
+                                statement
+                                        .getHavingClause()
+                                        .getExpression()
+                        );
+            }
+
+        } else {
+
+            // ------------------------------------------
+            // 6 - Normal SELECT projection
+            // ------------------------------------------
+
+            JoinedProjection projection =
+                    projectJoinedRows(
+                            leftTable,
+                            rightTable,
+                            statement,
+                            joinClause,
+                            joinedMaps
+                    );
+
+            currentColumns =
+                    new ArrayList<>(
+                            projection.columns()
+                    );
+
+            currentRows =
+                    new ArrayList<>(
+                            projection.rows()
+                    );
+        }
 
         // ----------------------------------------------
-        // 4 - ORDER BY
+        // 7 - ORDER BY
         // ----------------------------------------------
 
         if (statement.hasOrderBy()) {
@@ -606,7 +679,7 @@ public final class SelectExecutor {
         }
 
         // ----------------------------------------------
-        // 5 - LIMIT
+        // 8 - LIMIT
         // ----------------------------------------------
 
         if (statement.hasLimit()) {
@@ -619,7 +692,301 @@ public final class SelectExecutor {
         }
 
         // ----------------------------------------------
-        // 5 - FETCH
+        // 8 - FETCH
+        // ----------------------------------------------
+
+        if (statement.hasFetch()) {
+
+            currentRows =
+                    limitExecutor.execute(
+                            currentRows,
+                            statement.getFetchClause()
+                    );
+        }
+
+        long executionTime =
+                System.nanoTime()
+                        - startTime;
+
+        // ----------------------------------------------
+        // 9 - QueryResult
+        // ----------------------------------------------
+
+        return QueryResult.selectSuccess(
+                currentColumns,
+                currentRows,
+                executionTime
+        );
+    }
+
+    // ==================================================
+    // SPRINT 00-16 - MULTIPLE JOIN SELECT PIPELINE
+    // ==================================================
+
+    /**
+     * Sprint 00-16 multiple JOIN-aware SELECT execution.
+     *
+     * Bu overload birden fazla JOIN tablosunu sıralı olarak
+     * MultiJoinExecutor üzerinden yürütür.
+     *
+     * Execution sırası:
+     *
+     * 1 - Multiple JOIN
+     * 2 - WHERE
+     * 3 - SELECT projection
+     * 4 - ORDER BY
+     * 5 - LIMIT / FETCH
+     * 6 - QueryResult
+     *
+     * GROUP BY / aggregate / HAVING aynı pipeline içinde
+     * multiple JOIN sonucu üzerinde çalıştırılır.
+     */
+    public QueryResult executeStatement(
+            Table baseTable,
+            List<Row> baseRows,
+            List<Table> rightTables,
+            List<List<Row>> rightTableRows,
+            SelectStatement statement
+    ) {
+
+        Objects.requireNonNull(
+                baseTable,
+                "Base table cannot be null."
+        );
+
+        Objects.requireNonNull(
+                baseRows,
+                "Base row list cannot be null."
+        );
+
+        Objects.requireNonNull(
+                rightTables,
+                "Right table list cannot be null."
+        );
+
+        Objects.requireNonNull(
+                rightTableRows,
+                "Right table row-list cannot be null."
+        );
+
+        Objects.requireNonNull(
+                statement,
+                "SelectStatement cannot be null."
+        );
+
+        if (!statement.hasJoins()) {
+
+            return executeStatement(
+                    baseTable,
+                    baseRows,
+                    statement
+            );
+        }
+
+        if (statement.getJoinCount() < 2) {
+
+            throw new QueryExecutionException(
+                    "Multiple JOIN execution requires at least two JOIN clauses."
+            );
+        }
+
+        if (rightTables.size()
+                != statement.getJoinCount()) {
+
+            throw new QueryExecutionException(
+                    "Right table count must match JOIN clause count."
+            );
+        }
+
+        if (rightTableRows.size()
+                != statement.getJoinCount()) {
+
+            throw new QueryExecutionException(
+                    "Right table row-list count must match JOIN clause count."
+            );
+        }
+
+        for (int index = 0;
+             index < rightTables.size();
+             index++) {
+
+            Objects.requireNonNull(
+                    rightTables.get(index),
+                    "Right table cannot be null."
+            );
+
+            Objects.requireNonNull(
+                    rightTableRows.get(index),
+                    "Right table row list cannot be null."
+            );
+        }
+
+        boolean containsAggregate =
+                containsAggregateExpression(
+                        statement.getSelectItems()
+                );
+
+        long startTime =
+                System.nanoTime();
+
+        // ----------------------------------------------
+        // 1 - ROW CONVERSION
+        // ----------------------------------------------
+
+        List<Map<String, Object>> baseRowMaps =
+                convertRowsToMaps(
+                        baseTable,
+                        baseRows
+                );
+
+        List<List<Map<String, Object>>> convertedRightRows =
+                new ArrayList<>();
+
+        for (int index = 0;
+             index < rightTables.size();
+             index++) {
+
+            convertedRightRows.add(
+                    convertRowsToMaps(
+                            rightTables.get(index),
+                            rightTableRows.get(index)
+                    )
+            );
+        }
+
+        // ----------------------------------------------
+        // 2 - MULTIPLE JOIN
+        // ----------------------------------------------
+
+        MultiJoinExecutor multiJoinExecutor =
+                new MultiJoinExecutor();
+
+        List<Map<String, Object>> joinedMaps =
+                multiJoinExecutor.execute(
+                        statement.getTable(),
+                        baseRowMaps,
+                        statement.getJoins(),
+                        convertedRightRows
+                );
+
+        // ----------------------------------------------
+        // 3 - WHERE
+        // ----------------------------------------------
+
+        if (statement.hasWhereClause()) {
+
+            joinedMaps =
+                    applyWhereToJoinedRows(
+                            joinedMaps,
+                            statement.getWhereExpression()
+                    );
+        }
+
+        List<Column> currentColumns;
+        List<Row> currentRows;
+
+        List<Table> allTables =
+                createMultiJoinTables(
+                        baseTable,
+                        rightTables
+                );
+
+        List<TableReference> references =
+                createMultiJoinReferences(
+                        statement
+                );
+
+        if (statement.hasGroupBy()
+                || containsAggregate
+                || statement.hasHaving()) {
+
+            validateMultiJoinedAggregateQuery(
+                    allTables,
+                    references,
+                    statement,
+                    containsAggregate
+            );
+
+            JoinedAggregateResult aggregateResult =
+                    executeMultiJoinedAggregatePipeline(
+                            allTables,
+                            references,
+                            joinedMaps,
+                            statement,
+                            containsAggregate
+                    );
+
+            currentColumns =
+                    new ArrayList<>(
+                            aggregateResult.columns()
+                    );
+
+            currentRows =
+                    new ArrayList<>(
+                            aggregateResult.rows()
+                    );
+
+            if (statement.hasHaving()) {
+
+                currentRows =
+                        applyHaving(
+                                currentRows,
+                                currentColumns,
+                                statement.getHavingClause()
+                                        .getExpression()
+                        );
+            }
+
+        } else {
+
+            MultiJoinedProjection projection =
+                    projectMultiJoinedRows(
+                            baseTable,
+                            rightTables,
+                            statement,
+                            joinedMaps
+                    );
+
+            currentColumns =
+                    new ArrayList<>(
+                            projection.columns()
+                    );
+
+            currentRows =
+                    new ArrayList<>(
+                            projection.rows()
+                    );
+        }
+
+        // ----------------------------------------------
+        // 5 - ORDER BY
+        // ----------------------------------------------
+
+        if (statement.hasOrderBy()) {
+
+            currentRows =
+                    orderByExecutor.execute(
+                            currentRows,
+                            currentColumns,
+                            statement.getOrderByItems()
+                    );
+        }
+
+        // ----------------------------------------------
+        // 6 - LIMIT
+        // ----------------------------------------------
+
+        if (statement.hasLimit()) {
+
+            currentRows =
+                    limitExecutor.execute(
+                            currentRows,
+                            statement.getLimitClause()
+                    );
+        }
+
+        // ----------------------------------------------
+        // 6 - FETCH
         // ----------------------------------------------
 
         if (statement.hasFetch()) {
@@ -640,6 +1007,427 @@ public final class SelectExecutor {
                 currentRows,
                 executionTime
         );
+    }
+
+    /**
+     * Multiple JOIN sonucunu final SELECT projection biçimine dönüştürür.
+     */
+    private MultiJoinedProjection projectMultiJoinedRows(
+            Table baseTable,
+            List<Table> rightTables,
+            SelectStatement statement,
+            List<Map<String, Object>> joinedRows
+    ) {
+
+        List<Table> allTables =
+                new ArrayList<>();
+
+        allTables.add(
+                baseTable
+        );
+
+        allTables.addAll(
+                rightTables
+        );
+
+        List<TableReference> references =
+                createMultiJoinReferences(
+                        statement
+                );
+
+        if (allTables.size()
+                != references.size()) {
+
+            throw new QueryExecutionException(
+                    "Table metadata count must match multiple JOIN reference count."
+            );
+        }
+
+        if (statement.selectsAllColumns()) {
+
+            return projectAllMultiJoinedColumns(
+                    allTables,
+                    references,
+                    joinedRows
+            );
+        }
+
+        List<Column> resultColumns =
+                new ArrayList<>();
+
+        List<SelectedJoinedColumn> selectedColumns =
+                new ArrayList<>();
+
+        for (SelectItem item
+                : statement.getSelectItems()) {
+
+            MultiJoinedSourceColumn sourceColumn =
+                    resolveMultiJoinedSourceColumn(
+                            item.getExpression(),
+                            allTables,
+                            references
+                    );
+
+            String outputName =
+                    getOutputColumnName(
+                            item
+                    );
+
+            boolean duplicate =
+                    resultColumns.stream()
+                            .anyMatch(
+                                    column ->
+                                            column.getName()
+                                                    .equalsIgnoreCase(
+                                                            outputName
+                                                    )
+                            );
+
+            if (duplicate) {
+
+                throw new QueryExecutionException(
+                        "Duplicate SELECT result column: "
+                                + outputName
+                );
+            }
+
+            resultColumns.add(
+                    new Column(
+                            outputName,
+                            sourceColumn.column()
+                                    .getDataType()
+                    )
+            );
+
+            selectedColumns.add(
+                    new SelectedJoinedColumn(
+                            sourceColumn.mapKey(),
+                            outputName
+                    )
+            );
+        }
+
+        List<Row> resultRows =
+                new ArrayList<>();
+
+        for (Map<String, Object> joinedRow
+                : joinedRows) {
+
+            List<Object> values =
+                    new ArrayList<>();
+
+            for (SelectedJoinedColumn selectedColumn
+                    : selectedColumns) {
+
+                if (!containsKeyIgnoreCase(
+                        joinedRow,
+                        selectedColumn.mapKey()
+                )) {
+
+                    throw new QueryExecutionException(
+                            "Column not found in multiple JOIN result: "
+                                    + selectedColumn.mapKey()
+                    );
+                }
+
+                Object value =
+                        getValueIgnoreCase(
+                                joinedRow,
+                                selectedColumn.mapKey()
+                        );
+
+                if (value == null) {
+
+                    throw new QueryExecutionException(
+                            "Multiple JOIN projection produced a null value for column: "
+                                    + selectedColumn.mapKey()
+                    );
+                }
+
+                values.add(
+                        value
+                );
+            }
+
+            resultRows.add(
+                    new Row(
+                            values
+                    )
+            );
+        }
+
+        return new MultiJoinedProjection(
+                List.copyOf(resultColumns),
+                resultRows
+        );
+    }
+
+    /**
+     * Multiple JOIN için SELECT * projection üretir.
+     */
+    private MultiJoinedProjection projectAllMultiJoinedColumns(
+            List<Table> tables,
+            List<TableReference> references,
+            List<Map<String, Object>> joinedRows
+    ) {
+
+        List<Column> resultColumns =
+                new ArrayList<>();
+
+        List<String> mapKeys =
+                new ArrayList<>();
+
+        for (int index = 0;
+             index < tables.size();
+             index++) {
+
+            addAllProjectionColumns(
+                    resultColumns,
+                    mapKeys,
+                    tables.get(index),
+                    references.get(index)
+            );
+        }
+
+        List<Row> resultRows =
+                new ArrayList<>();
+
+        for (Map<String, Object> joinedRow
+                : joinedRows) {
+
+            List<Object> values =
+                    new ArrayList<>();
+
+            for (String mapKey : mapKeys) {
+
+                if (!containsKeyIgnoreCase(
+                        joinedRow,
+                        mapKey
+                )) {
+
+                    throw new QueryExecutionException(
+                            "Column not found in multiple JOIN result: "
+                                    + mapKey
+                    );
+                }
+
+                Object value =
+                        getValueIgnoreCase(
+                                joinedRow,
+                                mapKey
+                        );
+
+                if (value == null) {
+
+                    throw new QueryExecutionException(
+                            "Multiple JOIN projection produced a null value for column: "
+                                    + mapKey
+                    );
+                }
+
+                values.add(
+                        value
+                );
+            }
+
+            resultRows.add(
+                    new Row(
+                            values
+                    )
+            );
+        }
+
+        return new MultiJoinedProjection(
+                List.copyOf(resultColumns),
+                resultRows
+        );
+    }
+
+    /**
+     * Multiple JOIN için fiziksel tablo listesini oluşturur.
+     */
+    private List<Table> createMultiJoinTables(
+            Table baseTable,
+            List<Table> rightTables
+    ) {
+
+        List<Table> tables =
+                new ArrayList<>();
+
+        tables.add(
+                baseTable
+        );
+
+        tables.addAll(
+                rightTables
+        );
+
+        return List.copyOf(
+                tables
+        );
+    }
+
+    /**
+     * SELECT statement içindeki base ve JOIN table reference listesini oluşturur.
+     */
+    private List<TableReference> createMultiJoinReferences(
+            SelectStatement statement
+    ) {
+
+        List<TableReference> references =
+                new ArrayList<>();
+
+        references.add(
+                statement.getTable()
+        );
+
+        for (JoinClause joinClause
+                : statement.getJoins()) {
+
+            references.add(
+                    new TableReference(
+                            joinClause.getTableName(),
+                            joinClause.getAlias()
+                    )
+            );
+        }
+
+        return List.copyOf(
+                references
+        );
+    }
+
+    /**
+     * Multiple JOIN projection için qualified veya güvenli
+     * unqualified kolon çözümlemesi yapar.
+     */
+    private MultiJoinedSourceColumn resolveMultiJoinedSourceColumn(
+            String expression,
+            List<Table> tables,
+            List<TableReference> references
+    ) {
+
+        String trimmed =
+                Objects.requireNonNull(
+                                expression,
+                                "SELECT expression cannot be null."
+                        )
+                        .trim();
+
+        if (trimmed.isEmpty()) {
+
+            throw new QueryExecutionException(
+                    "SELECT expression cannot be blank."
+            );
+        }
+
+        int dotIndex =
+                trimmed.lastIndexOf('.');
+
+        if (dotIndex >= 0) {
+
+            String qualifier =
+                    trimmed.substring(
+                            0,
+                            dotIndex
+                    );
+
+            String columnName =
+                    trimmed.substring(
+                            dotIndex + 1
+                    );
+
+            for (int index = 0;
+                 index < references.size();
+                 index++) {
+
+                TableReference reference =
+                        references.get(index);
+
+                if (!reference.matches(
+                        qualifier
+                )) {
+
+                    continue;
+                }
+
+                Column column =
+                        findColumnOrNull(
+                                tables.get(index)
+                                        .getColumns(),
+                                columnName
+                        );
+
+                if (column == null) {
+
+                    throw new QueryExecutionException(
+                            "Column not found: "
+                                    + expression
+                    );
+                }
+
+                return new MultiJoinedSourceColumn(
+                        column,
+                        reference.getEffectiveName()
+                                + "."
+                                + column.getName()
+                );
+            }
+
+            throw new QueryExecutionException(
+                    "Unknown table or alias in SELECT column: "
+                            + expression
+            );
+        }
+
+        MultiJoinedSourceColumn resolved =
+                null;
+
+        for (int index = 0;
+             index < tables.size();
+             index++) {
+
+            Column column =
+                    findColumnOrNull(
+                            tables.get(index)
+                                    .getColumns(),
+                            trimmed
+                    );
+
+            if (column == null) {
+
+                continue;
+            }
+
+            if (resolved != null) {
+
+                throw new QueryExecutionException(
+                        "Ambiguous column reference: "
+                                + expression
+                );
+            }
+
+            TableReference reference =
+                    references.get(index);
+
+            resolved =
+                    new MultiJoinedSourceColumn(
+                            column,
+                            reference.getEffectiveName()
+                                    + "."
+                                    + column.getName()
+                    );
+        }
+
+        if (resolved == null) {
+
+            throw new QueryExecutionException(
+                    "Column not found: "
+                            + expression
+            );
+        }
+
+        return resolved;
     }
 
     /**
@@ -1145,6 +1933,1007 @@ public final class SelectExecutor {
                 "Column not found in JOIN result: "
                         + key
         );
+    }
+
+    // ==================================================
+    // SPRINT 00-16 - MULTIPLE JOIN + GROUP BY + AGGREGATE
+    // ==================================================
+
+    /**
+     * Multiple JOIN sonucu oluşan Map satırları üzerinde
+     * GROUP BY ve aggregate pipeline'ını yürütür.
+     */
+    private JoinedAggregateResult executeMultiJoinedAggregatePipeline(
+            List<Table> tables,
+            List<TableReference> references,
+            List<Map<String, Object>> joinedRows,
+            SelectStatement statement,
+            boolean containsAggregate
+    ) {
+
+        Map<List<Object>, List<Map<String, Object>>> groups;
+
+        if (statement.hasGroupBy()) {
+
+            groups =
+                    groupByExecutor.executeJoinedRows(
+                            joinedRows,
+                            statement.getGroupByClause()
+                    );
+
+        } else {
+
+            groups =
+                    new LinkedHashMap<>();
+
+            groups.put(
+                    List.of(),
+                    new ArrayList<>(joinedRows)
+            );
+        }
+
+        if (groups.isEmpty()
+                && containsAggregate
+                && !statement.hasGroupBy()) {
+
+            groups.put(
+                    List.of(),
+                    List.of()
+            );
+        }
+
+        List<Column> resultColumns =
+                createMultiJoinedAggregateResultColumns(
+                        tables,
+                        references,
+                        statement.getSelectItems()
+                );
+
+        List<Row> resultRows =
+                new ArrayList<>();
+
+        for (List<Map<String, Object>> groupRows
+                : groups.values()) {
+
+            List<Object> resultValues =
+                    new ArrayList<>();
+
+            for (SelectItem selectItem
+                    : statement.getSelectItems()) {
+
+                String expression =
+                        selectItem.getExpression()
+                                .trim();
+
+                AggregateCall aggregateCall =
+                        parseAggregateCall(
+                                expression
+                        );
+
+                if (aggregateCall != null) {
+
+                    Object value =
+                            aggregateExecutor.executeJoinedRows(
+                                    groupRows,
+                                    aggregateCall.function(),
+                                    aggregateCall.columnName()
+                            );
+
+                    if (value == null) {
+
+                        throw new QueryExecutionException(
+                                "Aggregate result cannot currently be null. "
+                                        + "Expression: "
+                                        + expression
+                        );
+                    }
+
+                    resultValues.add(
+                            value
+                    );
+
+                    continue;
+                }
+
+                if (groupRows.isEmpty()) {
+
+                    throw new QueryExecutionException(
+                            "Non-aggregate column cannot be produced "
+                                    + "from an empty multiple JOIN aggregate group: "
+                                    + expression
+                    );
+                }
+
+                MultiJoinedSourceColumn sourceColumn =
+                        resolveMultiJoinedSourceColumn(
+                                expression,
+                                tables,
+                                references
+                        );
+
+                Object value =
+                        getValueIgnoreCase(
+                                groupRows.get(0),
+                                sourceColumn.mapKey()
+                        );
+
+                if (value == null) {
+
+                    throw new QueryExecutionException(
+                            "Multiple JOIN aggregate projection produced a null value "
+                                    + "for column: "
+                                    + expression
+                    );
+                }
+
+                resultValues.add(
+                        value
+                );
+            }
+
+            resultRows.add(
+                    new Row(
+                            resultValues
+                    )
+            );
+        }
+
+        return new JoinedAggregateResult(
+                resultColumns,
+                resultRows
+        );
+    }
+
+    /**
+     * Multiple JOIN aggregate sonucunun output şemasını oluşturur.
+     */
+    private List<Column> createMultiJoinedAggregateResultColumns(
+            List<Table> tables,
+            List<TableReference> references,
+            List<SelectItem> selectItems
+    ) {
+
+        List<Column> resultColumns =
+                new ArrayList<>();
+
+        for (SelectItem item : selectItems) {
+
+            String expression =
+                    item.getExpression()
+                            .trim();
+
+            String outputName =
+                    getOutputColumnName(
+                            item
+                    );
+
+            AggregateCall aggregateCall =
+                    parseAggregateCall(
+                            expression
+                    );
+
+            DataType outputType;
+
+            if (aggregateCall != null) {
+
+                outputType =
+                        determineMultiJoinedAggregateDataType(
+                                tables,
+                                references,
+                                aggregateCall
+                        );
+
+            } else {
+
+                MultiJoinedSourceColumn sourceColumn =
+                        resolveMultiJoinedSourceColumn(
+                                expression,
+                                tables,
+                                references
+                        );
+
+                outputType =
+                        sourceColumn.column()
+                                .getDataType();
+            }
+
+            boolean duplicate =
+                    resultColumns.stream()
+                            .anyMatch(
+                                    column ->
+                                            column.getName()
+                                                    .equalsIgnoreCase(
+                                                            outputName
+                                                    )
+                            );
+
+            if (duplicate) {
+
+                throw new QueryExecutionException(
+                        "Duplicate SELECT result column: "
+                                + outputName
+                );
+            }
+
+            resultColumns.add(
+                    new Column(
+                            outputName,
+                            outputType
+                    )
+            );
+        }
+
+        return List.copyOf(
+                resultColumns
+        );
+    }
+
+    /**
+     * Multiple JOIN aggregate sonucunun DataType bilgisini belirler.
+     */
+    private DataType determineMultiJoinedAggregateDataType(
+            List<Table> tables,
+            List<TableReference> references,
+            AggregateCall aggregateCall
+    ) {
+
+        return switch (aggregateCall.function()) {
+
+            case COUNT ->
+                    DataType.LONG;
+
+            case SUM, AVG ->
+                    DataType.DOUBLE;
+
+            case MIN, MAX -> {
+
+                if ("*".equals(
+                        aggregateCall.columnName()
+                )) {
+
+                    throw new QueryExecutionException(
+                            aggregateCall.function()
+                                    + " does not support '*'."
+                    );
+                }
+
+                MultiJoinedSourceColumn sourceColumn =
+                        resolveMultiJoinedSourceColumn(
+                                aggregateCall.columnName(),
+                                tables,
+                                references
+                        );
+
+                yield sourceColumn.column()
+                        .getDataType();
+            }
+        };
+    }
+
+    /**
+     * Multiple JOIN + GROUP BY / aggregate sorgularının
+     * temel SQL kurallarını doğrular.
+     */
+    private void validateMultiJoinedAggregateQuery(
+            List<Table> tables,
+            List<TableReference> references,
+            SelectStatement statement,
+            boolean containsAggregate
+    ) {
+
+        if (tables.size()
+                != references.size()) {
+
+            throw new QueryExecutionException(
+                    "Table metadata count must match multiple JOIN reference count."
+            );
+        }
+
+        List<SelectItem> selectItems =
+                statement.getSelectItems();
+
+        for (SelectItem item : selectItems) {
+
+            if ("*".equals(
+                    item.getExpression()
+                            .trim()
+            )) {
+
+                throw new QueryExecutionException(
+                        "SELECT * cannot be used with GROUP BY "
+                                + "or aggregate result generation."
+                );
+            }
+        }
+
+        if (statement.hasHaving()
+                && !statement.hasGroupBy()
+                && !containsAggregate) {
+
+            throw new QueryExecutionException(
+                    "HAVING requires GROUP BY or an aggregate query."
+            );
+        }
+
+        if (containsAggregate
+                && !statement.hasGroupBy()) {
+
+            for (SelectItem item : selectItems) {
+
+                AggregateCall aggregateCall =
+                        parseAggregateCall(
+                                item.getExpression()
+                        );
+
+                if (aggregateCall == null) {
+
+                    throw new QueryExecutionException(
+                            "Non-aggregate SELECT column requires GROUP BY: "
+                                    + item.getExpression()
+                    );
+                }
+
+                if (!"*".equals(
+                        aggregateCall.columnName()
+                )) {
+
+                    resolveMultiJoinedSourceColumn(
+                            aggregateCall.columnName(),
+                            tables,
+                            references
+                    );
+                }
+            }
+
+            return;
+        }
+
+        if (statement.hasGroupBy()) {
+
+            List<String> groupedColumns =
+                    statement.getGroupByClause()
+                            .getColumnNames();
+
+            for (String groupedColumn
+                    : groupedColumns) {
+
+                resolveMultiJoinedSourceColumn(
+                        groupedColumn,
+                        tables,
+                        references
+                );
+            }
+
+            for (SelectItem item : selectItems) {
+
+                AggregateCall aggregateCall =
+                        parseAggregateCall(
+                                item.getExpression()
+                        );
+
+                if (aggregateCall != null) {
+
+                    if (!"*".equals(
+                            aggregateCall.columnName()
+                    )) {
+
+                        resolveMultiJoinedSourceColumn(
+                                aggregateCall.columnName(),
+                                tables,
+                                references
+                        );
+                    }
+
+                    continue;
+                }
+
+                String selected =
+                        item.getExpression()
+                                .trim();
+
+                boolean grouped =
+                        groupedColumns.stream()
+                                .anyMatch(
+                                        groupedColumn ->
+                                                groupedColumn.equalsIgnoreCase(
+                                                        selected
+                                                )
+                                );
+
+                if (!grouped) {
+
+                    throw new QueryExecutionException(
+                            "SELECT column must appear in GROUP BY "
+                                    + "or be used in an aggregate function: "
+                                    + item.getExpression()
+                    );
+                }
+
+                resolveMultiJoinedSourceColumn(
+                        selected,
+                        tables,
+                        references
+                );
+            }
+        }
+    }
+
+    // ==================================================
+    // SPRINT 00-16 - JOIN + GROUP BY + AGGREGATE
+    // ==================================================
+
+    /**
+     * JOIN sonucu oluşmuş Map satırları üzerinde
+     * GROUP BY ve aggregate işlemlerini yürütür.
+     */
+    private JoinedAggregateResult executeJoinedAggregatePipeline(
+            Table leftTable,
+            Table rightTable,
+            TableReference leftReference,
+            TableReference rightReference,
+            List<Map<String, Object>> joinedRows,
+            SelectStatement statement,
+            boolean containsAggregate
+    ) {
+
+        Map<List<Object>, List<Map<String, Object>>> groups;
+
+        // ----------------------------------------------
+        // GROUP BY
+        // ----------------------------------------------
+
+        if (statement.hasGroupBy()) {
+
+            groups =
+                    groupByExecutor.executeJoinedRows(
+                            joinedRows,
+                            statement.getGroupByClause()
+                    );
+
+        } else {
+
+            /*
+             * GROUP BY bulunmayan aggregate sorgusunda
+             * bütün JOIN sonucu tek implicit gruptur.
+             */
+            groups =
+                    new LinkedHashMap<>();
+
+            groups.put(
+                    List.of(),
+                    new ArrayList<>(
+                            joinedRows
+                    )
+            );
+        }
+
+        /*
+         * Global aggregate sorgusunda kaynak satır bulunmasa
+         * bile tek aggregate sonucu üretilebilir.
+         */
+        if (groups.isEmpty()
+                && containsAggregate
+                && !statement.hasGroupBy()) {
+
+            groups.put(
+                    List.of(),
+                    List.of()
+            );
+        }
+
+        List<Column> resultColumns =
+                createJoinedAggregateResultColumns(
+                        leftTable,
+                        rightTable,
+                        leftReference,
+                        rightReference,
+                        statement.getSelectItems()
+                );
+
+        List<Row> resultRows =
+                new ArrayList<>();
+
+        // ----------------------------------------------
+        // Her grup için SELECT sonucu
+        // ----------------------------------------------
+
+        for (List<Map<String, Object>> groupRows
+                : groups.values()) {
+
+            List<Object> resultValues =
+                    new ArrayList<>();
+
+            for (SelectItem selectItem
+                    : statement.getSelectItems()) {
+
+                String expression =
+                        selectItem
+                                .getExpression()
+                                .trim();
+
+                AggregateCall aggregateCall =
+                        parseAggregateCall(
+                                expression
+                        );
+
+                /*
+                 * Aggregate SELECT item.
+                 */
+                if (aggregateCall != null) {
+
+                    Object value =
+                            aggregateExecutor.executeJoinedRows(
+                                    groupRows,
+                                    aggregateCall.function(),
+                                    aggregateCall.columnName()
+                            );
+
+                    /*
+                     * Mevcut Row modeli NULL kabul etmediği için
+                     * NULL aggregate sonucu final Row'a taşınamaz.
+                     */
+                    if (value == null) {
+
+                        throw new QueryExecutionException(
+                                "Aggregate result cannot currently be null. "
+                                        + "Expression: "
+                                        + expression
+                        );
+                    }
+
+                    resultValues.add(
+                            value
+                    );
+
+                    continue;
+                }
+
+                /*
+                 * Aggregate olmayan GROUP BY kolonu
+                 * grubun ilk satırından okunur.
+                 */
+                if (groupRows.isEmpty()) {
+
+                    throw new QueryExecutionException(
+                            "Non-aggregate column cannot be produced "
+                                    + "from an empty JOIN aggregate group: "
+                                    + expression
+                    );
+                }
+
+                Object value =
+                        getJoinedColumnValue(
+                                groupRows.get(0),
+                                expression
+                        );
+
+                /*
+                 * Outer JOIN sonucunda değer NULL olabilir.
+                 * Row NULL-aware hale gelene kadar burada
+                 * güvenli biçimde hata üretilir.
+                 */
+                if (value == null) {
+
+                    throw new QueryExecutionException(
+                            "JOIN aggregate projection produced a null value "
+                                    + "for column: "
+                                    + expression
+                    );
+                }
+
+                resultValues.add(
+                        value
+                );
+            }
+
+            resultRows.add(
+                    new Row(
+                            resultValues
+                    )
+            );
+        }
+
+        return new JoinedAggregateResult(
+                resultColumns,
+                resultRows
+        );
+    }
+
+    /**
+     * JOIN + GROUP BY / aggregate sonucu için
+     * output kolon şemasını oluşturur.
+     */
+    private List<Column> createJoinedAggregateResultColumns(
+            Table leftTable,
+            Table rightTable,
+            TableReference leftReference,
+            TableReference rightReference,
+            List<SelectItem> selectItems
+    ) {
+
+        List<Column> resultColumns =
+                new ArrayList<>();
+
+        for (SelectItem item : selectItems) {
+
+            String expression =
+                    item.getExpression()
+                            .trim();
+
+            String outputName =
+                    getOutputColumnName(
+                            item
+                    );
+
+            AggregateCall aggregateCall =
+                    parseAggregateCall(
+                            expression
+                    );
+
+            DataType outputType;
+
+            if (aggregateCall != null) {
+
+                outputType =
+                        determineJoinedAggregateDataType(
+                                leftTable,
+                                rightTable,
+                                leftReference,
+                                rightReference,
+                                aggregateCall
+                        );
+
+            } else {
+
+                JoinedSourceColumn sourceColumn =
+                        resolveJoinedSourceColumn(
+                                expression,
+                                leftTable,
+                                rightTable,
+                                leftReference,
+                                rightReference
+                        );
+
+                outputType =
+                        sourceColumn
+                                .column()
+                                .getDataType();
+            }
+
+            boolean duplicate =
+                    resultColumns.stream()
+                            .anyMatch(
+                                    column ->
+                                            column.getName()
+                                                    .equalsIgnoreCase(
+                                                            outputName
+                                                    )
+                            );
+
+            if (duplicate) {
+
+                throw new QueryExecutionException(
+                        "Duplicate SELECT result column: "
+                                + outputName
+                );
+            }
+
+            resultColumns.add(
+                    new Column(
+                            outputName,
+                            outputType
+                    )
+            );
+        }
+
+        return List.copyOf(
+                resultColumns
+        );
+    }
+
+    /**
+     * JOIN aggregate sonucunun DataType bilgisini belirler.
+     */
+    private DataType determineJoinedAggregateDataType(
+            Table leftTable,
+            Table rightTable,
+            TableReference leftReference,
+            TableReference rightReference,
+            AggregateCall aggregateCall
+    ) {
+
+        return switch (
+                aggregateCall.function()
+                ) {
+
+            /*
+             * COUNT her zaman LONG.
+             */
+            case COUNT ->
+                    DataType.LONG;
+
+            /*
+             * AggregateExecutor SUM / AVG için
+             * Double döndürür.
+             */
+            case SUM, AVG ->
+                    DataType.DOUBLE;
+
+            /*
+             * MIN / MAX kaynak kolon tipini korur.
+             */
+            case MIN, MAX -> {
+
+                if ("*".equals(
+                        aggregateCall.columnName()
+                )) {
+
+                    throw new QueryExecutionException(
+                            aggregateCall.function()
+                                    + " does not support '*'."
+                    );
+                }
+
+                JoinedSourceColumn sourceColumn =
+                        resolveJoinedSourceColumn(
+                                aggregateCall.columnName(),
+                                leftTable,
+                                rightTable,
+                                leftReference,
+                                rightReference
+                        );
+
+                yield sourceColumn
+                        .column()
+                        .getDataType();
+            }
+        };
+    }
+
+    /**
+     * JOIN sonucundan qualified veya güvenli
+     * unqualified kolon değerini çözer.
+     */
+    private Object getJoinedColumnValue(
+            Map<String, Object> row,
+            String columnName
+    ) {
+
+        Objects.requireNonNull(
+                row,
+                "JOIN row cannot be null."
+        );
+
+        Objects.requireNonNull(
+                columnName,
+                "Column name cannot be null."
+        );
+
+        String normalized =
+                columnName.trim();
+
+        if (normalized.isEmpty()) {
+
+            throw new QueryExecutionException(
+                    "Column name cannot be blank."
+            );
+        }
+
+        /*
+         * Qualified kolon doğrudan aranır.
+         */
+        if (normalized.contains(".")) {
+
+            return getValueIgnoreCase(
+                    row,
+                    normalized
+            );
+        }
+
+        /*
+         * Önce normal tek tablo key'i varsa kullanılır.
+         */
+        for (Map.Entry<String, Object> entry
+                : row.entrySet()) {
+
+            if (entry.getKey()
+                    .equalsIgnoreCase(
+                            normalized
+                    )) {
+
+                return entry.getValue();
+            }
+        }
+
+        /*
+         * Unqualified JOIN kolonlarını qualified
+         * key'ler üzerinden çöz.
+         */
+        String suffix =
+                "."
+                        + normalized;
+
+        Object resolvedValue = null;
+        boolean found = false;
+
+        for (Map.Entry<String, Object> entry
+                : row.entrySet()) {
+
+            if (!entry.getKey()
+                    .toLowerCase(Locale.ROOT)
+                    .endsWith(
+                            suffix.toLowerCase(
+                                    Locale.ROOT
+                            )
+                    )) {
+
+                continue;
+            }
+
+            if (!found) {
+
+                resolvedValue =
+                        entry.getValue();
+
+                found = true;
+
+                continue;
+            }
+
+            /*
+             * JoinExecutor aynı fiziksel kolon için hem
+             * table.column hem alias.column key'i tutabilir.
+             *
+             * Aynı değer duplicate alias olarak kabul edilir.
+             */
+            if (!Objects.equals(
+                    resolvedValue,
+                    entry.getValue()
+            )) {
+
+                throw new QueryExecutionException(
+                        "Ambiguous column reference: "
+                                + columnName
+                );
+            }
+        }
+
+        if (!found) {
+
+            throw new QueryExecutionException(
+                    "Column not found in JOIN result: "
+                            + columnName
+            );
+        }
+
+        return resolvedValue;
+    }
+
+    /**
+     * JOIN + GROUP BY / aggregate sorgularının
+     * temel SQL kurallarını doğrular.
+     */
+    private void validateJoinedAggregateQuery(
+            Table leftTable,
+            Table rightTable,
+            TableReference leftReference,
+            TableReference rightReference,
+            SelectStatement statement,
+            boolean containsAggregate
+    ) {
+
+        List<SelectItem> selectItems =
+                statement.getSelectItems();
+
+        /*
+         * SELECT * aggregate/group sorgularında
+         * desteklenmez.
+         */
+        for (SelectItem item : selectItems) {
+
+            if ("*".equals(
+                    item.getExpression()
+                            .trim()
+            )) {
+
+                throw new QueryExecutionException(
+                        "SELECT * cannot be used with GROUP BY "
+                                + "or aggregate result generation."
+                );
+            }
+        }
+
+        /*
+         * HAVING tek başına kullanılamaz.
+         */
+        if (statement.hasHaving()
+                && !statement.hasGroupBy()
+                && !containsAggregate) {
+
+            throw new QueryExecutionException(
+                    "HAVING requires GROUP BY or an aggregate query."
+            );
+        }
+
+        /*
+         * Aggregate var fakat GROUP BY yoksa
+         * bütün SELECT item'ları aggregate olmalıdır.
+         */
+        if (containsAggregate
+                && !statement.hasGroupBy()) {
+
+            for (SelectItem item : selectItems) {
+
+                if (parseAggregateCall(
+                        item.getExpression()
+                ) == null) {
+
+                    throw new QueryExecutionException(
+                            "Non-aggregate SELECT column requires GROUP BY: "
+                                    + item.getExpression()
+                    );
+                }
+            }
+
+            return;
+        }
+
+        /*
+         * GROUP BY mevcutsa aggregate olmayan
+         * SELECT kolonları GROUP BY içinde bulunmalıdır.
+         */
+        if (statement.hasGroupBy()) {
+
+            List<String> groupedColumns =
+                    statement
+                            .getGroupByClause()
+                            .getColumnNames();
+
+            for (SelectItem item : selectItems) {
+
+                if (parseAggregateCall(
+                        item.getExpression()
+                ) != null) {
+
+                    continue;
+                }
+
+                String selected =
+                        item.getExpression()
+                                .trim();
+
+                boolean grouped =
+                        groupedColumns.stream()
+                                .anyMatch(
+                                        groupedColumn ->
+                                                groupedColumn
+                                                        .equalsIgnoreCase(
+                                                                selected
+                                                        )
+                                );
+
+                if (!grouped) {
+
+                    throw new QueryExecutionException(
+                            "SELECT column must appear in GROUP BY "
+                                    + "or be used in an aggregate function: "
+                                    + item.getExpression()
+                    );
+                }
+
+                /*
+                 * Kolonun gerçekten JOIN tablolarından
+                 * birinde bulunduğunu doğrula.
+                 */
+                resolveJoinedSourceColumn(
+                        selected,
+                        leftTable,
+                        rightTable,
+                        leftReference,
+                        rightReference
+                );
+            }
+        }
     }
 
     // ==================================================
@@ -1858,6 +3647,24 @@ public final class SelectExecutor {
     // ==================================================
 
     /**
+     * Multiple JOIN projection sonucu.
+     */
+    private record MultiJoinedProjection(
+            List<Column> columns,
+            List<Row> rows
+    ) {
+    }
+
+    /**
+     * Multiple JOIN SELECT item çözümleme sonucu.
+     */
+    private record MultiJoinedSourceColumn(
+            Column column,
+            String mapKey
+    ) {
+    }
+
+    /**
      * JOIN projection sonucu.
      */
     private record JoinedProjection(
@@ -1881,6 +3688,15 @@ public final class SelectExecutor {
     private record SelectedJoinedColumn(
             String mapKey,
             String outputName
+    ) {
+    }
+
+    /**
+     * JOIN + GROUP BY + Aggregate execution sonucu.
+     */
+    private record JoinedAggregateResult(
+            List<Column> columns,
+            List<Row> rows
     ) {
     }
 

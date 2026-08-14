@@ -5,6 +5,7 @@ import com.yekdb.table.Column;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -444,5 +445,280 @@ public final class AggregateExecutor {
         return comparable.compareTo(
                 right
         );
+    }
+
+    /**
+     * JOIN sonucu oluşan Map tabanlı satırlar üzerinde
+     * aggregate fonksiyonu çalıştırır.
+     *
+     * Destek:
+     *
+     * COUNT(*)
+     * COUNT(e.id)
+     * SUM(e.salary)
+     * AVG(e.salary)
+     * MIN(e.salary)
+     * MAX(e.salary)
+     */
+    public Object executeJoinedRows(
+            List<Map<String, Object>> rows,
+            AggregateFunction function,
+            String columnName
+    ) {
+
+        Objects.requireNonNull(
+                rows,
+                "JOIN satırları null olamaz."
+        );
+
+        Objects.requireNonNull(
+                function,
+                "Aggregate fonksiyon null olamaz."
+        );
+
+        if (columnName == null
+                || columnName.isBlank()) {
+
+            throw new IllegalArgumentException(
+                    "Aggregate kolon adı null veya boş olamaz."
+            );
+        }
+
+        return switch (function) {
+
+            case COUNT ->
+                    executeJoinedCount(
+                            rows,
+                            columnName
+                    );
+
+            case SUM ->
+                    executeJoinedSum(
+                            rows,
+                            columnName
+                    );
+
+            case AVG ->
+                    executeJoinedAverage(
+                            rows,
+                            columnName
+                    );
+
+            case MIN ->
+                    executeJoinedMin(
+                            rows,
+                            columnName
+                    );
+
+            case MAX ->
+                    executeJoinedMax(
+                            rows,
+                            columnName
+                    );
+        };
+    }
+
+    private long executeJoinedCount(
+            List<Map<String, Object>> rows,
+            String columnName
+    ) {
+
+        if ("*".equals(columnName.trim())) {
+            return rows.size();
+        }
+
+        long count = 0;
+
+        for (Map<String, Object> row : rows) {
+
+            Object value =
+                    resolveJoinedValue(
+                            row,
+                            columnName
+                    );
+
+            /*
+             * SQL COUNT(column) NULL değerleri saymaz.
+             */
+            if (value != null) {
+                count++;
+            }
+        }
+
+        return count;
+    }
+    private double executeJoinedSum(
+            List<Map<String, Object>> rows,
+            String columnName
+    ) {
+
+        double sum = 0.0;
+
+        for (Map<String, Object> row : rows) {
+
+            Object value =
+                    resolveJoinedValue(
+                            row,
+                            columnName
+                    );
+
+            /*
+             * SQL aggregate fonksiyonları NULL değerleri
+             * hesaplamaya dahil etmez.
+             */
+            if (value == null) {
+                continue;
+            }
+
+            Number number =
+                    requireNumber(
+                            value,
+                            columnName
+                    );
+
+            sum += number.doubleValue();
+        }
+
+        return sum;
+    }
+
+    private double executeJoinedAverage(
+            List<Map<String, Object>> rows,
+            String columnName
+    ) {
+
+        double sum = 0.0;
+        long count = 0;
+
+        for (Map<String, Object> row : rows) {
+
+            Object value =
+                    resolveJoinedValue(
+                            row,
+                            columnName
+                    );
+
+            if (value == null) {
+                continue;
+            }
+
+            Number number =
+                    requireNumber(
+                            value,
+                            columnName
+                    );
+
+            sum += number.doubleValue();
+            count++;
+        }
+
+        if (count == 0) {
+            return 0.0;
+        }
+
+        return sum / count;
+    }
+
+    private Object executeJoinedMin(
+            List<Map<String, Object>> rows,
+            String columnName
+    ) {
+
+        Object minimum = null;
+
+        for (Map<String, Object> row : rows) {
+
+            Object value =
+                    resolveJoinedValue(
+                            row,
+                            columnName
+                    );
+
+            if (value == null) {
+                continue;
+            }
+
+            if (minimum == null
+                    || compareValues(
+                    value,
+                    minimum
+            ) < 0) {
+
+                minimum = value;
+            }
+        }
+
+        return minimum;
+    }
+
+    private Object executeJoinedMax(
+            List<Map<String, Object>> rows,
+            String columnName
+    ) {
+
+        Object maximum = null;
+
+        for (Map<String, Object> row : rows) {
+
+            Object value =
+                    resolveJoinedValue(
+                            row,
+                            columnName
+                    );
+
+            if (value == null) {
+                continue;
+            }
+
+            if (maximum == null
+                    || compareValues(
+                    value,
+                    maximum
+            ) > 0) {
+
+                maximum = value;
+            }
+        }
+
+        return maximum;
+    }
+
+    /**
+     * JOIN satırındaki qualified aggregate kolonunu çözer.
+     *
+     * Örnek:
+     *
+     * e.salary
+     * d.id
+     */
+    private Object resolveJoinedValue(
+            Map<String, Object> row,
+            String columnName
+    ) {
+
+        String normalized =
+                columnName.trim();
+
+        /*
+         * JOIN + aggregate tarafında qualified kolon
+         * kullanımını zorunlu tutuyoruz.
+         */
+        if (!normalized.contains(".")) {
+
+            throw new IllegalArgumentException(
+                    "JOIN aggregate kolonları qualified olmalıdır: "
+                            + columnName
+            );
+        }
+
+        if (!row.containsKey(normalized)) {
+
+            throw new IllegalArgumentException(
+                    "Aggregate kolonu JOIN sonucunda bulunamadı: "
+                            + columnName
+            );
+        }
+
+        return row.get(normalized);
     }
 }

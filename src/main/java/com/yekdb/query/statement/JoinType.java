@@ -1,12 +1,30 @@
 package com.yekdb.query.statement;
 
 /**
- * Represents supported SQL JOIN types.
- *
- * Sprint 00-15 initially supports INNER JOIN.
- * Additional JOIN types will be introduced in later sprints.
+ * YEKDB tarafından desteklenen JOIN türlerini temsil eder.
  */
 public enum JoinType {
 
-    INNER
+    /**
+     * Yalnızca JOIN koşulunu sağlayan satırları döndürür.
+     */
+    INNER,
+
+    /**
+     * Sol tablodaki tüm satırları korur.
+     * Sağ tarafta eşleşme yoksa değerler NULL olur.
+     */
+    LEFT,
+
+    /**
+     * Sağ tablodaki tüm satırları korur.
+     * Sol tarafta eşleşme yoksa değerler NULL olur.
+     */
+    RIGHT,
+
+    /**
+     * Her iki tablodaki tüm satırları korur.
+     * Eşleşmeyen tarafın kolonları NULL olur.
+     */
+    FULL
 }

@@ -1,60 +1,38 @@
 package com.yekdb.query.evaluator;
 
+import com.yekdb.query.expression.ComparisonExpression;
 import com.yekdb.query.expression.Expression;
+import com.yekdb.query.expression.LogicalExpression;
+import com.yekdb.query.expression.NotExpression;
 import com.yekdb.storage.record.Row;
 import com.yekdb.table.Table;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.Objects;
-import java.util.TreeMap;
 import java.util.function.Function;
 
 /**
- * WHERE expression değerlendirmesi için adapter katmanıdır.
+ * WHERE expression ağacını değerlendirir.
  *
- * Sprint 00-13 kapsamında expression evaluation işlemi
- * ExpressionEvaluator tarafından merkezi olarak gerçekleştirilir.
+ * Bu sınıf iki kullanım biçimini korur:
  *
- * Bu sınıf iki farklı kullanım şeklini destekler:
+ * - Function tabanlı eski API
+ * - Row + Table tabanlı API
  *
- * 1. Function<String, Object> tabanlı value provider
- * 2. Gerçek YEKDB Row + Table değerlendirmesi
- *
- * Row + Table değerlendirmesinde sütun isimleri
- * case-insensitive olarak ele alınır.
- *
- * Desteklenen expression türleri ExpressionEvaluator üzerinden:
- *
- * - ComparisonExpression
- * - LogicalExpression (AND / OR)
- * - NotExpression
- *
- * Parentheses ve operator precedence parser katmanında
- * Expression AST yapısına dönüştürülür.
+ * Function tabanlı API doğrudan dışarıdan verilen
+ * valueProvider üzerinden kolon değerini okur.
  */
 public final class WhereEvaluator {
-
-    /**
-     * Expression değerlendirme işlemlerinin
-     * merkezi evaluator nesnesi.
-     */
-    private static final ExpressionEvaluator EXPRESSION_EVALUATOR =
-            new ExpressionEvaluator();
 
     private WhereEvaluator() {
     }
 
     /**
-     * Function tabanlı value provider kullanarak
-     * WHERE expression değerlendirir.
+     * Bir WHERE ifadesini dışarıdan verilen kolon
+     * değer sağlayıcısı üzerinden değerlendirir.
      *
-     * Bu overload eski kodlarla geriye dönük
-     * uyumluluğu korumak amacıyla tutulmaktadır.
-     *
-     * @param expression    değerlendirilecek expression
-     * @param valueProvider sütun adına göre değer sağlayan fonksiyon
-     * @return expression sonucu
+     * @param expression değerlendirilecek expression
+     * @param valueProvider kolon adına göre değer sağlayan fonksiyon
+     * @return koşul sonucu
      */
     public static boolean evaluate(
             Expression expression,
@@ -71,62 +49,142 @@ public final class WhereEvaluator {
                 "Value provider cannot be null."
         );
 
-        Map<String, Object> values =
-                new ProviderBackedMap(
-                        valueProvider
-                );
+        if (expression instanceof ComparisonExpression comparisonExpression) {
 
-        return EXPRESSION_EVALUATOR.evaluate(
-                expression,
-                values
+            return evaluateComparison(
+                    comparisonExpression,
+                    valueProvider
+            );
+        }
+
+        if (expression instanceof LogicalExpression logicalExpression) {
+
+            return evaluateLogical(
+                    logicalExpression,
+                    valueProvider
+            );
+        }
+
+        if (expression instanceof NotExpression notExpression) {
+
+            return !evaluate(
+                    notExpression.expression(),
+                    valueProvider
+            );
+        }
+
+        throw new IllegalArgumentException(
+                "Unsupported expression type: "
+                        + expression.getClass().getName()
         );
     }
 
     /**
-     * WHERE expression'ını gerçek YEKDB
-     * Row ve Table nesneleri üzerinde değerlendirir.
+     * Tek bir karşılaştırma ifadesini değerlendirir.
+     */
+    private static boolean evaluateComparison(
+            ComparisonExpression expression,
+            Function<String, Object> valueProvider
+    ) {
+
+        Object actualValue =
+                valueProvider.apply(
+                        expression.columnName()
+                );
+
+        return PredicateEvaluator.evaluate(
+                actualValue,
+                expression.expectedValue(),
+                expression.operator()
+        );
+    }
+
+    /**
+     * AND / OR ifadesini recursive değerlendirir.
+     */
+    private static boolean evaluateLogical(
+            LogicalExpression expression,
+            Function<String, Object> valueProvider
+    ) {
+
+        return switch (expression.operator()) {
+
+            case AND ->
+                    evaluateAnd(
+                            expression,
+                            valueProvider
+                    );
+
+            case OR ->
+                    evaluateOr(
+                            expression,
+                            valueProvider
+                    );
+        };
+    }
+
+    /**
+     * AND için kısa devre değerlendirmesi yapar.
+     */
+    private static boolean evaluateAnd(
+            LogicalExpression expression,
+            Function<String, Object> valueProvider
+    ) {
+
+        boolean leftResult =
+                evaluate(
+                        expression.leftExpression(),
+                        valueProvider
+                );
+
+        if (!leftResult) {
+            return false;
+        }
+
+        return evaluate(
+                expression.rightExpression(),
+                valueProvider
+        );
+    }
+
+    /**
+     * OR için kısa devre değerlendirmesi yapar.
+     */
+    private static boolean evaluateOr(
+            LogicalExpression expression,
+            Function<String, Object> valueProvider
+    ) {
+
+        boolean leftResult =
+                evaluate(
+                        expression.leftExpression(),
+                        valueProvider
+                );
+
+        if (leftResult) {
+            return true;
+        }
+
+        return evaluate(
+                expression.rightExpression(),
+                valueProvider
+        );
+    }
+
+    /**
+     * Bir WHERE ifadesini gerçek Row ve Table
+     * nesneleri üzerinde değerlendirir.
      *
-     * Table içerisindeki column isimleri ile
-     * Row içerisindeki değerler eşleştirilir.
-     *
-     * Örnek:
-     *
-     * Table:
-     *
-     * id
-     * name
-     * age
-     * city
-     *
-     * Row:
-     *
-     * 1
-     * Yunus
-     * 21
-     * Malatya
-     *
-     * Oluşan yapı:
-     *
-     * id   -> 1
-     * name -> Yunus
-     * age  -> 21
-     * city -> Malatya
-     *
-     * @param expression değerlendirilecek WHERE expression
-     * @param row        değerlendirilecek Row
-     * @param table      Row'un ait olduğu Table
-     * @return expression sonucu
+     * @param expression değerlendirilecek expression
+     * @param row değerlendirilecek satır
+     * @param table satırın ait olduğu tablo şeması
+     * @return koşul sonucu
      */
     public static boolean evaluate(
             Expression expression,
             Row row,
             Table table
     ) {
-
-        Objects.requireNonNull(
-                expression,
-                "Expression cannot be null."
-        );
 
         Objects.requireNonNull(
                 row,
@@ -138,142 +196,15 @@ public final class WhereEvaluator {
                 "Table cannot be null."
         );
 
-        Map<String, Object> rowValues =
-                createRowValueMap(
+        RowValueProvider valueProvider =
+                new RowValueProvider(
                         row,
                         table
                 );
 
-        return EXPRESSION_EVALUATOR.evaluate(
+        return evaluate(
                 expression,
-                rowValues
+                valueProvider
         );
-    }
-
-    /**
-     * Table sütunlarını Row değerleriyle eşleştirerek
-     * ExpressionEvaluator tarafından kullanılabilecek
-     * Map yapısını oluşturur.
-     *
-     * TreeMap + CASE_INSENSITIVE_ORDER kullanıldığı için:
-     *
-     * city
-     * CITY
-     * City
-     * CiTy
-     *
-     * aynı sütun olarak değerlendirilir.
-     */
-    private static Map<String, Object> createRowValueMap(
-            Row row,
-            Table table
-    ) {
-
-        int rowValueCount =
-                row.size();
-
-        int tableColumnCount =
-                table.getColumns().size();
-
-        if (rowValueCount
-                != tableColumnCount) {
-
-            throw new IllegalArgumentException(
-                    "Row value count does not match "
-                            + "table column count. "
-                            + "Row values: "
-                            + rowValueCount
-                            + ", table columns: "
-                            + tableColumnCount
-            );
-        }
-
-        Map<String, Object> values =
-                new TreeMap<>(
-                        String.CASE_INSENSITIVE_ORDER
-                );
-
-        for (int i = 0;
-             i < tableColumnCount;
-             i++) {
-
-            String columnName =
-                    table.getColumns()
-                            .get(i)
-                            .getName();
-
-            Object value =
-                    row.getValue(i);
-
-            values.put(
-                    columnName,
-                    value
-            );
-        }
-
-        return values;
-    }
-
-    /**
-     * Eski Function<String, Object> tabanlı API'yi
-     * ExpressionEvaluator'ın Map tabanlı API'sine
-     * adapte eder.
-     *
-     * Bu sınıf gerçek değerleri Map içerisinde
-     * fiziksel olarak saklamaz.
-     *
-     * get(columnName) çağrısı doğrudan
-     * valueProvider.apply(columnName) çağrısına
-     * yönlendirilir.
-     */
-    private static final class ProviderBackedMap
-            extends LinkedHashMap<String, Object> {
-
-        private final Function<String, Object> valueProvider;
-
-        private ProviderBackedMap(
-                Function<String, Object> valueProvider
-        ) {
-
-            this.valueProvider =
-                    Objects.requireNonNull(
-                            valueProvider,
-                            "Value provider cannot be null."
-                    );
-        }
-
-        /**
-         * ExpressionEvaluator comparison öncesinde
-         * containsKey() kontrolü yaptığı için
-         * String column isimleri geçerli kabul edilir.
-         *
-         * Gerçek column kontrolü valueProvider
-         * implementasyonunun sorumluluğundadır.
-         */
-        @Override
-        public boolean containsKey(
-                Object key
-        ) {
-
-            return key instanceof String;
-        }
-
-        /**
-         * Sütun değerini valueProvider üzerinden alır.
-         */
-        @Override
-        public Object get(
-                Object key
-        ) {
-
-            if (!(key instanceof String columnName)) {
-
-                return null;
-            }
-
-            return valueProvider.apply(
-                    columnName
-            );
-        }
     }
 }

@@ -809,7 +809,7 @@ public final class QueryExecutor implements AutoCloseable {
     /**
      * SELECT komutunu çalıştırır.
      *
-     * Sprint 00-15 SELECT + JOIN pipeline:
+     * Sprint 00-16 SELECT + JOIN pipeline:
      *
      * SQL
      *   ->
@@ -908,60 +908,75 @@ public final class QueryExecutor implements AutoCloseable {
 
         } else {
 
-            /*
-             * Sprint 00-15 yalnızca tek JOIN destekler.
-             *
-             * Parser ve SelectExecutor tarafında da aynı
-             * sprint sınırı korunmaktadır.
-             */
-            if (statement.getJoinCount() != 1) {
+            List<Table> rightTables =
+                    new ArrayList<>();
 
-                throw new QueryExecutionException(
-                        "Sprint 00-15 supports exactly one JOIN per SELECT statement."
+            List<List<Row>> rightTableRows =
+                    new ArrayList<>();
+
+            for (JoinClause joinClause
+                    : statement.getJoins()) {
+
+                String rightTableName =
+                        joinClause.getTableName();
+
+                Table rightTable =
+                        activeDataSource.getTable(
+                                rightTableName
+                        );
+
+                if (rightTable == null) {
+
+                    throw new QueryExecutionException(
+                            "QueryDataSource returned null JOIN table for: "
+                                    + rightTableName
+                    );
+                }
+
+                List<Row> rightRows =
+                        activeDataSource.getRows(
+                                rightTableName
+                        );
+
+                if (rightRows == null) {
+
+                    throw new QueryExecutionException(
+                            "QueryDataSource returned null row list for JOIN table: "
+                                    + rightTableName
+                    );
+                }
+
+                rightTables.add(
+                        rightTable
+                );
+
+                rightTableRows.add(
+                        rightRows
                 );
             }
 
-            JoinClause joinClause =
-                    statement.getJoins()
-                            .get(0);
+            if (statement.getJoinCount() == 1) {
 
-            String rightTableName =
-                    joinClause.getTableName();
+                queryResult =
+                        selectExecutor.executeStatement(
+                                table,
+                                rows,
+                                rightTables.get(0),
+                                rightTableRows.get(0),
+                                statement
+                        );
 
-            Table rightTable =
-                    activeDataSource.getTable(
-                            rightTableName
-                    );
+            } else {
 
-            if (rightTable == null) {
-
-                throw new QueryExecutionException(
-                        "QueryDataSource returned null JOIN table for: "
-                                + rightTableName
-                );
+                queryResult =
+                        selectExecutor.executeStatement(
+                                table,
+                                rows,
+                                rightTables,
+                                rightTableRows,
+                                statement
+                        );
             }
-
-            List<Row> rightRows =
-                    activeDataSource.getRows(
-                            rightTableName
-                    );
-
-            if (rightRows == null) {
-
-                throw new QueryExecutionException(
-                        "QueryDataSource returned null row list for JOIN table: "
-                                + rightTableName
-                );
-            }
-
-            queryResult =
-                    selectExecutor.executeStatement(
-                            table,
-                            rows,
-                            rightTable,
-                            rightRows,
-                            statement
-                    );
         }
 
         if (queryResult == null) {
