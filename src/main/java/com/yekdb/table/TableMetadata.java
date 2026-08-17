@@ -6,8 +6,14 @@ import java.util.Objects;
 /**
  * YEKDB tablosuna ait metadata bilgilerini temsil eder.
  *
- * Bu sınıf tablo adı, sütun sayısı, oluşturulma zamanı,
- * fiziksel tablo dosyası ve metadata sürümünü tutar.
+ * Metadata içerisinde:
+ * - tablo adı,
+ * - sütun sayısı,
+ * - oluşturulma zamanı,
+ * - fiziksel dosya adı,
+ * - metadata sürümü
+ *
+ * saklanır.
  *
  * Sürüm: 1.0
  */
@@ -24,15 +30,20 @@ public class TableMetadata {
     /**
      * Yeni tablo metadata bilgisi oluşturur.
      *
-     * @param tableName  tablo adı
+     * @param tableName   tablo adı
      * @param columnCount sütun sayısı
      */
-    public TableMetadata(String tableName, int columnCount) {
+    public TableMetadata(
+            String tableName,
+            int columnCount
+    ) {
+
         this(
-                tableName,
+                TableNameValidator.validate(tableName),
                 columnCount,
                 LocalDateTime.now(),
-                normalizeTableName(tableName) + ".tbl",
+                TableNameValidator.validate(tableName)
+                        + ".tbl",
                 CURRENT_VERSION
         );
     }
@@ -40,7 +51,8 @@ public class TableMetadata {
     /**
      * Mevcut metadata bilgilerinden nesne oluşturur.
      *
-     * Bu constructor ileride metadata dosyası okunurken kullanılabilir.
+     * Bu constructor ileride metadata dosyasından
+     * tablo bilgileri okunurken kullanılabilir.
      *
      * @param tableName   tablo adı
      * @param columnCount sütun sayısı
@@ -55,11 +67,9 @@ public class TableMetadata {
             String fileName,
             int version
     ) {
-        if (tableName == null || tableName.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Table name cannot be null or blank."
-            );
-        }
+
+        this.tableName =
+                TableNameValidator.validate(tableName);
 
         if (columnCount <= 0) {
             throw new IllegalArgumentException(
@@ -67,11 +77,10 @@ public class TableMetadata {
             );
         }
 
-        if (createdAt == null) {
-            throw new IllegalArgumentException(
-                    "Creation time cannot be null."
-            );
-        }
+        this.createdAt = Objects.requireNonNull(
+                createdAt,
+                "Creation time cannot be null."
+        );
 
         if (fileName == null || fileName.isBlank()) {
             throw new IllegalArgumentException(
@@ -85,21 +94,9 @@ public class TableMetadata {
             );
         }
 
-        this.tableName = normalizeTableName(tableName);
         this.columnCount = columnCount;
-        this.createdAt = createdAt;
         this.fileName = fileName.trim();
         this.version = version;
-    }
-
-    private static String normalizeTableName(String tableName) {
-        if (tableName == null || tableName.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Table name cannot be null or blank."
-            );
-        }
-
-        return tableName.trim().toLowerCase();
     }
 
     public String getTableName() {
@@ -135,6 +132,7 @@ public class TableMetadata {
 
     @Override
     public boolean equals(Object o) {
+
         if (this == o) {
             return true;
         }

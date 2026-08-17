@@ -31,486 +31,694 @@ The project is designed to explore how relational database systems work internal
 - Persistence and regression testing
 
 YEKDB does **not** rely on PostgreSQL, MySQL, SQLite, or another database engine for its internal storage or query execution.
+> Current development milestone: **Sprint 00-17 — Architecture Cleanup & Query Engine Refactoring**
 
 ---
 
-# Sprint 00-16 — Advanced JOIN Engine & Rule-Based JOIN Optimization
+## Project Goals
 
-Sprint 00-16 extends the relational execution layer introduced in Sprint 00-15.
+YEKDB is designed to gradually evolve into a PostgreSQL-inspired database engine while keeping the internal architecture understandable, testable, and modular.
 
-The sprint focuses on:
+Main goals:
 
-- Outer JOIN execution
-- Multiple JOIN chains
-- JOIN-aware filtering and aggregation
-- Qualified column preservation
-- Multi-table query execution
-- Safe rule-based JOIN optimization
-- Full regression verification
-
-## Completed Capabilities
-
-| Feature | Status |
-|---|---|
-| INNER JOIN | ✅ |
-| LEFT JOIN | ✅ |
-| RIGHT JOIN | ✅ |
-| FULL JOIN | ✅ |
-| Multiple JOIN chains | ✅ |
-| Qualified column preservation | ✅ |
-| Column-to-column JOIN predicates | ✅ |
-| JOIN + WHERE | ✅ |
-| JOIN + GROUP BY | ✅ |
-| JOIN + HAVING | ✅ |
-| JOIN + COUNT | ✅ |
-| JOIN + SUM | ✅ |
-| JOIN + AVG | ✅ |
-| JOIN + MIN | ✅ |
-| JOIN + MAX | ✅ |
-| JOIN + ORDER BY | ✅ |
-| JOIN + LIMIT | ✅ |
-| JOIN + FETCH | ✅ |
-| QueryExecutor multi-JOIN routing | ✅ |
-| Rule-based JOIN optimizer | ✅ |
-| JOIN condition validation | ✅ |
-| Cartesian JOIN prevention | ✅ |
-| Predicate pushdown analysis | ✅ |
-| Projection pruning analysis | ✅ |
-| Safe INNER JOIN reorder | ✅ |
-| Small-table-first strategy | ✅ |
-| Outer JOIN reorder protection | ✅ |
-| Full Maven regression | ✅ |
-| 940 automated tests passing | ✅ |
+- Build a DBMS from the ground up
+- Understand physical page and record storage
+- Implement database and table management
+- Build an SQL parsing and execution pipeline
+- Support joins, filtering, grouping, aggregation, and sorting
+- Develop an extensible index infrastructure
+- Keep the codebase modular and test-driven
+- Prepare the architecture for future transactions, persistence improvements, and client/server support
 
 ---
 
-# Query Architecture
+## Current Status
+
+### Sprint 00-17
+
+Sprint 00-17 focused on **codebase review, cleanup, responsibility separation, and Query Engine refactoring**.
+
+The sprint was completed without changing the externally expected behavior of the system.
+
+**Current test status:**
+
+```text
+940 / 940 tests passed
+Compile successful
+```
+
+---
+
+## Architecture
+
+```text
+com.yekdb
+├── config
+├── core
+├── database
+├── demo
+├── exception
+├── index
+├── logs
+├── query
+├── storage
+├── table
+└── YekdbApplication.java
+```
+
+### Core Layers
+
+```text
+Application
+    │
+    ▼
+Query Engine
+    │
+    ├── Parser
+    ├── Expressions
+    ├── Query Execution
+    ├── JOIN Engine
+    ├── Aggregation
+    └── Optimizer
+    │
+    ▼
+Database / Table / Index Management
+    │
+    ▼
+Storage Engine
+    │
+    ├── DataFile
+    ├── Page Management
+    ├── Record Management
+    └── Serialization
+```
+
+---
+
+# Features
+
+## Database Management
+
+Supported database-level operations include:
+
+```sql
+CREATE DATABASE university;
+USE university;
+DROP DATABASE university;
+```
+
+Database management includes:
+
+- Database creation
+- Database selection
+- Database deletion
+- Database listing
+- Metadata persistence
+- Database metadata integrity checks
+- Centralized database name validation
+
+---
+
+## Table Management
+
+Example:
+
+```sql
+CREATE TABLE students (
+    id INTEGER,
+    name STRING,
+    age INTEGER
+);
+```
+
+Current table infrastructure includes:
+
+- Table creation
+- Table deletion
+- Column definitions
+- Table catalog
+- Table metadata
+- Table name validation
+- Column name validation
+- Duplicate column detection
+- Immutable table schema lists
+
+Qualified column names are also supported internally for JOIN results:
+
+```text
+students.id
+departments.name
+e.id
+d.name
+```
+
+---
+
+## Storage Engine
+
+The physical storage layer includes:
+
+```text
+StorageEngine
+├── DataFile
+├── DatabaseHeader
+├── PageManager
+├── PageSerializer
+├── RecordManager
+├── RecordSerializer
+├── Row
+└── RowSerializer
+```
+
+Implemented concepts include:
+
+- Fixed-size database pages
+- Database headers
+- Page serialization/deserialization
+- Record storage
+- Record lookup
+- Record update
+- Record deletion
+- Row serialization
+- Persistent page count management
+- Storage lifecycle management
+
+Default page size:
+
+```text
+4096 bytes
+```
+
+---
+
+## Index Infrastructure
+
+YEKDB currently provides an in-memory index abstraction that prepares the architecture for future persistent tree indexes.
+
+Supported index types include:
+
+- PRIMARY
+- UNIQUE
+- NON_UNIQUE
+
+Index functionality includes:
+
+- Index creation
+- Index deletion
+- Index lookup
+- RecordPointer mapping
+- Multiple pointers for non-unique keys
+- Duplicate-key protection for unique indexes
+- Index metadata
+- Database/table/column association
+- Identifier normalization
+
+Example structure:
+
+```text
+Index<K>
+    └── Map<K, List<RecordPointer>>
+```
+
+A persistent B+ Tree implementation is planned for a future milestone.
+
+---
+
+# Query Engine
+
+The Query Engine is one of the largest parts of YEKDB.
+
+```text
+query/
+├── command
+├── datasource
+├── evaluator
+├── executor
+├── expression
+├── optimizer
+├── parser
+├── result
+└── statement
+```
+
+The engine follows a general pipeline:
 
 ```text
 SQL
  │
  ▼
-SqlTokenizer
+Tokenizer
  │
  ▼
-SqlParser
+Parser
  │
  ▼
-SelectStatement
- │
- ├── TableReference
- ├── SelectItem list
- ├── JoinClause list
- ├── WHERE Expression
- ├── GROUP BY
- ├── HAVING
- ├── ORDER BY
- ├── LIMIT
- └── FETCH
- │
- ▼
-StatementCommandMapper
- │
- ▼
-SelectCommand
+Statement / Expression Model
  │
  ▼
 QueryExecutor
  │
  ▼
-SelectExecutor
+Specialized Executors
  │
- ├── Single-table execution
- ├── JoinExecutor
- └── MultiJoinExecutor
-      │
-      ▼
- JOIN result rows
-      │
-      ├── WHERE
-      ├── GROUP BY
-      ├── Aggregate
-      ├── HAVING
-      ├── Projection
-      ├── ORDER BY
-      ├── LIMIT
-      └── FETCH
-      │
-      ▼
- QueryResult
+ ▼
+Query Result
 ```
 
 ---
 
-# JOIN Model
+## SELECT
 
-A JOIN is represented by a `JoinClause`.
+Basic queries:
 
-```text
-JoinClause
-├── JoinType
-├── tableName
-├── alias
-└── condition
+```sql
+SELECT * FROM employees;
 ```
 
-Supported JOIN types:
-
-```text
-INNER
-LEFT
-RIGHT
-FULL
+```sql
+SELECT name, salary
+FROM employees
+WHERE salary > 30000;
 ```
+
+Supported SELECT functionality includes:
+
+- Column projection
+- `WHERE`
+- Aliases
+- Qualified column resolution
+- Expression evaluation
+- Result column generation
+
+---
+
+## Filtering Expressions
+
+Implemented expression support includes:
+
+```sql
+WHERE age > 18
+```
+
+```sql
+WHERE age BETWEEN 18 AND 30
+```
+
+```sql
+WHERE city IN ('Malatya', 'Elazig')
+```
+
+```sql
+WHERE name LIKE 'Em%'
+```
+
+Supported operators/features include:
+
+- Comparison expressions
+- Logical expressions
+- `BETWEEN`
+- `IN`
+- `LIKE`
+- `ILIKE`
+- `NOT LIKE`
+- Literal expressions
+- Column expressions
+- Parenthesized expression parsing
+
+---
+
+## ORDER BY and LIMIT
 
 Example:
-
-```sql
-SELECT e.name, d.name
-FROM employee e
-INNER JOIN department d
-    ON e.department_id = d.id;
-```
-
-Multiple JOIN example:
-
-```sql
-SELECT e.name, d.name, c.name
-FROM employee e
-INNER JOIN department d
-    ON e.department_id = d.id
-INNER JOIN company c
-    ON d.company_id = c.id;
-```
-
----
-
-# Qualified Column Resolution
-
-JOIN execution preserves qualified column information.
-
-Example joined row keys:
-
-```text
-employee.id
-employee.name
-employee.department_id
-
-e.id
-e.name
-e.department_id
-
-department.id
-department.name
-
-d.id
-d.name
-```
-
-This allows the query engine to distinguish columns such as:
-
-```text
-e.id
-d.id
-c.id
-```
-
-and detect unsafe ambiguous unqualified references.
-
----
-
-# Outer JOIN Semantics
-
-`JoinExecutor` supports null padding for unmatched JOIN sides.
-
-Conceptually:
-
-```text
-LEFT JOIN
-→ preserve all left rows
-→ unmatched right-side columns are NULL
-
-RIGHT JOIN
-→ preserve all right rows
-→ unmatched left-side columns are NULL
-
-FULL JOIN
-→ preserve unmatched rows from both sides
-```
-
-> Current technical debt: the low-level JOIN row map can represent null-padded columns, but the existing `Row` storage/result model does not yet fully support nullable values. NULL-aware final result materialization will be handled in a dedicated future improvement rather than changing the physical row format inside Sprint 00-16.
-
----
-
-# Multiple JOIN Execution
-
-`MultiJoinExecutor` processes JOIN clauses sequentially while preserving qualified provenance.
-
-```text
-Base table
-   │
-   ▼
-JOIN #1
-   │
-   ▼
-Intermediate qualified row set
-   │
-   ▼
-JOIN #2
-   │
-   ▼
-Intermediate qualified row set
-   │
-   ▼
-JOIN #N
-```
-
-This supports dependent chains such as:
-
-```text
-employee → department → company
-```
-
-where the second JOIN can reference a column produced by the first JOIN.
-
----
-
-# JOIN + WHERE
-
-WHERE filtering is evaluated after JOIN execution at the logical result level.
-
-Example:
-
-```sql
-SELECT e.name, d.name
-FROM employee e
-INNER JOIN department d
-    ON e.department_id = d.id
-WHERE d.name = 'IT';
-```
-
-The optimizer can additionally identify predicates that are safe candidates for pushdown.
-
----
-
-# JOIN + GROUP BY / Aggregate / HAVING
-
-The JOIN result can flow directly into the aggregation pipeline.
-
-Example:
-
-```sql
-SELECT d.name, COUNT(e.id)
-FROM employee e
-INNER JOIN department d
-    ON e.department_id = d.id
-GROUP BY d.name
-HAVING COUNT(e.id) > 2;
-```
-
-Supported aggregate functions:
-
-```text
-COUNT
-SUM
-AVG
-MIN
-MAX
-```
-
-The same pipeline is supported for multiple JOIN chains.
-
----
-
-# Rule-Based JOIN Optimizer
-
-Sprint 00-16 introduces a safe rule-based optimizer.
-
-Main classes:
-
-```text
-query.optimizer
-├── JoinExecutionContext
-├── JoinOptimizationRule
-├── JoinOptimizationResult
-└── JoinOptimizer
-```
-
-Supported rules:
-
-```text
-CONDITION_VALIDATION
-CARTESIAN_PREVENTION
-PREDICATE_PUSHDOWN
-PROJECTION_PRUNING
-INNER_JOIN_REORDER
-SMALL_TABLE_FIRST
-```
-
-## Condition Validation
-
-JOIN conditions must be valid qualified column-to-column comparisons.
-
-Invalid conditions are rejected before execution.
-
-Example of valid condition:
-
-```text
-e.department_id = d.id
-```
-
-Example of rejected Cartesian-style JOIN:
 
 ```sql
 SELECT *
-FROM employee e
-JOIN department d;
+FROM employees
+ORDER BY salary DESC
+LIMIT 10;
 ```
+
+The Query Engine includes support for ordering and result limiting.
 
 ---
 
-## Predicate Pushdown Analysis
+# JOIN Engine
 
-Qualified single-table predicates can be identified as pushdown candidates.
-
-Safe example:
-
-```sql
-WHERE d.active = true
-```
-
-Not automatically pushed:
-
-```sql
-WHERE e.salary > d.budget
-```
-
-`OR` and `NOT` expressions are deliberately not pushed down by the Sprint 00-16 optimizer because preserving query semantics takes priority over aggressive optimization.
-
----
-
-## Projection Pruning Analysis
-
-The optimizer calculates columns required by:
-
-- SELECT projection
-- JOIN conditions
-- WHERE conditions
-
-This provides the foundation for reducing unnecessary column materialization in future execution strategies.
-
----
-
-## Safe INNER JOIN Reordering
-
-JOIN reordering is intentionally conservative.
-
-Safe independent INNER JOIN branches:
+YEKDB currently supports:
 
 ```text
-e.department_id = d.id
-e.company_id    = c.id
-```
-
-can be reordered according to row-count metadata.
-
-Dependent chain:
-
-```text
-e.department_id = d.id
-d.company_id    = c.id
-```
-
-is **not** reordered because the second JOIN depends on the first JOIN result.
-
----
-
-## Small-Table-First
-
-When safe reordering is possible, row-count metadata can be used to prefer smaller JOIN inputs first.
-
-Unknown row counts are treated conservatively and are never assumed to represent a small table.
-
----
-
-## Outer JOIN Protection
-
-The optimizer never reorders:
-
-```text
+INNER JOIN
 LEFT JOIN
 RIGHT JOIN
 FULL JOIN
 ```
 
-because changing the order of outer JOIN operations can change query semantics.
+Example:
 
-Correctness has priority over optimization.
+```sql
+SELECT e.name, d.name
+FROM employees e
+INNER JOIN departments d
+    ON e.department_id = d.id;
+```
+
+Multiple JOIN chains are also supported.
+
+Example:
+
+```sql
+SELECT e.name, d.name, c.name
+FROM employees e
+JOIN departments d
+    ON e.department_id = d.id
+JOIN companies c
+    ON d.company_id = c.id;
+```
+
+Additional JOIN capabilities include:
+
+- Qualified column resolution
+- JOIN row assembly
+- Outer JOIN null-row generation
+- Multiple JOIN chains
+- JOIN projection
+- JOIN + aggregation
+- JOIN + GROUP BY
+- JOIN + HAVING
+- JOIN optimization infrastructure
+
+---
+
+# GROUP BY, Aggregation and HAVING
+
+Supported aggregate operations include infrastructure for expressions such as:
+
+```sql
+SELECT department_id, COUNT(*)
+FROM employees
+GROUP BY department_id;
+```
+
+```sql
+SELECT department_id, AVG(salary)
+FROM employees
+GROUP BY department_id
+HAVING AVG(salary) > 30000;
+```
+
+Aggregate execution supports:
+
+- `COUNT`
+- `SUM`
+- `AVG`
+- `MIN`
+- `MAX`
+- GROUP BY
+- HAVING
+- JOIN + aggregate
+- Multiple JOIN + aggregate
+
+---
+
+# Sprint 00-17 Refactoring
+
+Sprint 00-17 was dedicated primarily to reducing architectural debt.
+
+## Codebase Cleanup
+
+Removed obsolete or unused skeleton classes and packages from earlier development stages.
+
+Examples included unused placeholders for:
+
+- old model classes
+- old command abstractions
+- old catalog placeholders
+- incomplete transaction placeholders
+- incomplete free-space placeholders
+- obsolete index placeholders
+- unused storage exception types
+
+Demo classes were consolidated under:
+
+```text
+com.yekdb.demo
+```
+
+---
+
+## Database Refactoring
+
+Changes included:
+
+- Centralized database name validation
+- Metadata/name consistency checks
+- Reduced duplicated validation logic
+- Cleaner database manager responsibilities
+- Demo relocation
+
+---
+
+## Table Refactoring
+
+Changes included:
+
+- `TableNameValidator`
+- `ColumnNameValidator`
+- Duplicate-column handling
+- Immutable table column snapshots
+- Reduced repeated validation
+- Cleaner `TableManager`
+- Cleaner `TableCatalog`
+- Unified identifier normalization
+
+---
+
+## Index Refactoring
+
+Changes included:
+
+- Centralized index identifier validation
+- Case-normalized logical index names
+- Improved metadata validation
+- Cleaner collection handling
+- Safer index/table/column matching
+- Demo relocation
+
+---
+
+## Storage Refactoring
+
+Changes included:
+
+- Removed obsolete `DataFileException`
+- Consolidated page-count ownership
+- Reduced duplicate database-header handling
+- Simplified immutable row snapshots
+- Demo relocation
+
+---
+
+## Core / Config / Logging Cleanup
+
+Changes included:
+
+- Shared page-size constant usage
+- Configuration path normalization
+- Configuration string normalization
+- Improved log-message null safety
+- Removed obsolete storage-level exception
+- Cleaned engine documentation
+
+---
+
+# Query Refactoring — Phase 1 to Phase 6
+
+The Query Engine was refactored incrementally to protect existing behavior.
+
+Every phase was validated against the complete test suite.
+
+## Phase 1 — Cleanup
+
+- Removed obsolete query mapper code
+- Relocated query demo classes
+- Preserved execution behavior
+
+## Phase 2A — Column Resolution
+
+Introduced:
+
+```text
+SelectColumnResolver
+```
+
+Responsibilities extracted from `SelectExecutor` included:
+
+- column lookup
+- case-insensitive resolution
+- qualified-name normalization
+- result value lookup
+
+## Phase 2B — JOIN Projection
+
+Introduced:
+
+```text
+SelectJoinProjectionExecutor
+```
+
+Responsibilities extracted included:
+
+- JOIN projection
+- multiple-JOIN projection
+- qualified JOIN column processing
+
+## Phase 2C — Aggregation Pipeline
+
+Introduced:
+
+```text
+SelectAggregateExecutor
+```
+
+Responsibilities extracted included:
+
+- aggregate SELECT flow
+- GROUP BY
+- HAVING
+- JOIN aggregates
+- multiple-JOIN aggregates
+- aggregate result generation
+
+This reduced `SelectExecutor` from more than 3700 lines to approximately 1100 lines.
+
+---
+
+## Phase 3 — QueryExecutor
+
+Introduced specialized support classes:
+
+```text
+TableMutationExecutionSupport
+SelectCommandExecutionSupport
+ManagementCommandParser
+```
+
+This reduced the responsibilities of the main `QueryExecutor` while keeping its public execution API intact.
+
+---
+
+## Phase 4 — SQL Parser
+
+Introduced:
+
+```text
+SqlTokenCursor
+SqlLiteralParser
+```
+
+Responsibilities extracted included:
+
+- token cursor management
+- lookahead
+- token matching
+- token expectations
+- literal conversion
+
+The public parser API remained unchanged.
+
+---
+
+## Phase 5 — Expression and JOIN Internals
+
+Introduced:
+
+```text
+ExpressionValueSupport
+JoinRowAssembler
+```
+
+Responsibilities extracted included:
+
+- expression value utilities
+- numeric comparison support
+- LIKE-pattern support
+- JOIN row merging
+- qualified JOIN row construction
+- outer JOIN null-row construction
+
+This significantly reduced both `ExpressionEvaluator` and `JoinExecutor`.
+
+---
+
+## Phase 6 — Aggregate Finalization
+
+Introduced:
+
+```text
+AggregateValueSupport
+JoinedAggregateExecutor
+```
+
+Responsibilities extracted included:
+
+- aggregate numeric validation
+- MIN/MAX comparison support
+- JOIN aggregate execution
+- aggregate value helpers
+
+`AggregateExecutor` was reduced from more than 700 lines to roughly 200 lines.
+
+---
+
+# Refactoring Result
+
+Several historically large classes were substantially reduced:
+
+```text
+SelectExecutor
+    ~3720 lines
+        ↓
+    ~1165 lines
+
+QueryExecutor
+    ~1369 lines
+        ↓
+    ~816 lines
+
+ExpressionEvaluator
+    ~807 lines
+        ↓
+    ~482 lines
+
+JoinExecutor
+    ~895 lines
+        ↓
+    ~597 lines
+
+AggregateExecutor
+    ~723 lines
+        ↓
+    ~203 lines
+```
+
+The objective was not simply reducing line count. The primary goal was separating responsibilities while maintaining existing behavior.
 
 ---
 
 # Testing
 
-Sprint 00-16 completed with a full Maven regression pass:
+YEKDB uses JUnit-based automated tests throughout the codebase.
+
+Current status after Sprint 00-17:
 
 ```text
-Tests run: 940
-Failures: 0
+Tests: 940
+Passed: 940
+Failed: 0
 Errors: 0
 ```
 
-Test coverage includes:
-
-- JOIN execution
-- Outer JOIN behavior
-- Multiple JOIN chains
-- Qualified column resolution
-- JOIN + WHERE
-- JOIN + GROUP BY
-- Aggregate functions
-- HAVING
-- Multi-JOIN aggregate pipelines
-- QueryExecutor routing
-- Optimizer core rules
-- Optimizer edge cases
-- Reorder safety
-- Predicate pushdown safety
-- Immutable optimization results
-- Existing query/storage regressions
-
----
-
-# Project Structure
-
-```text
-src/main/java/com/yekdb
-├── buffer
-├── catalog
-├── command
-├── configurationManager
-├── console
-├── core
-├── database
-├── exception
-├── execution
-├── index
-├── logs
-├── query
-│   ├── command
-│   ├── datasource
-│   ├── evaluator
-│   ├── executor
-│   ├── expression
-│   ├── mapper
-│   ├── optimizer
-│   ├── parser
-│   ├── result
-│   └── statement
-├── storage
-├── table
-├── transaction
-└── util
-```
+Every major refactoring stage was verified before continuing to the next phase.
 
 ---
 
@@ -518,70 +726,112 @@ src/main/java/com/yekdb
 
 - Java 21
 - Maven
-- JUnit 5
+- JUnit
 - IntelliJ IDEA
-- Git / GitHub
+- Git
+- GitHub
+
+Development environments include Windows and macOS, with Linux support considered as the project evolves.
 
 ---
 
-# Current Development Direction
+# Current Development Principles
 
-The project is still under active development.
+YEKDB currently follows these principles:
+
+- Keep domain objects responsible for their own invariants
+- Avoid duplicated validation logic
+- Separate parsing from execution
+- Separate query orchestration from specialized execution
+- Keep storage responsibilities clearly owned
+- Prefer immutable snapshots when returning collections
+- Refactor incrementally
+- Preserve behavior through automated tests
+
+---
+
+# Roadmap
 
 Planned future areas include:
 
-- Full nullable `Row` / serialization support
-- Index-assisted query execution
-- Hash Join research
-- Merge Join research
-- Cost-based optimization foundations
-- Query statistics
-- Transaction improvements
-- Concurrency and multi-user execution
-- Client/server architecture
-- Backup and recovery improvements
+### SQL Engine
 
-A dedicated architecture / project health review sprint is also planned to inspect:
+- Subqueries
+- `EXISTS` / `NOT EXISTS`
+- More advanced expression support
+- Additional SQL syntax coverage
+- Query planning improvements
 
-- Package boundaries
-- Duplicate code
-- Technical debt
-- NULL handling
-- Exception consistency
-- Test organization
-- Performance bottlenecks
-- Documentation alignment
-- V1 readiness
+### Storage
+
+- Persistent table catalog
+- Binary table metadata
+- Improved page allocation
+- Free-space management
+- Persistent indexes
+- B+ Tree
+
+### Transactions
+
+- Transaction manager
+- Commit / rollback
+- Isolation foundations
+- Write-ahead logging concepts
+- Crash recovery foundations
+
+### Database Objects
+
+- Views
+- Triggers
+- Stored procedures
+- Additional constraints
+
+### Security
+
+- Users
+- Roles
+- Permissions
+
+### Client / Server
+
+- Server process
+- Network protocol
+- Multiple concurrent clients
+- Remote query execution
+
+### Tooling
+
+- CLI
+- Administrative interface
+- Improved logging and diagnostics
+- Backup / restore
 
 ---
 
-# Educational Goal
+# Repository Philosophy
 
-YEKDB is primarily an educational systems project.
+YEKDB is primarily a learning-oriented systems project.
 
-Its goal is not to compete with production-grade database systems, but to understand their internal architecture by implementing the major layers directly.
-
-The project demonstrates practical work in:
-
-- Data structures
-- File I/O
-- Binary storage
-- SQL parsing
-- Expression trees
-- Relational query execution
-- JOIN algorithms
-- Query optimization
-- Testing
-- Software architecture
+The focus is not to replace production database systems. Instead, the repository is intended to demonstrate how database internals can be designed and implemented step by step while maintaining an increasingly structured architecture.
 
 ---
 
-## Repository
+## Author
 
-GitHub: `EmreBEYS/YEKDB`
+**Yunus Emre KUL**
+
+Computer Engineering  
+İnönü University
 
 ---
 
-## License
+## Development Status
 
-See the repository license file for licensing information.
+```text
+Sprint 00-17
+Architecture Cleanup & Query Engine Refactoring
+Status: COMPLETED
+
+Compile: SUCCESS
+Tests: 940 / 940 PASSED
+```

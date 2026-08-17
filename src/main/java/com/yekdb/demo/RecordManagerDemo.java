@@ -1,9 +1,12 @@
-package com.yekdb.storage.record;
+package com.yekdb.demo;
 
 import com.yekdb.storage.file.DataFile;
 import com.yekdb.storage.file.DatabaseHeader;
 import com.yekdb.storage.page.PageManager;
 import com.yekdb.storage.page.PageType;
+import com.yekdb.storage.record.Record;
+import com.yekdb.storage.record.RecordManager;
+import com.yekdb.storage.record.Row;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -163,7 +166,7 @@ public final class RecordManagerDemo {
                 "[3] Inserting records into physical pages..."
         );
 
-        Record firstRecord =
+        com.yekdb.storage.record.Record firstRecord =
                 recordManager.insert(firstRow);
 
         Record secondRecord =

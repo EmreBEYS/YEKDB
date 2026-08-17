@@ -1,4 +1,6 @@
-package com.yekdb.query.executor;
+package com.yekdb.demo;
+
+import com.yekdb.query.executor.*;
 
 import com.yekdb.query.expression.ComparisonExpression;
 import com.yekdb.query.expression.ComparisonOperator;

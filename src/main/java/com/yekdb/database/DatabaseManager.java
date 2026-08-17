@@ -9,7 +9,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
@@ -20,8 +21,11 @@ import java.util.Objects;
  */
 public class DatabaseManager {
 
-    private static final String METADATA_FILE_NAME = "database.meta";
-    private static final String METADATA_HEADER = "YEKDB DATABASE";
+    private static final String METADATA_FILE_NAME =
+            "database.meta";
+
+    private static final String METADATA_HEADER =
+            "YEKDB DATABASE";
 
     /**
      * Tüm veritabanlarının saklandığı ana dizin.
@@ -39,6 +43,7 @@ public class DatabaseManager {
      * @param dataDirectory veritabanlarının saklanacağı ana dizin
      */
     public DatabaseManager(Path dataDirectory) {
+
         this.dataDirectory = Objects.requireNonNull(
                 dataDirectory,
                 "Data directory cannot be null."
@@ -67,11 +72,15 @@ public class DatabaseManager {
      * Veritabanının mevcut olup olmadığını kontrol eder.
      *
      * @param databaseName veritabanı adı
-     * @return veritabanı dizini varsa true
+     * @return veritabanı dizini ve metadata dosyası varsa true
      */
     public boolean exists(String databaseName) {
-        String normalizedName = validateDatabaseName(databaseName);
-        Path databasePath = resolveDatabasePath(normalizedName);
+
+        String normalizedName =
+                DatabaseNameValidator.validate(databaseName);
+
+        Path databasePath =
+                resolveDatabasePath(normalizedName);
 
         return Files.isDirectory(databasePath)
                 && Files.isRegularFile(
@@ -83,49 +92,65 @@ public class DatabaseManager {
      * Yeni bir veritabanı oluşturur.
      *
      * @param databaseName oluşturulacak veritabanının adı
-     * @return oluşturulan veritabanı nesnesi
+     * @return oluşturulan veritabanı
      */
     public Database createDatabase(String databaseName) {
-        String normalizedName = validateDatabaseName(databaseName);
+
+        String normalizedName =
+                DatabaseNameValidator.validate(databaseName);
 
         if (exists(normalizedName)) {
-            throw new DatabaseAlreadyExistsException(normalizedName);
+            throw new DatabaseAlreadyExistsException(
+                    normalizedName
+            );
         }
 
-        Path databasePath = resolveDatabasePath(normalizedName);
+        Path databasePath =
+                resolveDatabasePath(normalizedName);
+
         boolean databaseDirectoryCreated = false;
 
         try {
             Files.createDirectories(dataDirectory);
+
             Files.createDirectory(databasePath);
+
             databaseDirectoryCreated = true;
 
             DatabaseMetadata metadata =
                     new DatabaseMetadata(normalizedName);
 
-            Database database = new Database(
-                    normalizedName,
-                    databasePath,
-                    metadata
-            );
+            Database database =
+                    new Database(
+                            normalizedName,
+                            databasePath,
+                            metadata
+                    );
 
             writeMetadataFile(database);
 
             return database;
 
         } catch (IOException exception) {
+
             if (databaseDirectoryCreated) {
-                deleteIncompleteDatabaseDirectory(databasePath);
+                deleteIncompleteDatabaseDirectory(
+                        databasePath
+                );
             }
 
             throw new DatabaseOperationException(
-                    "Failed to create database: " + normalizedName,
+                    "Failed to create database: "
+                            + normalizedName,
                     exception
             );
 
         } catch (RuntimeException exception) {
+
             if (databaseDirectoryCreated) {
-                deleteIncompleteDatabaseDirectory(databasePath);
+                deleteIncompleteDatabaseDirectory(
+                        databasePath
+                );
             }
 
             throw exception;
@@ -139,22 +164,45 @@ public class DatabaseManager {
      * @return aktif hâle getirilen veritabanı
      */
     public Database useDatabase(String databaseName) {
-        String normalizedName = validateDatabaseName(databaseName);
+
+        String normalizedName =
+                DatabaseNameValidator.validate(databaseName);
 
         if (!exists(normalizedName)) {
-            throw new DatabaseNotFoundException(normalizedName);
+            throw new DatabaseNotFoundException(
+                    normalizedName
+            );
         }
 
-        Path databasePath = resolveDatabasePath(normalizedName);
+        Path databasePath =
+                resolveDatabasePath(normalizedName);
 
         DatabaseMetadata metadata =
                 readMetadataFile(databasePath);
 
-        Database database = new Database(
-                normalizedName,
-                databasePath,
-                metadata
-        );
+        /*
+         * Fiziksel klasör adı ile metadata içerisindeki
+         * veritabanı adı aynı olmalıdır.
+         */
+        if (!normalizedName.equals(
+                metadata.getDatabaseName()
+        )) {
+            throw new DatabaseOperationException(
+                    "Database metadata name does not match "
+                            + "database directory name. "
+                            + "Directory: "
+                            + normalizedName
+                            + ", Metadata: "
+                            + metadata.getDatabaseName()
+            );
+        }
+
+        Database database =
+                new Database(
+                        normalizedName,
+                        databasePath,
+                        metadata
+                );
 
         currentDatabase = database;
 
@@ -164,25 +212,32 @@ public class DatabaseManager {
     /**
      * Belirtilen veritabanını fiziksel olarak siler.
      *
-     * Veritabanı aktif veritabanıysa silme işleminden sonra
-     * currentDatabase null yapılır.
+     * <p>Veritabanı aktif veritabanıysa silme işleminden sonra
+     * currentDatabase null yapılır.</p>
      *
      * @param databaseName silinecek veritabanının adı
      */
     public void dropDatabase(String databaseName) {
-        String normalizedName = validateDatabaseName(databaseName);
+
+        String normalizedName =
+                DatabaseNameValidator.validate(databaseName);
 
         if (!exists(normalizedName)) {
-            throw new DatabaseNotFoundException(normalizedName);
+            throw new DatabaseNotFoundException(
+                    normalizedName
+            );
         }
 
-        Path databasePath = resolveDatabasePath(normalizedName);
+        Path databasePath =
+                resolveDatabasePath(normalizedName);
 
         try (var paths = Files.walk(databasePath)) {
+
             paths.sorted(Comparator.reverseOrder())
                     .forEach(path -> {
                         try {
                             Files.deleteIfExists(path);
+
                         } catch (IOException exception) {
                             throw new DatabaseDeletionRuntimeException(
                                     exception
@@ -191,12 +246,15 @@ public class DatabaseManager {
                     });
 
         } catch (DatabaseDeletionRuntimeException exception) {
+
             throw new DatabaseOperationException(
-                    "Failed to drop database: " + normalizedName,
+                    "Failed to drop database: "
+                            + normalizedName,
                     exception.getCause()
             );
 
         } catch (IOException exception) {
+
             throw new DatabaseOperationException(
                     "Failed to read database directory: "
                             + normalizedName,
@@ -205,7 +263,8 @@ public class DatabaseManager {
         }
 
         if (currentDatabase != null
-                && currentDatabase.getName()
+                && currentDatabase
+                .getName()
                 .equalsIgnoreCase(normalizedName)) {
 
             currentDatabase = null;
@@ -213,28 +272,37 @@ public class DatabaseManager {
     }
 
     /**
-     * Tüm geçerli veritabanlarını alfabetik şekilde listeler.
+     * Tüm geçerli veritabanlarını alfabetik olarak listeler.
      *
      * @return veritabanı adları
      */
     public List<String> listDatabases() {
+
         if (!Files.isDirectory(dataDirectory)) {
-            return new ArrayList<>();
+            return List.of();
         }
 
         try (var paths = Files.list(dataDirectory)) {
+
             return paths
                     .filter(Files::isDirectory)
                     .filter(path ->
                             Files.isRegularFile(
-                                    path.resolve(METADATA_FILE_NAME)
+                                    path.resolve(
+                                            METADATA_FILE_NAME
+                                    )
                             )
                     )
-                    .map(path -> path.getFileName().toString())
-                    .sorted(String.CASE_INSENSITIVE_ORDER)
+                    .map(path ->
+                            path.getFileName().toString()
+                    )
+                    .sorted(
+                            String.CASE_INSENSITIVE_ORDER
+                    )
                     .toList();
 
         } catch (IOException exception) {
+
             throw new DatabaseOperationException(
                     "Failed to list databases in directory: "
                             + dataDirectory,
@@ -246,21 +314,28 @@ public class DatabaseManager {
     /**
      * database.meta dosyasını diske yazar.
      *
-     * @param database veritabanı nesnesi
+     * @param database veritabanı
+     * @throws IOException metadata yazma işlemi başarısız olursa
      */
-    private void writeMetadataFile(Database database) throws IOException {
-        Path metadataFile = database
-                .getDatabasePath()
-                .resolve(METADATA_FILE_NAME);
+    private void writeMetadataFile(
+            Database database
+    ) throws IOException {
 
-        DatabaseMetadata metadata = database.getMetadata();
+        Path metadataFile =
+                database
+                        .getDatabasePath()
+                        .resolve(METADATA_FILE_NAME);
+
+        DatabaseMetadata metadata =
+                database.getMetadata();
 
         List<String> lines = List.of(
                 METADATA_HEADER,
                 "Version=" + metadata.getVersion(),
                 "Database=" + metadata.getDatabaseName(),
                 "Created=" + metadata.getCreatedAt(),
-                "LastModified=" + metadata.getLastModifiedAt(),
+                "LastModified="
+                        + metadata.getLastModifiedAt(),
                 "Encoding=" + metadata.getEncoding(),
                 "PageSize=" + metadata.getPageSize()
         );
@@ -275,23 +350,29 @@ public class DatabaseManager {
     }
 
     /**
-     * database.meta dosyasını okuyarak DatabaseMetadata nesnesi oluşturur.
+     * database.meta dosyasını okuyarak metadata nesnesi oluşturur.
      *
      * @param databasePath veritabanı dizini
-     * @return metadata nesnesi
+     * @return metadata
      */
-    private DatabaseMetadata readMetadataFile(Path databasePath) {
+    private DatabaseMetadata readMetadataFile(
+            Path databasePath
+    ) {
+
         Path metadataFile =
                 databasePath.resolve(METADATA_FILE_NAME);
 
         try {
-            List<String> lines = Files.readAllLines(
-                    metadataFile,
-                    StandardCharsets.UTF_8
-            );
+            List<String> lines =
+                    Files.readAllLines(
+                            metadataFile,
+                            StandardCharsets.UTF_8
+                    );
 
             if (lines.isEmpty()
-                    || !METADATA_HEADER.equals(lines.get(0))) {
+                    || !METADATA_HEADER.equals(
+                    lines.get(0)
+            )) {
 
                 throw new DatabaseOperationException(
                         "Invalid database metadata file: "
@@ -299,30 +380,56 @@ public class DatabaseManager {
                 );
             }
 
-            String version = readMetadataValue(lines, "Version");
+            String version =
+                    readMetadataValue(
+                            lines,
+                            "Version"
+                    );
+
             String databaseName =
-                    readMetadataValue(lines, "Database");
+                    readMetadataValue(
+                            lines,
+                            "Database"
+                    );
+
             String created =
-                    readMetadataValue(lines, "Created");
+                    readMetadataValue(
+                            lines,
+                            "Created"
+                    );
+
             String lastModified =
-                    readMetadataValue(lines, "LastModified");
+                    readMetadataValue(
+                            lines,
+                            "LastModified"
+                    );
+
             String encoding =
-                    readMetadataValue(lines, "Encoding");
+                    readMetadataValue(
+                            lines,
+                            "Encoding"
+                    );
+
             String pageSize =
-                    readMetadataValue(lines, "PageSize");
+                    readMetadataValue(
+                            lines,
+                            "PageSize"
+                    );
 
             return new DatabaseMetadata(
                     databaseName,
                     version,
-                    java.time.LocalDateTime.parse(created),
-                    java.time.LocalDateTime.parse(lastModified),
+                    LocalDateTime.parse(created),
+                    LocalDateTime.parse(lastModified),
                     encoding,
                     Integer.parseInt(pageSize)
             );
 
-        } catch (IOException
-                 | java.time.format.DateTimeParseException
-                 | NumberFormatException exception) {
+        } catch (
+                IOException
+                | DateTimeParseException
+                | NumberFormatException exception
+        ) {
 
             throw new DatabaseOperationException(
                     "Failed to read database metadata: "
@@ -333,53 +440,36 @@ public class DatabaseManager {
     }
 
     /**
-     * Metadata satırları içinden belirtilen anahtarın değerini okur.
+     * Metadata satırları içinden belirtilen anahtarın
+     * değerini döndürür.
      *
      * @param lines metadata satırları
-     * @param key aranacak anahtar
+     * @param key metadata anahtarı
      * @return metadata değeri
      */
     private String readMetadataValue(
             List<String> lines,
             String key
     ) {
+
         String prefix = key + "=";
 
         return lines.stream()
-                .filter(line -> line.startsWith(prefix))
-                .map(line -> line.substring(prefix.length()))
+                .filter(line ->
+                        line.startsWith(prefix)
+                )
+                .map(line ->
+                        line.substring(
+                                prefix.length()
+                        )
+                )
                 .findFirst()
                 .orElseThrow(() ->
                         new DatabaseOperationException(
-                                "Missing metadata field: " + key
+                                "Missing metadata field: "
+                                        + key
                         )
                 );
-    }
-
-    /**
-     * Veritabanı adını doğrular.
-     *
-     * @param databaseName veritabanı adı
-     * @return temizlenmiş veritabanı adı
-     */
-    private String validateDatabaseName(String databaseName) {
-        if (databaseName == null || databaseName.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Database name cannot be null or blank."
-            );
-        }
-
-        String normalizedName = databaseName.trim();
-
-        if (!normalizedName.matches("[A-Za-z][A-Za-z0-9_]*")) {
-            throw new IllegalArgumentException(
-                    "Database name must start with a letter and "
-                            + "contain only letters, numbers, "
-                            + "and underscores."
-            );
-        }
-
-        return normalizedName;
     }
 
     /**
@@ -388,13 +478,21 @@ public class DatabaseManager {
      * @param databaseName veritabanı adı
      * @return veritabanı dizini
      */
-    private Path resolveDatabasePath(String databaseName) {
-        Path databasePath =
-                dataDirectory.resolve(databaseName).normalize();
+    private Path resolveDatabasePath(
+            String databaseName
+    ) {
 
-        if (!databasePath.startsWith(dataDirectory)) {
+        Path databasePath =
+                dataDirectory
+                        .resolve(databaseName)
+                        .normalize();
+
+        if (!databasePath.startsWith(
+                dataDirectory
+        )) {
             throw new IllegalArgumentException(
-                    "Invalid database path: " + databaseName
+                    "Invalid database path: "
+                            + databaseName
             );
         }
 
@@ -404,31 +502,39 @@ public class DatabaseManager {
     /**
      * Başarısız oluşturma işleminden kalan dizini temizler.
      *
-     * @param databasePath temizlenecek dizin
+     * @param databasePath temizlenecek veritabanı dizini
      */
     private void deleteIncompleteDatabaseDirectory(
             Path databasePath
     ) {
+
         try {
             Path metadataFile =
-                    databasePath.resolve(METADATA_FILE_NAME);
+                    databasePath.resolve(
+                            METADATA_FILE_NAME
+                    );
 
             Files.deleteIfExists(metadataFile);
             Files.deleteIfExists(databasePath);
 
         } catch (IOException ignored) {
-            // Asıl oluşturma hatası korunur.
+            /*
+             * Asıl createDatabase hatası korunur.
+             */
         }
     }
 
     /**
-     * Stream içindeki IOException'ı dışarı taşımak için
+     * Stream içerisinde oluşan IOException'ı
+     * dropDatabase metodunun dışına taşıyabilmek için
      * kullanılan dahili exception sınıfıdır.
      */
     private static class DatabaseDeletionRuntimeException
             extends RuntimeException {
 
-        DatabaseDeletionRuntimeException(IOException cause) {
+        DatabaseDeletionRuntimeException(
+                IOException cause
+        ) {
             super(cause);
         }
 

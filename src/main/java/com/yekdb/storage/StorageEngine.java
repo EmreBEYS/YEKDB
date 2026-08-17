@@ -143,8 +143,7 @@ public final class StorageEngine {
         pageManager.writePage(page);
 
         if (newPage) {
-            databaseHeader.incrementTotalPages();
-            writeDatabaseHeader();
+            databaseHeader = readDatabaseHeader();
         }
 
         dataFile.sync();
@@ -258,13 +257,8 @@ public final class StorageEngine {
             );
         }
 
-        byte[] headerBytes = dataFile.read(
-                0,
-                DatabaseHeader.HEADER_SIZE
-        );
-
         databaseHeader =
-                DatabaseHeader.fromBytes(headerBytes);
+                readDatabaseHeader();
 
         if (!databaseHeader.hasValidMagicNumber()) {
             throw new IllegalStateException(
@@ -284,6 +278,26 @@ public final class StorageEngine {
                     "Database page size does not match engine page size."
             );
         }
+    }
+
+
+    /**
+     * DatabaseHeader bilgisini fiziksel veri dosyasından okur.
+     *
+     * @return Diskte saklanan database header
+     */
+    private DatabaseHeader readDatabaseHeader()
+            throws IOException {
+
+        byte[] headerBytes =
+                dataFile.read(
+                        0,
+                        DatabaseHeader.HEADER_SIZE
+                );
+
+        return DatabaseHeader.fromBytes(
+                headerBytes
+        );
     }
 
     /**

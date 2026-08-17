@@ -6,9 +6,11 @@ import java.util.Objects;
 /**
  * YEKDB içinde açılmış bir veritabanını temsil eder.
  *
- * Bir Veritabanı nesnesi, seçilen veritabanı hakkında çalışma zamanı bilgileri içerir.
+ * <p>Database nesnesi, seçilen veritabanına ait çalışma zamanı
+ * bilgilerini ve metadata bilgisini içerir.</p>
  */
 public class Database {
+
     private final String name;
     private final Path databasePath;
     private final DatabaseMetadata metadata;
@@ -17,29 +19,52 @@ public class Database {
             String name,
             Path databasePath,
             DatabaseMetadata metadata
-    ){
-        this.name=validateName(name);
-        this.databasePath=Objects.requireNonNull(databasePath,"Database path cannot be null");
-        this.metadata=Objects.requireNonNull(metadata,"Database metadata cannot be null");
+    ) {
+        this.name = DatabaseNameValidator.validate(name);
+
+        this.databasePath = Objects.requireNonNull(
+                databasePath,
+                "Database path cannot be null."
+        ).normalize();
+
+        this.metadata = Objects.requireNonNull(
+                metadata,
+                "Database metadata cannot be null."
+        );
+
+        validateMetadataConsistency();
     }
-    public String getName(){
+
+    public String getName() {
         return name;
     }
-    public Path getDatabasePath(){
+
+    public Path getDatabasePath() {
         return databasePath;
     }
-    public DatabaseMetadata getMetadata(){
+
+    public DatabaseMetadata getMetadata() {
         return metadata;
     }
-    private String validateName(String name){
-        if(name == null || name.isBlank()){
-            throw new IllegalArgumentException("Database name cannot be null or blank");
+
+    /**
+     * Database nesnesinin adı ile metadata içerisinde saklanan
+     * veritabanı adının aynı olduğunu doğrular.
+     */
+    private void validateMetadataConsistency() {
+
+        if (!name.equals(metadata.getDatabaseName())) {
+            throw new IllegalArgumentException(
+                    "Database name does not match metadata database name. "
+                            + "Database: " + name
+                            + ", Metadata: "
+                            + metadata.getDatabaseName()
+            );
         }
-        return name.trim();
     }
+
     @Override
     public String toString() {
-
         return "Database{" +
                 "name='" + name + '\'' +
                 ", databasePath=" + databasePath +

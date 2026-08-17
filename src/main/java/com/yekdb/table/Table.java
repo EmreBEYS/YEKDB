@@ -1,15 +1,27 @@
 package com.yekdb.table;
 
-import java.util.ArrayList;
-import java.util.Collections;
+import com.yekdb.table.exception.DuplicateColumnException;
+import com.yekdb.table.exception.InvalidColumnException;
+
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
- * YEKDB'de bir tablo şemasını temsil eder.
+ * YEKDB içerisinde bir tablo şemasını temsil eder.
  *
- * Bir tablo, bir tablo adı ve sütun tanımlarının bir listesinden oluşur.
- * Bu sınıf yalnızca şemayı temsil eder, gerçek kayıtları değil.
+ * Bir tablo:
+ * - tablo adı,
+ * - sütun tanımları
+ *
+ * bilgilerinden oluşur.
+ *
+ * Bu sınıf fiziksel kayıtları değil yalnızca tablo şemasını
+ * temsil eder.
+ *
+ * Table nesnesi oluşturulduğunda tüm temel şema kurallarının
+ * geçerli olduğu garanti edilir.
  *
  * Sürüm: 1.0
  */
@@ -24,39 +36,52 @@ public class Table {
      * @param tableName tablo adı
      * @param columns   tablo sütunları
      */
-    public Table(String tableName, List<Column> columns) {
+    public Table(
+            String tableName,
+            List<Column> columns
+    ) {
 
-        if (tableName == null || tableName.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Table name cannot be null or blank."
-            );
-        }
+        this.tableName =
+                TableNameValidator.validate(tableName);
+
+        validateColumns(columns);
+
+        /*
+         * List.copyOf sayesinde dışarıdan verilen listenin
+         * sonradan değiştirilmesi Table nesnesini etkileyemez.
+         */
+        this.columns = List.copyOf(columns);
+    }
+
+    /**
+     * Sütun listesinin tablo kurallarına uygun olduğunu doğrular.
+     *
+     * @param columns sütun listesi
+     */
+    private void validateColumns(List<Column> columns) {
 
         if (columns == null || columns.isEmpty()) {
-            throw new IllegalArgumentException(
+            throw new InvalidColumnException(
                     "Table must contain at least one column."
             );
         }
 
         if (columns.stream().anyMatch(Objects::isNull)) {
-            throw new IllegalArgumentException(
+            throw new InvalidColumnException(
                     "Column list cannot contain null values."
             );
         }
 
-        long distinctCount = columns.stream()
-                .map(column -> column.getName().toLowerCase())
-                .distinct()
-                .count();
+        Set<String> columnNames = new HashSet<>();
 
-        if (distinctCount != columns.size()) {
-            throw new IllegalArgumentException(
-                    "Duplicate column names are not allowed."
-            );
+        for (Column column : columns) {
+
+            if (!columnNames.add(column.getName())) {
+                throw new DuplicateColumnException(
+                        "Duplicate column names are not allowed."
+                );
+            }
         }
-
-        this.tableName = tableName.trim().toLowerCase();
-        this.columns = new ArrayList<>(columns);
     }
 
     /**
@@ -74,7 +99,7 @@ public class Table {
      * @return sütun listesi
      */
     public List<Column> getColumns() {
-        return Collections.unmodifiableList(columns);
+        return columns;
     }
 
     /**
@@ -87,7 +112,8 @@ public class Table {
     }
 
     /**
-     * Tabloda verilen isimde bir sütun varsa true döndürür.
+     * Verilen isimde bir sütunun tabloda bulunup bulunmadığını
+     * kontrol eder.
      *
      * @param columnName sütun adı
      * @return sütun varsa true
@@ -98,36 +124,46 @@ public class Table {
             return false;
         }
 
+        String normalizedColumnName;
+
+        try {
+            normalizedColumnName =
+                    ColumnNameValidator.validate(columnName);
+
+        } catch (InvalidColumnException exception) {
+            return false;
+        }
+
         return columns.stream()
                 .anyMatch(column ->
-                        column.getName().equalsIgnoreCase(columnName.trim()));
+                        column.getName()
+                                .equals(normalizedColumnName)
+                );
     }
 
     /**
-     * Adına göre bir sütun döndürür.
+     * Verilen isimdeki sütunu döndürür.
      *
      * @param columnName sütun adı
-     * @return eşleşen sütun
-     * @throws IllegalArgumentException sütun adı geçersizse veya sütun yoksa
+     * @return sütun
      */
     public Column getColumn(String columnName) {
 
-        if (columnName == null || columnName.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Column name cannot be null or blank."
-            );
-        }
-
-        String normalizedColumnName = columnName.trim();
+        String normalizedColumnName =
+                ColumnNameValidator.validate(columnName);
 
         return columns.stream()
                 .filter(column ->
-                        column.getName().equalsIgnoreCase(normalizedColumnName))
+                        column.getName()
+                                .equals(normalizedColumnName)
+                )
                 .findFirst()
                 .orElseThrow(() ->
                         new IllegalArgumentException(
-                                "Column not found: " + normalizedColumnName
-                        ));
+                                "Column not found: "
+                                        + normalizedColumnName
+                        )
+                );
     }
 
     @Override
@@ -140,6 +176,7 @@ public class Table {
 
     @Override
     public boolean equals(Object o) {
+
         if (this == o) {
             return true;
         }
@@ -154,6 +191,9 @@ public class Table {
 
     @Override
     public int hashCode() {
-        return Objects.hash(tableName, columns);
+        return Objects.hash(
+                tableName,
+                columns
+        );
     }
 }

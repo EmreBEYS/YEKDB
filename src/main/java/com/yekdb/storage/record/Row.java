@@ -1,7 +1,6 @@
 package com.yekdb.storage.record;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -127,9 +126,7 @@ public class Row {
      * @return Değiştirilemez değer listesi
      */
     public List<Object> getValues() {
-        return Collections.unmodifiableList(
-                new ArrayList<>(values)
-        );
+        return List.copyOf(values);
     }
 
     /**

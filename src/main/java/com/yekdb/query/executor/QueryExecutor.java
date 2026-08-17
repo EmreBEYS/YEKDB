@@ -15,26 +15,11 @@ import com.yekdb.query.command.UseDatabaseCommand;
 import com.yekdb.query.datasource.QueryDataSource;
 import com.yekdb.query.mapper.StatementCommandMapper;
 import com.yekdb.query.parser.SqlParser;
-import com.yekdb.query.statement.JoinClause;
-import com.yekdb.query.statement.SelectStatement;
 import com.yekdb.query.statement.Statement;
-import com.yekdb.query.result.QueryResult;
-import com.yekdb.storage.record.Row;
-import com.yekdb.table.Column;
-import com.yekdb.table.DataType;
-import com.yekdb.table.Table;
 import com.yekdb.table.TableManager;
 import com.yekdb.table.TableMetadata;
-import com.yekdb.storage.StorageEngine;
-import com.yekdb.storage.page.PageType;
-import com.yekdb.storage.record.Record;
-import com.yekdb.storage.record.RecordManager;
 
-import java.io.IOException;
-import java.nio.file.Path;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 
@@ -98,6 +83,23 @@ public final class QueryExecutor implements AutoCloseable {
      * Sprint 00-12 kapsamında eklenmiştir.
      */
     private final DeleteExecutor deleteExecutor;
+
+    /**
+     * INSERT / UPDATE / DELETE fiziksel storage yaşam döngüsünü
+     * QueryExecutor dışında yönetir.
+     */
+    private final TableMutationExecutionSupport mutationExecutionSupport;
+
+    /**
+     * SELECT için QueryDataSource hazırlama ve JOIN veri yükleme
+     * sorumluluğunu kapsüller.
+     */
+    private final SelectCommandExecutionSupport selectExecutionSupport;
+
+    /**
+     * Geriye dönük management SQL komutlarını ayrıştırır.
+     */
+    private final ManagementCommandParser managementCommandParser;
 
     /**
      * Aktif veritabanına bağlı tablo yöneticisidir.
@@ -260,6 +262,21 @@ public final class QueryExecutor implements AutoCloseable {
                 deleteExecutor,
                 "DeleteExecutor cannot be null."
         );
+
+        this.mutationExecutionSupport =
+                new TableMutationExecutionSupport(
+                        this.insertExecutor,
+                        this.updateExecutor,
+                        this.deleteExecutor
+                );
+
+        this.selectExecutionSupport =
+                new SelectCommandExecutionSupport(
+                        this.selectExecutor
+                );
+
+        this.managementCommandParser =
+                new ManagementCommandParser();
 
         initializeTableManager();
     }
@@ -587,68 +604,10 @@ public final class QueryExecutor implements AutoCloseable {
     private ExecuteResult executeInsert(
             InsertCommand command
     ) {
-        TableManager activeTableManager =
-                requireTableManager();
-
-        Table table = activeTableManager.getTable(
-                command.getTableName()
+        return mutationExecutionSupport.executeInsert(
+                requireTableManager(),
+                command
         );
-
-        Path tableDataFile =
-                activeTableManager
-                        .getDatabaseDirectory()
-                        .resolve(
-                                table.getTableName()
-                                        .toLowerCase(Locale.ROOT)
-                                        + ".data"
-                        );
-
-        StorageEngine storageEngine =
-                new StorageEngine(tableDataFile);
-
-        try {
-            storageEngine.initialize();
-
-            RecordManager recordManager =
-                    new RecordManager(
-                            storageEngine.getPageManager(),
-                            PageType.DATA
-                    );
-
-            Record insertedRecord =
-                    insertExecutor.execute(
-                            table,
-                            command,
-                            recordManager
-                    );
-
-            return ExecuteResult.success(
-                    "Row inserted successfully into table '"
-                            + table.getTableName()
-                            + "'. Record ID: "
-                            + insertedRecord.getRecordId()
-            );
-
-        } catch (IOException exception) {
-            throw new QueryExecutionException(
-                    "INSERT storage operation failed for table: "
-                            + table.getTableName(),
-                    exception
-            );
-
-        } finally {
-            if (storageEngine.isInitialized()) {
-                try {
-                    storageEngine.shutdown();
-                } catch (IOException exception) {
-                    throw new QueryExecutionException(
-                            "Failed to close storage engine for table: "
-                                    + table.getTableName(),
-                            exception
-                    );
-                }
-            }
-        }
     }
 
     /**
@@ -660,71 +619,10 @@ public final class QueryExecutor implements AutoCloseable {
     private ExecuteResult executeUpdate(
             UpdateCommand command
     ) {
-        TableManager activeTableManager =
-                requireTableManager();
-
-        Table table =
-                activeTableManager.getTable(
-                        command.getTableName()
-                );
-
-        Path tableDataFile =
-                activeTableManager
-                        .getDatabaseDirectory()
-                        .resolve(
-                                table.getTableName()
-                                        .toLowerCase(Locale.ROOT)
-                                        + ".data"
-                        );
-
-        StorageEngine storageEngine =
-                new StorageEngine(
-                        tableDataFile
-                );
-
-        try {
-            storageEngine.initialize();
-
-            RecordManager recordManager =
-                    new RecordManager(
-                            storageEngine.getPageManager(),
-                            PageType.DATA
-                    );
-
-            int updatedRowCount =
-                    updateExecutor.execute(
-                            table,
-                            command,
-                            recordManager
-                    );
-
-            return ExecuteResult.success(
-                    "UPDATE executed successfully on table '"
-                            + table.getTableName()
-                            + "'. Updated row count: "
-                            + updatedRowCount
-            );
-
-        } catch (IOException exception) {
-            throw new QueryExecutionException(
-                    "UPDATE storage operation failed for table: "
-                            + table.getTableName(),
-                    exception
-            );
-
-        } finally {
-            if (storageEngine.isInitialized()) {
-                try {
-                    storageEngine.shutdown();
-                } catch (IOException exception) {
-                    throw new QueryExecutionException(
-                            "Failed to close storage engine for table: "
-                                    + table.getTableName(),
-                            exception
-                    );
-                }
-            }
-        }
+        return mutationExecutionSupport.executeUpdate(
+                requireTableManager(),
+                command
+        );
     }
 
     /**
@@ -739,71 +637,10 @@ public final class QueryExecutor implements AutoCloseable {
     private ExecuteResult executeDelete(
             DeleteCommand command
     ) {
-        TableManager activeTableManager =
-                requireTableManager();
-
-        Table table =
-                activeTableManager.getTable(
-                        command.getTableName()
-                );
-
-        Path tableDataFile =
-                activeTableManager
-                        .getDatabaseDirectory()
-                        .resolve(
-                                table.getTableName()
-                                        .toLowerCase(Locale.ROOT)
-                                        + ".data"
-                        );
-
-        StorageEngine storageEngine =
-                new StorageEngine(
-                        tableDataFile
-                );
-
-        try {
-            storageEngine.initialize();
-
-            RecordManager recordManager =
-                    new RecordManager(
-                            storageEngine.getPageManager(),
-                            PageType.DATA
-                    );
-
-            int deletedRowCount =
-                    deleteExecutor.execute(
-                            table,
-                            command,
-                            recordManager
-                    );
-
-            return ExecuteResult.success(
-                    "DELETE executed successfully on table '"
-                            + table.getTableName()
-                            + "'. Deleted row count: "
-                            + deletedRowCount
-            );
-
-        } catch (IOException exception) {
-            throw new QueryExecutionException(
-                    "DELETE storage operation failed for table: "
-                            + table.getTableName(),
-                    exception
-            );
-
-        } finally {
-            if (storageEngine.isInitialized()) {
-                try {
-                    storageEngine.shutdown();
-                } catch (IOException exception) {
-                    throw new QueryExecutionException(
-                            "Failed to close storage engine for table: "
-                                    + table.getTableName(),
-                            exception
-                    );
-                }
-            }
-        }
+        return mutationExecutionSupport.executeDelete(
+                requireTableManager(),
+                command
+        );
     }
 
     /**
@@ -842,161 +679,9 @@ public final class QueryExecutor implements AutoCloseable {
     private ExecuteResult executeSelect(
             SelectCommand command
     ) {
-
-        Objects.requireNonNull(
+        return selectExecutionSupport.execute(
                 command,
-                "SelectCommand cannot be null."
-        );
-
-        QueryDataSource activeDataSource =
-                requireQueryDataSource();
-
-        /*
-         * Tablo ve fiziksel/memory row verileri
-         * QueryDataSource üzerinden alınır.
-         */
-        Table table =
-                activeDataSource.getTable(
-                        command.getTableName()
-                );
-
-        if (table == null) {
-
-            throw new QueryExecutionException(
-                    "QueryDataSource returned null table for: "
-                            + command.getTableName()
-            );
-        }
-
-        List<Row> rows =
-                activeDataSource.getRows(
-                        command.getTableName()
-                );
-
-        if (rows == null) {
-
-            throw new QueryExecutionException(
-                    "QueryDataSource returned null row list for table: "
-                            + command.getTableName()
-            );
-        }
-
-        /*
-         * Sprint 00-14:
-         *
-         * Tam SelectStatement execution katmanına taşınır.
-         *
-         * Sprint 00-15:
-         *
-         * Statement JOIN içeriyorsa sağ tablo ve satırlar
-         * QueryDataSource üzerinden ayrıca yüklenir ve
-         * JOIN-aware SelectExecutor overload'ına gönderilir.
-         */
-        SelectStatement statement =
-                command.getStatement();
-
-        QueryResult queryResult;
-
-        if (!statement.hasJoins()) {
-
-            queryResult =
-                    selectExecutor.executeStatement(
-                            table,
-                            rows,
-                            statement
-                    );
-
-        } else {
-
-            List<Table> rightTables =
-                    new ArrayList<>();
-
-            List<List<Row>> rightTableRows =
-                    new ArrayList<>();
-
-            for (JoinClause joinClause
-                    : statement.getJoins()) {
-
-                String rightTableName =
-                        joinClause.getTableName();
-
-                Table rightTable =
-                        activeDataSource.getTable(
-                                rightTableName
-                        );
-
-                if (rightTable == null) {
-
-                    throw new QueryExecutionException(
-                            "QueryDataSource returned null JOIN table for: "
-                                    + rightTableName
-                    );
-                }
-
-                List<Row> rightRows =
-                        activeDataSource.getRows(
-                                rightTableName
-                        );
-
-                if (rightRows == null) {
-
-                    throw new QueryExecutionException(
-                            "QueryDataSource returned null row list for JOIN table: "
-                                    + rightTableName
-                    );
-                }
-
-                rightTables.add(
-                        rightTable
-                );
-
-                rightTableRows.add(
-                        rightRows
-                );
-            }
-
-            if (statement.getJoinCount() == 1) {
-
-                queryResult =
-                        selectExecutor.executeStatement(
-                                table,
-                                rows,
-                                rightTables.get(0),
-                                rightTableRows.get(0),
-                                statement
-                        );
-
-            } else {
-
-                queryResult =
-                        selectExecutor.executeStatement(
-                                table,
-                                rows,
-                                rightTables,
-                                rightTableRows,
-                                statement
-                        );
-            }
-        }
-
-        if (queryResult == null) {
-
-            throw new QueryExecutionException(
-                    "SelectExecutor returned null QueryResult."
-            );
-        }
-
-        String message =
-                "SELECT query executed successfully. "
-                        + "Returned row count: "
-                        + queryResult.getRows().size()
-                        + ", execution time: "
-                        + queryResult.getExecutionTimeMillis()
-                        + " ms";
-
-        return ExecuteResult.success(
-                message,
-                queryResult.getRows()
+                requireQueryDataSource()
         );
     }
 
@@ -1004,74 +689,7 @@ public final class QueryExecutor implements AutoCloseable {
      * SQL metnini uygun Command nesnesine dönüştürür.
      */
     private Command parseSqlCommand(String sql) {
-        String upperSql = sql.toUpperCase(
-                Locale.ROOT
-        );
-
-        if (upperSql.startsWith("CREATE DATABASE ")) {
-            String databaseName = extractValueAfterKeyword(
-                    sql,
-                    "CREATE DATABASE"
-            );
-
-            return new CreateDatabaseCommand(
-                    databaseName
-            );
-        }
-
-        if (upperSql.startsWith("USE DATABASE ")) {
-            String databaseName = extractValueAfterKeyword(
-                    sql,
-                    "USE DATABASE"
-            );
-
-            return new UseDatabaseCommand(
-                    databaseName
-            );
-        }
-
-        if (upperSql.startsWith("USE ")) {
-            String databaseName = extractValueAfterKeyword(
-                    sql,
-                    "USE"
-            );
-
-            return new UseDatabaseCommand(
-                    databaseName
-            );
-        }
-
-        if (upperSql.startsWith("DROP DATABASE ")) {
-            String databaseName = extractValueAfterKeyword(
-                    sql,
-                    "DROP DATABASE"
-            );
-
-            return new DropDatabaseCommand(
-                    databaseName
-            );
-        }
-
-        if (upperSql.startsWith("CREATE TABLE ")) {
-            return parseCreateTableCommand(
-                    sql
-            );
-        }
-
-        if (upperSql.startsWith("DROP TABLE ")) {
-            String tableName = extractValueAfterKeyword(
-                    sql,
-                    "DROP TABLE"
-            );
-
-            return new DropTableCommand(
-                    tableName
-            );
-        }
-
-        throw new QueryExecutionException(
-                "Unsupported SQL statement: " + sql
-        );
+        return managementCommandParser.parse(sql);
     }
 
     /**
@@ -1085,185 +703,22 @@ public final class QueryExecutor implements AutoCloseable {
      *     age INT
      * )
      */
-    private CreateTableCommand parseCreateTableCommand(
-            String sql
-    ) {
-        int openParenthesisIndex =
-                sql.indexOf('(');
 
-        int closeParenthesisIndex =
-                sql.lastIndexOf(')');
-
-        if (openParenthesisIndex < 0
-                || closeParenthesisIndex < 0
-                || closeParenthesisIndex
-                <= openParenthesisIndex) {
-
-            throw new QueryExecutionException(
-                    "Invalid CREATE TABLE statement: "
-                            + sql
-            );
-        }
-
-        String tableName = sql.substring(
-                "CREATE TABLE".length(),
-                openParenthesisIndex
-        ).trim();
-
-        if (tableName.isBlank()) {
-            throw new QueryExecutionException(
-                    "CREATE TABLE statement must contain a table name."
-            );
-        }
-
-        String columnDefinitionSection =
-                sql.substring(
-                        openParenthesisIndex + 1,
-                        closeParenthesisIndex
-                ).trim();
-
-        if (columnDefinitionSection.isBlank()) {
-            throw new QueryExecutionException(
-                    "CREATE TABLE statement must contain columns."
-            );
-        }
-
-        String remainingText = sql.substring(
-                closeParenthesisIndex + 1
-        ).trim();
-
-        if (!remainingText.isEmpty()) {
-            throw new QueryExecutionException(
-                    "Unexpected text after CREATE TABLE definition: "
-                            + remainingText
-            );
-        }
-
-        List<Column> columns =
-                parseColumnDefinitions(
-                        columnDefinitionSection
-                );
-
-        return new CreateTableCommand(
-                tableName,
-                columns
-        );
-    }
 
     /**
      * CREATE TABLE içindeki sütun tanımlarını ayrıştırır.
      */
-    private List<Column> parseColumnDefinitions(
-            String columnDefinitionSection
-    ) {
-        List<Column> columns =
-                new ArrayList<>();
 
-        String[] definitions =
-                columnDefinitionSection.split(",");
-
-        for (String definition : definitions) {
-            String normalizedDefinition =
-                    definition.trim();
-
-            if (normalizedDefinition.isBlank()) {
-                throw new QueryExecutionException(
-                        "Column definition cannot be blank."
-                );
-            }
-
-            String[] parts =
-                    normalizedDefinition.split("\\s+");
-
-            if (parts.length != 2) {
-                throw new QueryExecutionException(
-                        "Invalid column definition: "
-                                + normalizedDefinition
-                );
-            }
-
-            String columnName = parts[0];
-
-            DataType dataType =
-                    parseDataType(
-                            parts[1]
-                    );
-
-            columns.add(
-                    new Column(
-                            columnName,
-                            dataType
-                    )
-            );
-        }
-
-        if (columns.isEmpty()) {
-            throw new QueryExecutionException(
-                    "CREATE TABLE statement must contain valid columns."
-            );
-        }
-
-        return List.copyOf(columns);
-    }
 
     /**
      * SQL veri tipini YEKDB DataType değerine dönüştürür.
      */
-    private DataType parseDataType(String value) {
-        String normalizedType = value
-                .trim()
-                .toUpperCase(Locale.ROOT);
 
-        return switch (normalizedType) {
-            case "INT", "INTEGER" ->
-                    DataType.INT;
-
-            case "LONG", "BIGINT" ->
-                    DataType.LONG;
-
-            case "DOUBLE", "FLOAT", "REAL" ->
-                    DataType.DOUBLE;
-
-            case "BOOLEAN", "BOOL" ->
-                    DataType.BOOLEAN;
-
-            case "STRING", "TEXT", "VARCHAR" ->
-                    DataType.STRING;
-
-            default -> throw new QueryExecutionException(
-                    "Unsupported data type: " + value
-            );
-        };
-    }
 
     /**
      * Belirtilen SQL anahtar kelimesinden sonraki değeri döndürür.
      */
-    private String extractValueAfterKeyword(
-            String sql,
-            String keyword
-    ) {
-        String value = sql.substring(
-                keyword.length()
-        ).trim();
 
-        if (value.isBlank()) {
-            throw new QueryExecutionException(
-                    keyword + " statement requires a name."
-            );
-        }
-
-        if (value.contains(" ")) {
-            throw new QueryExecutionException(
-                    "Invalid value after "
-                            + keyword
-                            + ": "
-                            + value
-            );
-        }
-
-        return value;
-    }
 
     /**
      * SQL sonundaki noktalı virgülleri kaldırır.
@@ -1293,14 +748,7 @@ public final class QueryExecutor implements AutoCloseable {
      * Henüz yürütme katmanına bağlanmamış kayıt işlemleri
      * için açıklayıcı hata üretir.
      */
-    private ExecuteResult unsupportedRecordOperation(
-            String operationName
-    ) {
-        throw new QueryExecutionException(
-                operationName
-                        + " execution is not implemented yet."
-        );
-    }
+
 
     /**
      * QueryExecutor oluşturulurken aktif bir veritabanı

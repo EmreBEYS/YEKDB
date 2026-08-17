@@ -5,7 +5,6 @@ import com.yekdb.query.statement.JoinClause;
 import com.yekdb.query.statement.TableReference;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -38,6 +37,7 @@ import java.util.Objects;
 public final class JoinExecutor {
 
     private final ExpressionEvaluator expressionEvaluator;
+    private final JoinRowAssembler rowAssembler;
 
     public JoinExecutor() {
         this(new ExpressionEvaluator());
@@ -52,6 +52,8 @@ public final class JoinExecutor {
                         expressionEvaluator,
                         "ExpressionEvaluator null olamaz."
                 );
+
+        this.rowAssembler = new JoinRowAssembler();
     }
 
     // --------------------------------------------------
@@ -151,7 +153,7 @@ public final class JoinExecutor {
                 new ArrayList<>();
 
         TableReference rightTable =
-                createRightTableReference(
+                rowAssembler.createRightTableReference(
                         joinClause
                 );
 
@@ -162,7 +164,7 @@ public final class JoinExecutor {
                     : rightRows) {
 
                 Map<String, Object> joinedRow =
-                        mergeRows(
+                        rowAssembler.mergeRows(
                                 leftTable,
                                 leftRow,
                                 rightTable,
@@ -210,7 +212,7 @@ public final class JoinExecutor {
                 new ArrayList<>();
 
         TableReference rightTable =
-                createRightTableReference(
+                rowAssembler.createRightTableReference(
                         joinClause
                 );
 
@@ -227,7 +229,7 @@ public final class JoinExecutor {
                     : rightRows) {
 
                 Map<String, Object> joinedRow =
-                        mergeRows(
+                        rowAssembler.mergeRows(
                                 leftTable,
                                 leftRow,
                                 rightTable,
@@ -255,7 +257,7 @@ public final class JoinExecutor {
             if (!matched) {
 
                 Map<String, Object> joinedRow =
-                        createLeftUnmatchedRow(
+                        rowAssembler.createLeftUnmatchedRow(
                                 leftTable,
                                 leftRow,
                                 rightTable,
@@ -295,7 +297,7 @@ public final class JoinExecutor {
                 new ArrayList<>();
 
         TableReference rightTable =
-                createRightTableReference(
+                rowAssembler.createRightTableReference(
                         joinClause
                 );
 
@@ -315,7 +317,7 @@ public final class JoinExecutor {
                     : leftRows) {
 
                 Map<String, Object> joinedRow =
-                        mergeRows(
+                        rowAssembler.mergeRows(
                                 leftTable,
                                 leftRow,
                                 rightTable,
@@ -343,7 +345,7 @@ public final class JoinExecutor {
             if (!matched) {
 
                 Map<String, Object> joinedRow =
-                        createRightUnmatchedRow(
+                        rowAssembler.createRightUnmatchedRow(
                                 leftTable,
                                 leftRows,
                                 rightTable,
@@ -385,7 +387,7 @@ public final class JoinExecutor {
                 new ArrayList<>();
 
         TableReference rightTable =
-                createRightTableReference(
+                rowAssembler.createRightTableReference(
                         joinClause
                 );
 
@@ -412,7 +414,7 @@ public final class JoinExecutor {
                         rightRows.get(rightIndex);
 
                 Map<String, Object> joinedRow =
-                        mergeRows(
+                        rowAssembler.mergeRows(
                                 leftTable,
                                 leftRow,
                                 rightTable,
@@ -441,7 +443,7 @@ public final class JoinExecutor {
             if (!leftMatched) {
 
                 Map<String, Object> joinedRow =
-                        createLeftUnmatchedRow(
+                        rowAssembler.createLeftUnmatchedRow(
                                 leftTable,
                                 leftRow,
                                 rightTable,
@@ -463,7 +465,7 @@ public final class JoinExecutor {
             if (!rightMatched[rightIndex]) {
 
                 Map<String, Object> joinedRow =
-                        createRightUnmatchedRow(
+                        rowAssembler.createRightUnmatchedRow(
                                 leftTable,
                                 leftRows,
                                 rightTable,
@@ -488,57 +490,7 @@ public final class JoinExecutor {
      * Sol tablo değerleri korunur.
      * Sağ tablo kolonları NULL olarak eklenir.
      */
-    private Map<String, Object> createLeftUnmatchedRow(
-            TableReference leftTable,
-            Map<String, Object> leftRow,
-            TableReference rightTable,
-            List<Map<String, Object>> rightRows
-    ) {
 
-        Map<String, Object> joinedRow =
-                new LinkedHashMap<>();
-
-        /*
-         * Sol tablo değerleri normal şekilde eklenir.
-         */
-        addQualifiedColumns(
-                joinedRow,
-                leftTable,
-                leftRow
-        );
-
-        /*
-         * Sağ tabloda en az bir satır varsa kolon yapısı
-         * ilk satır üzerinden belirlenir.
-         *
-         * İleride bu bilgi TableMetadata üzerinden
-         * alınacaktır.
-         */
-        if (!rightRows.isEmpty()) {
-
-            Map<String, Object> nullRightRow =
-                    new LinkedHashMap<>();
-
-            for (String columnName
-                    : rightRows.get(0).keySet()) {
-
-                nullRightRow.put(
-                        normalizeSourceColumnName(
-                                columnName
-                        ),
-                        null
-                );
-            }
-
-            addQualifiedColumns(
-                    joinedRow,
-                    rightTable,
-                    nullRightRow
-            );
-        }
-
-        return joinedRow;
-    }
 
     /**
      * RIGHT JOIN veya FULL JOIN sırasında sol tarafta
@@ -547,73 +499,7 @@ public final class JoinExecutor {
      * Sağ tablo değerleri korunur.
      * Sol tablo kolonları NULL olarak eklenir.
      */
-    private Map<String, Object> createRightUnmatchedRow(
-            TableReference leftTable,
-            List<Map<String, Object>> leftRows,
-            TableReference rightTable,
-            Map<String, Object> rightRow
-    ) {
 
-        Map<String, Object> joinedRow =
-                new LinkedHashMap<>();
-
-        /*
-         * Sol tabloda en az bir satır varsa kolon yapısı
-         * ilk satır üzerinden belirlenir.
-         *
-         * İleride bu bilgi TableMetadata üzerinden
-         * alınacaktır.
-         */
-        if (!leftRows.isEmpty()) {
-
-            Map<String, Object> nullLeftRow =
-                    new LinkedHashMap<>();
-
-            for (String columnName
-                    : leftRows.get(0).keySet()) {
-
-                /*
-                 * Kaynak satır bir önceki JOIN sonucundan
-                 * gelmiş olabilir.
-                 *
-                 * Qualified kolon adı varsa aynen korunur.
-                 */
-                if (isQualifiedColumnName(columnName)) {
-
-                    nullLeftRow.put(
-                            columnName,
-                            null
-                    );
-
-                } else {
-
-                    nullLeftRow.put(
-                            normalizeSourceColumnName(
-                                    columnName
-                            ),
-                            null
-                    );
-                }
-            }
-
-            addQualifiedColumns(
-                    joinedRow,
-                    leftTable,
-                    nullLeftRow
-            );
-        }
-
-        /*
-         * Sağ tablo değerleri normal şekilde eklenir.
-         */
-        addQualifiedColumns(
-                joinedRow,
-                rightTable,
-                rightRow
-        );
-
-        return joinedRow;
-    }
 
     // --------------------------------------------------
     // ROW MERGE
@@ -648,30 +534,7 @@ public final class JoinExecutor {
      * department.id = 10
      * d.id = 10
      */
-    private Map<String, Object> mergeRows(
-            TableReference leftTable,
-            Map<String, Object> leftRow,
-            TableReference rightTable,
-            Map<String, Object> rightRow
-    ) {
 
-        Map<String, Object> joinedRow =
-                new LinkedHashMap<>();
-
-        addQualifiedColumns(
-                joinedRow,
-                leftTable,
-                leftRow
-        );
-
-        addQualifiedColumns(
-                joinedRow,
-                rightTable,
-                rightRow
-        );
-
-        return joinedRow;
-    }
 
     // --------------------------------------------------
     // QUALIFIED COLUMNS
@@ -694,105 +557,7 @@ public final class JoinExecutor {
      * geliyorsa ve kolon zaten qualified ise mevcut
      * kolon adı aynen korunur.
      */
-    private void addQualifiedColumns(
-            Map<String, Object> target,
-            TableReference table,
-            Map<String, Object> row
-    ) {
 
-        Objects.requireNonNull(
-                target,
-                "Hedef satır null olamaz."
-        );
-
-        Objects.requireNonNull(
-                table,
-                "Tablo referansı null olamaz."
-        );
-
-        Objects.requireNonNull(
-                row,
-                "Kaynak satır null olamaz."
-        );
-
-        String tableName =
-                table.getTableName();
-
-        String alias =
-                table.getAlias();
-
-        for (Map.Entry<String, Object> entry
-                : row.entrySet()) {
-
-            String sourceColumnName =
-                    entry.getKey();
-
-            Object value =
-                    entry.getValue();
-
-            /*
-             * Kaynak kolon zaten qualified ise önceki
-             * JOIN sonucundan gelmiş olabilir.
-             *
-             * Örnek:
-             *
-             * e.id
-             * d.id
-             * d.company_id
-             *
-             * Bu durumda qualifier kesinlikle
-             * kaybedilmemelidir.
-             */
-            if (isQualifiedColumnName(
-                    sourceColumnName
-            )) {
-
-                target.put(
-                        sourceColumnName,
-                        value
-                );
-
-                continue;
-            }
-
-            /*
-             * Fiziksel tablo satırından gelen normal
-             * kolon adı düzenlenir.
-             */
-            String columnName =
-                    normalizeSourceColumnName(
-                            sourceColumnName
-                    );
-
-            /*
-             * Gerçek tablo adı.
-             *
-             * employee.id
-             */
-            target.put(
-                    tableName
-                            + "."
-                            + columnName,
-                    value
-            );
-
-            /*
-             * Alias mevcutsa ayrıca alias.column
-             * biçimi oluşturulur.
-             *
-             * e.id
-             */
-            if (table.hasAlias()) {
-
-                target.put(
-                        alias
-                                + "."
-                                + columnName,
-                        value
-                );
-            }
-        }
-    }
 
     /**
      * Kaynak satır zaten qualified key içeriyorsa
@@ -806,38 +571,7 @@ public final class JoinExecutor {
      *
      * id
      */
-    private String normalizeSourceColumnName(
-            String columnName
-    ) {
 
-        Objects.requireNonNull(
-                columnName,
-                "Kolon adı null olamaz."
-        );
-
-        String normalized =
-                columnName.trim();
-
-        if (normalized.isEmpty()) {
-
-            throw new IllegalArgumentException(
-                    "Kolon adı boş olamaz."
-            );
-        }
-
-        int dotIndex =
-                normalized.lastIndexOf('.');
-
-        if (dotIndex >= 0
-                && dotIndex < normalized.length() - 1) {
-
-            return normalized.substring(
-                    dotIndex + 1
-            );
-        }
-
-        return normalized;
-    }
 
     /**
      * Kolon adının qualified olup olmadığını kontrol eder.
@@ -851,31 +585,7 @@ public final class JoinExecutor {
      * id               -> false
      * name             -> false
      */
-    private boolean isQualifiedColumnName(
-            String columnName
-    ) {
 
-        Objects.requireNonNull(
-                columnName,
-                "Kolon adı null olamaz."
-        );
-
-        String normalized =
-                columnName.trim();
-
-        if (normalized.isEmpty()) {
-
-            throw new IllegalArgumentException(
-                    "Kolon adı boş olamaz."
-            );
-        }
-
-        int dotIndex =
-                normalized.indexOf('.');
-
-        return dotIndex > 0
-                && dotIndex < normalized.length() - 1;
-    }
 
     // --------------------------------------------------
     // RIGHT TABLE
@@ -884,13 +594,5 @@ public final class JoinExecutor {
     /**
      * JoinClause bilgisinden sağ tablo referansı üretir.
      */
-    private TableReference createRightTableReference(
-            JoinClause joinClause
-    ) {
 
-        return new TableReference(
-                joinClause.getTableName(),
-                joinClause.getAlias()
-        );
-    }
 }

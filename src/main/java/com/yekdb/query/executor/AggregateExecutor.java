@@ -4,29 +4,29 @@ import com.yekdb.storage.record.Row;
 import com.yekdb.table.Column;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
 /**
  * SQL aggregate fonksiyonlarını yürütür.
  *
- * Desteklenen fonksiyonlar:
+ * <p>Desteklenen fonksiyonlar:</p>
+ * <ul>
+ *     <li>COUNT(*)</li>
+ *     <li>COUNT(column)</li>
+ *     <li>SUM(column)</li>
+ *     <li>AVG(column)</li>
+ *     <li>MIN(column)</li>
+ *     <li>MAX(column)</li>
+ * </ul>
  *
- * COUNT(*)
- * COUNT(column)
- * SUM(column)
- * AVG(column)
- * MIN(column)
- * MAX(column)
+ * <p>Normal tablo satırları bu sınıfta, JOIN sonucu oluşan Map tabanlı
+ * satırlar ise {@link JoinedAggregateExecutor} üzerinden yürütülür.</p>
  *
- * Sprint 00-14
+ * Sprint 00-17 refactor.
  */
 public final class AggregateExecutor {
 
-    /**
-     * Aggregate fonksiyon türü.
-     */
     public enum AggregateFunction {
         COUNT,
         SUM,
@@ -35,16 +35,14 @@ public final class AggregateExecutor {
         MAX
     }
 
+    private final JoinedAggregateExecutor joinedAggregateExecutor;
+
+    public AggregateExecutor() {
+        this.joinedAggregateExecutor = new JoinedAggregateExecutor();
+    }
+
     /**
-     * Aggregate fonksiyonunu çalıştırır.
-     *
-     * COUNT(*) için columnName "*" olabilir.
-     *
-     * @param rows         kaynak satırlar
-     * @param columns      tablo kolonları
-     * @param function     aggregate fonksiyon
-     * @param columnName   hedef kolon veya "*"
-     * @return aggregate sonucu
+     * Normal tablo satırları üzerinde aggregate fonksiyonu çalıştırır.
      */
     public Object execute(
             List<Row> rows,
@@ -52,673 +50,154 @@ public final class AggregateExecutor {
             AggregateFunction function,
             String columnName
     ) {
+        Objects.requireNonNull(rows, "Rows cannot be null.");
+        Objects.requireNonNull(columns, "Columns cannot be null.");
+        Objects.requireNonNull(function, "Aggregate function cannot be null.");
 
-        Objects.requireNonNull(
-                rows,
-                "Rows cannot be null."
-        );
-
-        Objects.requireNonNull(
-                columns,
-                "Columns cannot be null."
-        );
-
-        Objects.requireNonNull(
-                function,
-                "Aggregate function cannot be null."
-        );
-
-        if (columnName == null
-                || columnName.isBlank()) {
-
+        if (columnName == null || columnName.isBlank()) {
             throw new IllegalArgumentException(
                     "Aggregate column cannot be null or blank."
             );
         }
 
         return switch (function) {
-
-            case COUNT ->
-                    executeCount(
-                            rows,
-                            columns,
-                            columnName
-                    );
-
-            case SUM ->
-                    executeSum(
-                            rows,
-                            columns,
-                            columnName
-                    );
-
-            case AVG ->
-                    executeAverage(
-                            rows,
-                            columns,
-                            columnName
-                    );
-
-            case MIN ->
-                    executeMin(
-                            rows,
-                            columns,
-                            columnName
-                    );
-
-            case MAX ->
-                    executeMax(
-                            rows,
-                            columns,
-                            columnName
-                    );
+            case COUNT -> executeCount(rows, columns, columnName);
+            case SUM -> executeSum(rows, columns, columnName);
+            case AVG -> executeAverage(rows, columns, columnName);
+            case MIN -> executeMin(rows, columns, columnName);
+            case MAX -> executeMax(rows, columns, columnName);
         };
     }
 
     /**
-     * COUNT
-     *
-     * COUNT(*) bütün satırları sayar.
-     *
-     * Row mevcut mimaride null değer kabul etmediği için
-     * COUNT(column) da satır sayısına eşittir.
-     */
-    private long executeCount(
-            List<Row> rows,
-            List<Column> columns,
-            String columnName
-    ) {
-
-        if ("*".equals(
-                columnName.trim()
-        )) {
-
-            return rows.size();
-        }
-
-        /*
-         * Kolon gerçekten mevcut mu kontrol et.
-         */
-        findColumnIndex(
-                columns,
-                columnName
-        );
-
-        return rows.size();
-    }
-
-    /**
-     * SUM
-     */
-    private double executeSum(
-            List<Row> rows,
-            List<Column> columns,
-            String columnName
-    ) {
-
-        int columnIndex =
-                findColumnIndex(
-                        columns,
-                        columnName
-                );
-
-        double sum =
-                0.0;
-
-        for (Row row : rows) {
-
-            Object value =
-                    row.getValue(
-                            columnIndex
-                    );
-
-            Number number =
-                    requireNumber(
-                            value,
-                            columnName
-                    );
-
-            sum +=
-                    number.doubleValue();
-        }
-
-        return sum;
-    }
-
-    /**
-     * AVG
-     */
-    private double executeAverage(
-            List<Row> rows,
-            List<Column> columns,
-            String columnName
-    ) {
-
-        if (rows.isEmpty()) {
-
-            return 0.0;
-        }
-
-        double sum =
-                executeSum(
-                        rows,
-                        columns,
-                        columnName
-                );
-
-        return sum
-                / rows.size();
-    }
-
-    /**
-     * MIN
-     */
-    private Object executeMin(
-            List<Row> rows,
-            List<Column> columns,
-            String columnName
-    ) {
-
-        if (rows.isEmpty()) {
-
-            return null;
-        }
-
-        int columnIndex =
-                findColumnIndex(
-                        columns,
-                        columnName
-                );
-
-        Object minimum =
-                rows.getFirst()
-                        .getValue(
-                                columnIndex
-                        );
-
-        for (int i = 1;
-             i < rows.size();
-             i++) {
-
-            Object currentValue =
-                    rows.get(i)
-                            .getValue(
-                                    columnIndex
-                            );
-
-            if (compareValues(
-                    currentValue,
-                    minimum
-            ) < 0) {
-
-                minimum =
-                        currentValue;
-            }
-        }
-
-        return minimum;
-    }
-
-    /**
-     * MAX
-     */
-    private Object executeMax(
-            List<Row> rows,
-            List<Column> columns,
-            String columnName
-    ) {
-
-        if (rows.isEmpty()) {
-
-            return null;
-        }
-
-        int columnIndex =
-                findColumnIndex(
-                        columns,
-                        columnName
-                );
-
-        Object maximum =
-                rows.getFirst()
-                        .getValue(
-                                columnIndex
-                        );
-
-        for (int i = 1;
-             i < rows.size();
-             i++) {
-
-            Object currentValue =
-                    rows.get(i)
-                            .getValue(
-                                    columnIndex
-                            );
-
-            if (compareValues(
-                    currentValue,
-                    maximum
-            ) > 0) {
-
-                maximum =
-                        currentValue;
-            }
-        }
-
-        return maximum;
-    }
-
-    /**
-     * Kolon indeksini bulur.
-     *
-     * Qualified column desteği:
-     *
-     * users.salary
-     *
-     * -> salary
-     */
-    private int findColumnIndex(
-            List<Column> columns,
-            String columnName
-    ) {
-
-        String normalizedColumnName =
-                normalizeColumnName(
-                        columnName
-                );
-
-        for (int i = 0;
-             i < columns.size();
-             i++) {
-
-            if (columns.get(i)
-                    .getName()
-                    .equalsIgnoreCase(
-                            normalizedColumnName
-                    )) {
-
-                return i;
-            }
-        }
-
-        throw new IllegalArgumentException(
-                "Aggregate column not found: "
-                        + columnName
-        );
-    }
-
-    /**
-     * Qualified kolon adını fiziksel kolon
-     * adına dönüştürür.
-     */
-    private String normalizeColumnName(
-            String columnName
-    ) {
-
-        String normalized =
-                columnName
-                        .trim()
-                        .toLowerCase(
-                                Locale.ROOT
-                        );
-
-        int dotIndex =
-                normalized.lastIndexOf('.');
-
-        if (dotIndex >= 0) {
-
-            return normalized.substring(
-                    dotIndex + 1
-            );
-        }
-
-        return normalized;
-    }
-
-    /**
-     * SUM / AVG için sayısal değer kontrolü.
-     */
-    private Number requireNumber(
-            Object value,
-            String columnName
-    ) {
-
-        if (value instanceof Number number) {
-
-            return number;
-        }
-
-        throw new IllegalArgumentException(
-                "Aggregate function requires numeric column: "
-                        + columnName
-                        + ". Value: "
-                        + value
-        );
-    }
-
-    /**
-     * MIN / MAX karşılaştırması.
-     */
-    private int compareValues(
-            Object left,
-            Object right
-    ) {
-
-        if (left instanceof Number leftNumber
-                && right instanceof Number rightNumber) {
-
-            return Double.compare(
-                    leftNumber.doubleValue(),
-                    rightNumber.doubleValue()
-            );
-        }
-
-        if (left instanceof Comparable<?> comparable
-                && left.getClass()
-                .isInstance(
-                        right
-                )) {
-
-            return compareComparable(
-                    comparable,
-                    right
-            );
-        }
-
-        throw new IllegalArgumentException(
-                "Values cannot be compared: "
-                        + left
-                        + " and "
-                        + right
-        );
-    }
-
-    @SuppressWarnings("unchecked")
-    private int compareComparable(
-            Comparable<?> left,
-            Object right
-    ) {
-
-        Comparable<Object> comparable =
-                (Comparable<Object>) left;
-
-        return comparable.compareTo(
-                right
-        );
-    }
-
-    /**
-     * JOIN sonucu oluşan Map tabanlı satırlar üzerinde
-     * aggregate fonksiyonu çalıştırır.
-     *
-     * Destek:
-     *
-     * COUNT(*)
-     * COUNT(e.id)
-     * SUM(e.salary)
-     * AVG(e.salary)
-     * MIN(e.salary)
-     * MAX(e.salary)
+     * JOIN sonucu oluşan Map tabanlı satırlar üzerinde aggregate çalıştırır.
      */
     public Object executeJoinedRows(
             List<Map<String, Object>> rows,
             AggregateFunction function,
             String columnName
     ) {
-
-        Objects.requireNonNull(
+        return joinedAggregateExecutor.execute(
                 rows,
-                "JOIN satırları null olamaz."
-        );
-
-        Objects.requireNonNull(
                 function,
-                "Aggregate fonksiyon null olamaz."
+                columnName
         );
-
-        if (columnName == null
-                || columnName.isBlank()) {
-
-            throw new IllegalArgumentException(
-                    "Aggregate kolon adı null veya boş olamaz."
-            );
-        }
-
-        return switch (function) {
-
-            case COUNT ->
-                    executeJoinedCount(
-                            rows,
-                            columnName
-                    );
-
-            case SUM ->
-                    executeJoinedSum(
-                            rows,
-                            columnName
-                    );
-
-            case AVG ->
-                    executeJoinedAverage(
-                            rows,
-                            columnName
-                    );
-
-            case MIN ->
-                    executeJoinedMin(
-                            rows,
-                            columnName
-                    );
-
-            case MAX ->
-                    executeJoinedMax(
-                            rows,
-                            columnName
-                    );
-        };
     }
 
-    private long executeJoinedCount(
-            List<Map<String, Object>> rows,
+    private long executeCount(
+            List<Row> rows,
+            List<Column> columns,
             String columnName
     ) {
-
         if ("*".equals(columnName.trim())) {
             return rows.size();
         }
 
-        long count = 0;
+        AggregateValueSupport.findColumnIndex(
+                columns,
+                columnName
+        );
 
-        for (Map<String, Object> row : rows) {
-
-            Object value =
-                    resolveJoinedValue(
-                            row,
-                            columnName
-                    );
-
-            /*
-             * SQL COUNT(column) NULL değerleri saymaz.
-             */
-            if (value != null) {
-                count++;
-            }
-        }
-
-        return count;
+        /*
+         * Row mevcut formatta null değer kabul etmediği için
+         * COUNT(column) satır sayısına eşittir.
+         */
+        return rows.size();
     }
-    private double executeJoinedSum(
-            List<Map<String, Object>> rows,
+
+    private double executeSum(
+            List<Row> rows,
+            List<Column> columns,
             String columnName
     ) {
+        int columnIndex = AggregateValueSupport.findColumnIndex(
+                columns,
+                columnName
+        );
 
         double sum = 0.0;
 
-        for (Map<String, Object> row : rows) {
+        for (Row row : rows) {
+            Object value = row.getValue(columnIndex);
 
-            Object value =
-                    resolveJoinedValue(
-                            row,
-                            columnName
-                    );
-
-            /*
-             * SQL aggregate fonksiyonları NULL değerleri
-             * hesaplamaya dahil etmez.
-             */
-            if (value == null) {
-                continue;
-            }
-
-            Number number =
-                    requireNumber(
-                            value,
-                            columnName
-                    );
-
-            sum += number.doubleValue();
+            sum += AggregateValueSupport
+                    .requireNumber(value, columnName)
+                    .doubleValue();
         }
 
         return sum;
     }
 
-    private double executeJoinedAverage(
-            List<Map<String, Object>> rows,
+    private double executeAverage(
+            List<Row> rows,
+            List<Column> columns,
             String columnName
     ) {
-
-        double sum = 0.0;
-        long count = 0;
-
-        for (Map<String, Object> row : rows) {
-
-            Object value =
-                    resolveJoinedValue(
-                            row,
-                            columnName
-                    );
-
-            if (value == null) {
-                continue;
-            }
-
-            Number number =
-                    requireNumber(
-                            value,
-                            columnName
-                    );
-
-            sum += number.doubleValue();
-            count++;
-        }
-
-        if (count == 0) {
+        if (rows.isEmpty()) {
             return 0.0;
         }
 
-        return sum / count;
+        return executeSum(rows, columns, columnName)
+                / rows.size();
     }
 
-    private Object executeJoinedMin(
-            List<Map<String, Object>> rows,
+    private Object executeMin(
+            List<Row> rows,
+            List<Column> columns,
             String columnName
     ) {
+        if (rows.isEmpty()) {
+            return null;
+        }
 
-        Object minimum = null;
+        int columnIndex = AggregateValueSupport.findColumnIndex(
+                columns,
+                columnName
+        );
 
-        for (Map<String, Object> row : rows) {
+        Object minimum = rows.getFirst().getValue(columnIndex);
 
-            Object value =
-                    resolveJoinedValue(
-                            row,
-                            columnName
-                    );
+        for (int i = 1; i < rows.size(); i++) {
+            Object currentValue = rows.get(i).getValue(columnIndex);
 
-            if (value == null) {
-                continue;
-            }
-
-            if (minimum == null
-                    || compareValues(
-                    value,
+            if (AggregateValueSupport.compareValues(
+                    currentValue,
                     minimum
             ) < 0) {
-
-                minimum = value;
+                minimum = currentValue;
             }
         }
 
         return minimum;
     }
 
-    private Object executeJoinedMax(
-            List<Map<String, Object>> rows,
+    private Object executeMax(
+            List<Row> rows,
+            List<Column> columns,
             String columnName
     ) {
+        if (rows.isEmpty()) {
+            return null;
+        }
 
-        Object maximum = null;
+        int columnIndex = AggregateValueSupport.findColumnIndex(
+                columns,
+                columnName
+        );
 
-        for (Map<String, Object> row : rows) {
+        Object maximum = rows.getFirst().getValue(columnIndex);
 
-            Object value =
-                    resolveJoinedValue(
-                            row,
-                            columnName
-                    );
+        for (int i = 1; i < rows.size(); i++) {
+            Object currentValue = rows.get(i).getValue(columnIndex);
 
-            if (value == null) {
-                continue;
-            }
-
-            if (maximum == null
-                    || compareValues(
-                    value,
+            if (AggregateValueSupport.compareValues(
+                    currentValue,
                     maximum
             ) > 0) {
-
-                maximum = value;
+                maximum = currentValue;
             }
         }
 
         return maximum;
-    }
-
-    /**
-     * JOIN satırındaki qualified aggregate kolonunu çözer.
-     *
-     * Örnek:
-     *
-     * e.salary
-     * d.id
-     */
-    private Object resolveJoinedValue(
-            Map<String, Object> row,
-            String columnName
-    ) {
-
-        String normalized =
-                columnName.trim();
-
-        /*
-         * JOIN + aggregate tarafında qualified kolon
-         * kullanımını zorunlu tutuyoruz.
-         */
-        if (!normalized.contains(".")) {
-
-            throw new IllegalArgumentException(
-                    "JOIN aggregate kolonları qualified olmalıdır: "
-                            + columnName
-            );
-        }
-
-        if (!row.containsKey(normalized)) {
-
-            throw new IllegalArgumentException(
-                    "Aggregate kolonu JOIN sonucunda bulunamadı: "
-                            + columnName
-            );
-        }
-
-        return row.get(normalized);
     }
 }

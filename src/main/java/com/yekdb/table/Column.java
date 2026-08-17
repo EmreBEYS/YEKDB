@@ -1,12 +1,17 @@
 package com.yekdb.table;
 
-import java.util.Locale;
+import com.yekdb.table.exception.InvalidColumnException;
+
 import java.util.Objects;
 
 /**
  * YEKDB tablosundaki bir sütun tanımını temsil eder.
  *
  * Her sütunun bir adı ve veri tipi bulunur.
+ *
+ * Column nesnesi oluşturulduğu anda kendi geçerliliğini
+ * garanti eder. Böylece sistem içerisinde geçersiz bir
+ * sütun nesnesi dolaşamaz.
  *
  * Sürüm: 1.0
  */
@@ -21,23 +26,19 @@ public class Column {
      * @param name     sütun adı
      * @param dataType sütun veri tipi
      */
-    public Column(String name, DataType dataType) {
+    public Column(
+            String name,
+            DataType dataType
+    ) {
 
-        if (name == null || name.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Column name cannot be null or blank."
-            );
-        }
+        this.name =
+                ColumnNameValidator.validate(name);
 
         if (dataType == null) {
-            throw new IllegalArgumentException(
+            throw new InvalidColumnException(
                     "Data type cannot be null."
             );
         }
-
-        this.name = name
-                .trim()
-                .toLowerCase(Locale.ROOT);
 
         this.dataType = dataType;
     }
@@ -45,7 +46,7 @@ public class Column {
     /**
      * Sütun adını döndürür.
      *
-     * @return sütun adı
+     * @return normalize edilmiş sütun adı
      */
     public String getName() {
         return name;
@@ -85,6 +86,9 @@ public class Column {
 
     @Override
     public int hashCode() {
-        return Objects.hash(name, dataType);
+        return Objects.hash(
+                name,
+                dataType
+        );
     }
 }

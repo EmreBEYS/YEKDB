@@ -1,5 +1,8 @@
-package com.yekdb.database;
+package com.yekdb.demo;
 
+import com.yekdb.database.Database;
+import com.yekdb.database.DatabaseManager;
+import com.yekdb.database.DatabaseMetadata;
 import com.yekdb.database.exception.DatabaseOperationException;
 
 import java.nio.file.Files;

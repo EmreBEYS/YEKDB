@@ -1,30 +1,35 @@
 package com.yekdb.table;
 
-import com.yekdb.table.exception.DuplicateColumnException;
-import com.yekdb.table.exception.InvalidColumnException;
 import com.yekdb.table.exception.TableAlreadyExistsException;
 import com.yekdb.table.exception.TableNotFoundException;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 
 /**
  * YEKDB içerisindeki tablo oluşturma, silme ve listeleme
  * işlemlerini yöneten servis sınıfıdır.
  *
- * TableManager hem fiziksel .tbl dosyalarını hem de
- * bellekte bulunan TableCatalog nesnesini yönetir.
+ * TableManager:
+ * - fiziksel .tbl dosyalarını,
+ * - TableCatalog kayıtlarını
+ *
+ * koordine eder.
+ *
+ * Tablo ve sütun doğrulamaları ilgili domain sınıflarında
+ * gerçekleştirildiği için burada tekrar doğrulama yapılmaz.
  *
  * Sürüm: 1.0
  */
 public class TableManager {
 
-    private static final String TABLE_FILE_EXTENSION = ".tbl";
+    private static final String TABLE_FILE_EXTENSION =
+            ".tbl";
 
     private final Path databaseDirectory;
     private final TableCatalog tableCatalog;
@@ -32,25 +37,26 @@ public class TableManager {
     /**
      * Yeni bir TableManager oluşturur.
      *
-     * @param databaseDirectory aktif veritabanının klasör yolu
+     * @param databaseDirectory aktif veritabanı klasörü
      */
     public TableManager(Path databaseDirectory) {
-        this(databaseDirectory, new TableCatalog());
+        this(
+                databaseDirectory,
+                new TableCatalog()
+        );
     }
 
     /**
-     * Belirli bir katalog ile yeni TableManager oluşturur.
+     * Belirli bir katalog kullanarak TableManager oluşturur.
      *
-     * Bu constructor özellikle testlerde mevcut bir katalog
-     * nesnesi kullanmak için faydalıdır.
-     *
-     * @param databaseDirectory aktif veritabanının klasör yolu
+     * @param databaseDirectory aktif veritabanı klasörü
      * @param tableCatalog      tablo kataloğu
      */
     public TableManager(
             Path databaseDirectory,
             TableCatalog tableCatalog
     ) {
+
         if (databaseDirectory == null) {
             throw new IllegalArgumentException(
                     "Database directory cannot be null."
@@ -64,24 +70,22 @@ public class TableManager {
         }
 
         this.databaseDirectory =
-                databaseDirectory.toAbsolutePath().normalize();
+                databaseDirectory
+                        .toAbsolutePath()
+                        .normalize();
 
         this.tableCatalog = tableCatalog;
     }
 
     /**
-     * Yeni bir tablo oluşturur.
+     * Yeni tablo oluşturur.
      *
-     * İşlem başarılı olursa fiziksel .tbl dosyası oluşturulur
-     * ve tablo kataloğa kaydedilir.
+     * İşlem başarılı olduğunda:
+     * 1. fiziksel .tbl dosyası oluşturulur,
+     * 2. tablo kataloğa kaydedilir.
      *
      * @param table oluşturulacak tablo
-     * @return oluşturulan tablo metadata bilgisi
-     * @throws IllegalArgumentException    tablo null ise
-     * @throws TableAlreadyExistsException tablo zaten varsa
-     * @throws DuplicateColumnException    aynı isimde sütun varsa
-     * @throws InvalidColumnException      geçersiz sütun varsa
-     * @throws IllegalStateException       dosya işlemi başarısız olursa
+     * @return oluşturulan metadata
      */
     public TableMetadata createTable(Table table) {
 
@@ -91,117 +95,145 @@ public class TableManager {
             );
         }
 
-        validateTable(table);
+        String tableName =
+                table.getTableName();
 
-        String tableName = normalizeTableName(table.getTableName());
-        Path tableFile = resolveTableFile(tableName);
+        Path tableFile =
+                resolveTableFile(tableName);
 
         if (tableCatalog.containsTable(tableName)
                 || Files.exists(tableFile)) {
 
             throw new TableAlreadyExistsException(
-                    "Table already exists: " + tableName
+                    "Table already exists: "
+                            + tableName
             );
         }
 
         ensureDatabaseDirectoryExists();
 
-        TableMetadata metadata = new TableMetadata(
-                tableName,
-                table.getColumnCount()
-        );
+        TableMetadata metadata =
+                new TableMetadata(
+                        tableName,
+                        table.getColumnCount()
+                );
 
         try {
             Files.write(
                     tableFile,
-                    createInitialTableFileContent(table, metadata),
+                    createInitialTableFileContent(
+                            table,
+                            metadata
+                    ),
                     StandardOpenOption.CREATE_NEW,
                     StandardOpenOption.WRITE
             );
 
-            tableCatalog.registerTable(table, metadata);
+            tableCatalog.registerTable(
+                    table,
+                    metadata
+            );
 
             return metadata;
 
         } catch (IOException exception) {
+
+            rollbackTableFileCreation(tableFile);
+
             throw new IllegalStateException(
-                    "Table file could not be created: " + tableFile,
+                    "Table file could not be created: "
+                            + tableFile,
                     exception
             );
+
         } catch (RuntimeException exception) {
+
             rollbackTableFileCreation(tableFile);
+
             throw exception;
         }
     }
 
     /**
-     * Yeni bir tablo oluşturur.
-     *
-     * Bu yardımcı metot tablo adı ve sütun listesinden
-     * otomatik olarak Table nesnesi oluşturur.
+     * Tablo adı ve sütun listesinden yeni tablo oluşturur.
      *
      * @param tableName tablo adı
-     * @param columns   tablo sütunları
-     * @return oluşturulan metadata
+     * @param columns   sütun listesi
+     * @return metadata
      */
     public TableMetadata createTable(
             String tableName,
             List<Column> columns
     ) {
-        return createTable(new Table(tableName, columns));
+
+        return createTable(
+                new Table(
+                        tableName,
+                        columns
+                )
+        );
     }
 
     /**
-     * Bir tabloyu siler.
+     * Tabloyu fiziksel dosyası ve katalog kaydıyla birlikte siler.
      *
-     * Fiziksel .tbl dosyasını ve katalog kaydını kaldırır.
-     *
-     * @param tableName silinecek tablo adı
-     * @return silinen tablo
-     * @throws TableNotFoundException tablo bulunamazsa
-     * @throws IllegalStateException  dosya silinemezse
+     * @param tableName tablo adı
+     * @return kaldırılan tablo
      */
     public Table dropTable(String tableName) {
 
-        String normalizedName = normalizeTableName(tableName);
-        Path tableFile = resolveTableFile(normalizedName);
+        String normalizedName =
+                TableNameValidator.validate(tableName);
 
-        if (!tableCatalog.containsTable(normalizedName)
-                && Files.notExists(tableFile)) {
+        Path tableFile =
+                resolveTableFile(normalizedName);
 
+        boolean registered =
+                tableCatalog.containsTable(normalizedName);
+
+        boolean fileExists =
+                Files.exists(tableFile);
+
+        if (!registered && !fileExists) {
             throw new TableNotFoundException(
-                    "Table not found: " + normalizedName
+                    "Table not found: "
+                            + normalizedName
+            );
+        }
+
+        /*
+         * Dosya diskte var ancak katalogda yoksa bu,
+         * katalog ile fiziksel durumun tutarsız olduğu
+         * anlamına gelir.
+         *
+         * Bu durumda dosyayı silmeden önce hatayı bildiriyoruz.
+         */
+        if (!registered) {
+            throw new TableNotFoundException(
+                    "Table exists on disk but is not registered "
+                            + "in catalog: "
+                            + normalizedName
             );
         }
 
         try {
-            boolean fileDeleted = Files.deleteIfExists(tableFile);
+            Files.deleteIfExists(tableFile);
 
-            if (!fileDeleted && Files.exists(tableFile)) {
-                throw new IllegalStateException(
-                        "Table file could not be deleted: " + tableFile
-                );
-            }
-
-            if (tableCatalog.containsTable(normalizedName)) {
-                return tableCatalog.unregisterTable(normalizedName);
-            }
-
-            throw new TableNotFoundException(
-                    "Table exists on disk but is not registered " +
-                            "in catalog: " + normalizedName
+            return tableCatalog.unregisterTable(
+                    normalizedName
             );
 
         } catch (IOException exception) {
             throw new IllegalStateException(
-                    "Table file could not be deleted: " + tableFile,
+                    "Table file could not be deleted: "
+                            + tableFile,
                     exception
             );
         }
     }
 
     /**
-     * Verilen isimde tablo olup olmadığını kontrol eder.
+     * Verilen isimde tablo bulunup bulunmadığını kontrol eder.
      *
      * @param tableName tablo adı
      * @return tablo katalogda veya diskte varsa true
@@ -212,14 +244,24 @@ public class TableManager {
             return false;
         }
 
-        String normalizedName = normalizeTableName(tableName);
+        String normalizedName;
+
+        try {
+            normalizedName =
+                    TableNameValidator.validate(tableName);
+
+        } catch (IllegalArgumentException exception) {
+            return false;
+        }
 
         return tableCatalog.containsTable(normalizedName)
-                || Files.exists(resolveTableFile(normalizedName));
+                || Files.exists(
+                resolveTableFile(normalizedName)
+        );
     }
 
     /**
-     * Verilen tabloyu katalogdan döndürür.
+     * Tabloyu katalogdan döndürür.
      *
      * @param tableName tablo adı
      * @return tablo
@@ -229,7 +271,7 @@ public class TableManager {
     }
 
     /**
-     * Verilen tabloya ait metadata bilgisini döndürür.
+     * Tablo metadata bilgisini döndürür.
      *
      * @param tableName tablo adı
      * @return metadata
@@ -239,18 +281,18 @@ public class TableManager {
     }
 
     /**
-     * Kayıtlı tabloları döndürür.
+     * Katalogdaki tabloları döndürür.
      *
-     * @return değiştirilemez tablo listesi
+     * @return tablo listesi
      */
     public List<Table> listTables() {
         return tableCatalog.listTables();
     }
 
     /**
-     * Kayıtlı tablo adlarını döndürür.
+     * Katalogdaki tablo adlarını döndürür.
      *
-     * @return değiştirilemez tablo adı listesi
+     * @return tablo adı listesi
      */
     public List<String> listTableNames() {
         return tableCatalog.listTableNames();
@@ -275,142 +317,86 @@ public class TableManager {
     }
 
     /**
-     * Aktif veritabanı klasörünü döndürür.
+     * Aktif veritabanı dizinini döndürür.
      *
-     * @return veritabanı klasörü
+     * @return veritabanı dizini
      */
     public Path getDatabaseDirectory() {
         return databaseDirectory;
     }
 
     /**
-     * Tablo ve sütun tanımlarını doğrular.
-     *
-     * @param table doğrulanacak tablo
-     */
-    private void validateTable(Table table) {
-
-        List<Column> columns = table.getColumns();
-
-        if (columns.isEmpty()) {
-            throw new InvalidColumnException(
-                    "Table must contain at least one column."
-            );
-        }
-
-        for (Column column : columns) {
-            validateColumn(column);
-        }
-
-        long distinctColumnCount = columns.stream()
-                .map(Column::getName)
-                .map(name -> name.toLowerCase(Locale.ROOT))
-                .distinct()
-                .count();
-
-        if (distinctColumnCount != columns.size()) {
-            throw new DuplicateColumnException(
-                    "Duplicate column names are not allowed " +
-                            "in table: " + table.getTableName()
-            );
-        }
-    }
-
-    /**
-     * Tek bir sütunun geçerli olup olmadığını kontrol eder.
-     *
-     * @param column doğrulanacak sütun
-     */
-    private void validateColumn(Column column) {
-
-        if (column == null) {
-            throw new InvalidColumnException(
-                    "Column cannot be null."
-            );
-        }
-
-        String columnName = column.getName();
-
-        if (columnName == null || columnName.isBlank()) {
-            throw new InvalidColumnException(
-                    "Column name cannot be null or blank."
-            );
-        }
-
-        if (!columnName.matches("[A-Za-z_][A-Za-z0-9_]*")) {
-            throw new InvalidColumnException(
-                    "Invalid column name: " + columnName
-            );
-        }
-
-        if (column.getDataType() == null) {
-            throw new InvalidColumnException(
-                    "Column data type cannot be null: " + columnName
-            );
-        }
-    }
-
-    /**
-     * Veritabanı klasörü yoksa oluşturur.
+     * Veritabanı klasörü mevcut değilse oluşturur.
      */
     private void ensureDatabaseDirectoryExists() {
+
         try {
-            Files.createDirectories(databaseDirectory);
+            Files.createDirectories(
+                    databaseDirectory
+            );
+
         } catch (IOException exception) {
+
             throw new IllegalStateException(
-                    "Database directory could not be created: " +
-                            databaseDirectory,
+                    "Database directory could not be created: "
+                            + databaseDirectory,
                     exception
             );
         }
     }
 
     /**
-     * Tablo dosyasının tam yolunu oluşturur.
+     * Tablo dosyasının güvenli fiziksel yolunu oluşturur.
      *
      * @param tableName tablo adı
-     * @return tablo dosya yolu
+     * @return tablo dosyası
      */
     private Path resolveTableFile(String tableName) {
-        return databaseDirectory.resolve(
-                tableName + TABLE_FILE_EXTENSION
-        );
-    }
 
-    /**
-     * Tablo adını normalize eder.
-     *
-     * @param tableName tablo adı
-     * @return normalize edilmiş tablo adı
-     */
-    private String normalizeTableName(String tableName) {
+        String normalizedName =
+                TableNameValidator.validate(tableName);
 
-        if (tableName == null || tableName.isBlank()) {
+        Path tableFile =
+                databaseDirectory
+                        .resolve(
+                                normalizedName
+                                        + TABLE_FILE_EXTENSION
+                        )
+                        .normalize();
+
+        /*
+         * Validator zaten path traversal karakterlerine
+         * izin vermiyor. Bu kontrol ikinci güvenlik
+         * katmanı olarak tutulur.
+         */
+        if (!tableFile.startsWith(databaseDirectory)) {
             throw new IllegalArgumentException(
-                    "Table name cannot be null or blank."
+                    "Invalid table path: "
+                            + tableName
             );
         }
 
-        return tableName
-                .trim()
-                .toLowerCase(Locale.ROOT);
+        return tableFile;
     }
 
     /**
-     * Yeni oluşturulan .tbl dosyasının başlangıç içeriğini üretir.
+     * Yeni .tbl dosyasının başlangıç içeriğini oluşturur.
      *
      * Şimdilik tablo şeması metinsel olarak yazılır.
-     * İleride bu bölüm binary tablo header formatına dönüştürülecek.
+     * İleride Storage Engine ile birlikte binary tablo
+     * header formatına geçirilebilir.
      *
      * @param table    tablo
      * @param metadata metadata
-     * @return dosya içeriği
+     * @return fiziksel dosya içeriği
      */
     private byte[] createInitialTableFileContent(
             Table table,
             TableMetadata metadata
     ) {
-        StringBuilder builder = new StringBuilder();
+
+        StringBuilder builder =
+                new StringBuilder();
 
         builder.append("YEKDB_TABLE")
                 .append(System.lineSeparator());
@@ -435,27 +421,36 @@ public class TableManager {
                 .append(System.lineSeparator());
 
         for (Column column : table.getColumns()) {
+
             builder.append(column.getName())
                     .append(":")
                     .append(column.getDataType())
                     .append(System.lineSeparator());
         }
 
-        return builder.toString().getBytes(
-                java.nio.charset.StandardCharsets.UTF_8
-        );
+        return builder
+                .toString()
+                .getBytes(StandardCharsets.UTF_8);
     }
 
     /**
-     * Katalog kaydı başarısız olursa oluşturulan dosyayı geri alır.
+     * Tablo oluşturma işlemi başarısız olduğunda
+     * oluşturulmuş fiziksel dosyayı temizler.
      *
      * @param tableFile tablo dosyası
      */
-    private void rollbackTableFileCreation(Path tableFile) {
+    private void rollbackTableFileCreation(
+            Path tableFile
+    ) {
+
         try {
             Files.deleteIfExists(tableFile);
+
         } catch (IOException ignored) {
-            // Asıl hata korunur. Rollback hatası burada bastırılır.
+            /*
+             * Asıl işlem hatasının kaybolmaması için
+             * rollback hatası burada bastırılır.
+             */
         }
     }
 
@@ -469,6 +464,9 @@ public class TableManager {
 
     @Override
     public int hashCode() {
-        return Objects.hash(databaseDirectory, tableCatalog);
+        return Objects.hash(
+                databaseDirectory,
+                tableCatalog
+        );
     }
 }

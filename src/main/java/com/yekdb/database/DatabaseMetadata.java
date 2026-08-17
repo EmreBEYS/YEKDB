@@ -4,23 +4,36 @@ import java.time.LocalDateTime;
 import java.util.Objects;
 
 /**
- * Bir YEKDB veritabanına ait meta veri bilgilerini saklar.
+ * Bir YEKDB veritabanına ait metadata bilgilerini saklar.
  *
- * <p>Bu nesne daha sonra database.meta dosyasına serileştirilir.</p>
+ * <p>Bu nesne database.meta dosyasına serileştirilir.</p>
  */
 public final class DatabaseMetadata {
 
+    /**
+     * Veritabanı metadata/disk formatı sürümüdür.
+     *
+     * Sprint numarası değildir.
+     */
     public static final String CURRENT_VERSION = "0.0.6";
+
     public static final String DEFAULT_ENCODING = "UTF-8";
     public static final int DEFAULT_PAGE_SIZE = 4096;
 
     private final String databaseName;
     private final String version;
     private final LocalDateTime createdAt;
+
     private LocalDateTime lastModifiedAt;
+
     private final String encoding;
     private final int pageSize;
 
+    /**
+     * Varsayılan değerlerle yeni metadata oluşturur.
+     *
+     * @param databaseName veritabanı adı
+     */
     public DatabaseMetadata(String databaseName) {
         this(
                 databaseName,
@@ -32,6 +45,11 @@ public final class DatabaseMetadata {
         );
     }
 
+    /**
+     * Tüm metadata alanlarıyla nesne oluşturur.
+     *
+     * Genellikle diskten metadata okunurken kullanılır.
+     */
     public DatabaseMetadata(
             String databaseName,
             String version,
@@ -40,19 +58,41 @@ public final class DatabaseMetadata {
             String encoding,
             int pageSize
     ) {
-        this.databaseName = validateDatabaseName(databaseName);
-        this.version = requireText(version, "Version");
-        this.createdAt = Objects.requireNonNull(createdAt, "Created time cannot be null.");
-        this.lastModifiedAt = Objects.requireNonNull(lastModifiedAt, "Last modified time cannot be null.");
-        this.encoding = requireText(encoding, "Encoding");
+        this.databaseName =
+                DatabaseNameValidator.validate(databaseName);
+
+        this.version = requireText(
+                version,
+                "Version"
+        );
+
+        this.createdAt = Objects.requireNonNull(
+                createdAt,
+                "Created time cannot be null."
+        );
+
+        this.lastModifiedAt = Objects.requireNonNull(
+                lastModifiedAt,
+                "Last modified time cannot be null."
+        );
+
+        this.encoding = requireText(
+                encoding,
+                "Encoding"
+        );
 
         if (pageSize <= 0) {
-            throw new IllegalArgumentException("Page size must be greater than zero.");
+            throw new IllegalArgumentException(
+                    "Page size must be greater than zero."
+            );
         }
 
         this.pageSize = pageSize;
     }
 
+    /**
+     * Son değiştirilme zamanını günceller.
+     */
     public void updateLastModifiedAt() {
         this.lastModifiedAt = LocalDateTime.now();
     }
@@ -81,20 +121,13 @@ public final class DatabaseMetadata {
         return pageSize;
     }
 
-    private static String validateDatabaseName(String databaseName) {
-        String validatedName = requireText(databaseName, "Database name");
-
-        if (!validatedName.matches("[A-Za-z][A-Za-z0-9_]*")) {
-            throw new IllegalArgumentException(
-                    "Database name must begin with a letter and contain " +
-                            "only letters, numbers, and underscores."
-            );
-        }
-
-        return validatedName;
-    }
-
-    private static String requireText(String value, String fieldName) {
+    /**
+     * Bir String alanının boş olmadığını doğrular.
+     */
+    private static String requireText(
+            String value,
+            String fieldName
+    ) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(
                     fieldName + " cannot be null or blank."

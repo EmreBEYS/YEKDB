@@ -9,20 +9,15 @@ import java.nio.file.Path;
 import java.util.Objects;
 
 /**
- * YEKDB sisteminin ana motorudur.
+ * YEKDB sisteminin düşük seviyeli motor yaşam döngüsünü yönetir.
  *
- * Alt bileşenlerin yaşam döngüsünü yönetir:
- * - Configuration
- * - Logger
- * - StorageEngine
+ * <p>Bu aşamada motorun doğrudan sorumluluğu StorageEngine'i
+ * başlatmak, kapatmak ve temel sayfa/checkpoint operasyonlarına
+ * güvenli erişim sağlamaktır.</p>
  *
- * İleride:
- * - SQL Engine
- * - Transaction Manager
- * - Catalog Manager
- * - Index Manager
- *
- * bileşenleri eklenecektir.
+ * <p>Query Engine, Database/Table/Index yönetimi gibi üst katmanlar
+ * ayrı bileşenler olarak tutulur ve bu sınıfın sorumluluğuna
+ * yüklenmez.</p>
  */
 public final class YekdbEngine {
 

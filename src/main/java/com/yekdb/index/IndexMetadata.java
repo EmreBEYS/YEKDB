@@ -14,6 +14,7 @@ import java.util.Objects;
  * - kolonu,
  * - indeks türünü,
  * - B+ Tree root page bilgisini
+ *
  * tutar.
  */
 public class IndexMetadata implements Serializable {
@@ -39,7 +40,6 @@ public class IndexMetadata implements Serializable {
 
     /**
      * İleride B+ Tree root node'unun tutulacağı sayfa numarası.
-     * İlk aşamada -1 değerini alır.
      */
     private int rootPageId;
 
@@ -55,13 +55,6 @@ public class IndexMetadata implements Serializable {
 
     /**
      * Yeni indeks metadata nesnesi oluşturur.
-     *
-     * @param indexId indeks kimliği
-     * @param indexName indeks adı
-     * @param databaseName veritabanı adı
-     * @param tableName tablo adı
-     * @param columnName indekslenen kolon adı
-     * @param indexType indeks türü
      */
     public IndexMetadata(
             long indexId,
@@ -71,6 +64,7 @@ public class IndexMetadata implements Serializable {
             String columnName,
             IndexType indexType
     ) {
+
         this(
                 indexId,
                 indexName,
@@ -84,7 +78,7 @@ public class IndexMetadata implements Serializable {
     }
 
     /**
-     * Tüm alanları alan constructor.
+     * Tüm metadata alanları ile nesne oluşturur.
      */
     public IndexMetadata(
             long indexId,
@@ -96,6 +90,7 @@ public class IndexMetadata implements Serializable {
             int rootPageId,
             LocalDateTime createdAt
     ) {
+
         this.indexId = indexId;
         this.indexName = indexName;
         this.databaseName = databaseName;
@@ -109,45 +104,94 @@ public class IndexMetadata implements Serializable {
     /**
      * Metadata alanlarının geçerli olup olmadığını kontrol eder.
      *
-     * @return metadata geçerliyse true
+     * Setter'lar serialization/test amaçlı serbest bırakıldığı için
+     * asıl bütünlük kontrolü burada gerçekleştirilir.
      */
     public boolean isValid() {
+
         return indexId >= 0
-                && !isBlank(indexName)
-                && !isBlank(databaseName)
-                && !isBlank(tableName)
-                && !isBlank(columnName)
+
+                && IndexIdentifierValidator
+                .isValidIndexName(indexName)
+
+                && IndexIdentifierValidator
+                .isValidDatabaseName(databaseName)
+
+                && IndexIdentifierValidator
+                .isValidTableName(tableName)
+
+                && IndexIdentifierValidator
+                .isValidColumnName(columnName)
+
                 && indexType != null
+
                 && rootPageId >= UNASSIGNED_ROOT_PAGE_ID
+
                 && createdAt != null;
     }
 
     /**
-     * Root page'in atanıp atanmadığını kontrol eder.
-     *
-     * @return root page atanmışsa true
+     * Root page atanıp atanmadığını kontrol eder.
      */
     public boolean hasRootPage() {
         return rootPageId >= 0;
     }
 
     /**
-     * İndeksin belirtilen tabloya ait olup olmadığını kontrol eder.
+     * İndeksin belirtilen database ve tabloya ait olup olmadığını
+     * case-insensitive olarak kontrol eder.
      */
-    public boolean belongsToTable(String databaseName, String tableName) {
-        return Objects.equals(this.databaseName, databaseName)
-                && Objects.equals(this.tableName, tableName);
+    public boolean belongsToTable(
+            String databaseName,
+            String tableName
+    ) {
+
+        if (databaseName == null || tableName == null) {
+            return false;
+        }
+
+        String normalizedDatabaseName =
+                IndexIdentifierValidator
+                        .normalizeForComparison(databaseName);
+
+        String normalizedTableName =
+                IndexIdentifierValidator
+                        .normalizeForComparison(tableName);
+
+        String metadataDatabaseName =
+                IndexIdentifierValidator
+                        .normalizeForComparison(this.databaseName);
+
+        String metadataTableName =
+                IndexIdentifierValidator
+                        .normalizeForComparison(this.tableName);
+
+        return Objects.equals(
+                metadataDatabaseName,
+                normalizedDatabaseName
+        )
+                && Objects.equals(
+                metadataTableName,
+                normalizedTableName
+        );
     }
 
     /**
      * İndeksin belirtilen kolona ait olup olmadığını kontrol eder.
      */
     public boolean belongsToColumn(String columnName) {
-        return Objects.equals(this.columnName, columnName);
-    }
 
-    private boolean isBlank(String value) {
-        return value == null || value.isBlank();
+        if (columnName == null) {
+            return false;
+        }
+
+        return Objects.equals(
+                IndexIdentifierValidator
+                        .normalizeForComparison(this.columnName),
+
+                IndexIdentifierValidator
+                        .normalizeForComparison(columnName)
+        );
     }
 
     public long getIndexId() {
@@ -230,6 +274,7 @@ public class IndexMetadata implements Serializable {
 
     @Override
     public boolean equals(Object object) {
+
         if (this == object) {
             return true;
         }
@@ -240,16 +285,32 @@ public class IndexMetadata implements Serializable {
 
         return indexId == that.indexId
                 && rootPageId == that.rootPageId
-                && Objects.equals(indexName, that.indexName)
-                && Objects.equals(databaseName, that.databaseName)
-                && Objects.equals(tableName, that.tableName)
-                && Objects.equals(columnName, that.columnName)
+                && Objects.equals(
+                indexName,
+                that.indexName
+        )
+                && Objects.equals(
+                databaseName,
+                that.databaseName
+        )
+                && Objects.equals(
+                tableName,
+                that.tableName
+        )
+                && Objects.equals(
+                columnName,
+                that.columnName
+        )
                 && indexType == that.indexType
-                && Objects.equals(createdAt, that.createdAt);
+                && Objects.equals(
+                createdAt,
+                that.createdAt
+        );
     }
 
     @Override
     public int hashCode() {
+
         return Objects.hash(
                 indexId,
                 indexName,

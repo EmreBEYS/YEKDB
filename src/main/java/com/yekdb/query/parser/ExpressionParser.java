@@ -481,12 +481,12 @@ public final class ExpressionParser {
         }
 
         Object lowerBound =
-                parseLiteral(
+                SqlLiteralParser.parseRaw(
                         lowerRaw
                 );
 
         Object upperBound =
-                parseLiteral(
+                SqlLiteralParser.parseRaw(
                         upperRaw
                 );
 
@@ -617,7 +617,7 @@ public final class ExpressionParser {
             }
 
             values.add(
-                    parseLiteral(
+                    SqlLiteralParser.parseRaw(
                             rawValue
                     )
             );
@@ -920,7 +920,7 @@ public final class ExpressionParser {
         }
 
         Object parsedPattern =
-                parseLiteral(
+                SqlLiteralParser.parseRaw(
                         rawPattern
                 );
 
@@ -1021,7 +1021,7 @@ public final class ExpressionParser {
         }
 
         Object expectedValue =
-                parseLiteral(
+                SqlLiteralParser.parseRaw(
                         rawValue
                 );
 
@@ -1600,117 +1600,7 @@ public final class ExpressionParser {
     /**
      * SQL literal değerini Java değerine dönüştürür.
      */
-    private Object parseLiteral(
-            String rawValue
-    ) {
 
-        String value =
-                rawValue.trim();
-
-        /*
-         * String literal
-         */
-        if ((value.startsWith("'")
-                && value.endsWith("'"))
-                ||
-                (value.startsWith("\"")
-                        && value.endsWith("\""))) {
-
-            if (value.length() < 2) {
-
-                throw new ParserException(
-                        "Invalid string literal: "
-                                + rawValue
-                );
-            }
-
-            return value.substring(
-                    1,
-                    value.length() - 1
-            );
-        }
-
-        /*
-         * Boolean
-         */
-        if (value.equalsIgnoreCase(
-                "true"
-        )) {
-
-            return true;
-        }
-
-        if (value.equalsIgnoreCase(
-                "false"
-        )) {
-
-            return false;
-        }
-
-        /*
-         * NULL
-         */
-        if (value.equalsIgnoreCase(
-                "null"
-        )) {
-
-            return null;
-        }
-
-        /*
-         * Double
-         */
-        if (value.contains(".")) {
-
-            try {
-
-                return Double.parseDouble(
-                        value
-                );
-
-            } catch (
-                    NumberFormatException exception
-            ) {
-
-                throw new ParserException(
-                        "Invalid numeric literal: "
-                                + rawValue,
-                        exception
-                );
-            }
-        }
-
-        /*
-         * Integer / Long
-         */
-        try {
-
-            long longValue =
-                    Long.parseLong(
-                            value
-                    );
-
-            if (longValue
-                    >= Integer.MIN_VALUE
-                    && longValue
-                    <= Integer.MAX_VALUE) {
-
-                return (int) longValue;
-            }
-
-            return longValue;
-
-        } catch (
-                NumberFormatException exception
-        ) {
-
-            throw new ParserException(
-                    "Unsupported literal value: "
-                            + rawValue,
-                    exception
-            );
-        }
-    }
 
     // ==================================================
     // COLUMN VALIDATION

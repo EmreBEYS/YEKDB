@@ -4,7 +4,11 @@ import com.yekdb.exception.ConfigurationException;
 
 import java.nio.charset.Charset;
 import java.nio.file.Path;
+import java.util.Objects;
 
+/**
+ * YEKDB çalışma zamanı yapılandırmasını temsil eden immutable değer nesnesidir.
+ */
 public final class YekdbConfiguration {
 
     private final Path dataDirectory;
@@ -46,24 +50,28 @@ public final class YekdbConfiguration {
             );
         }
 
-        if (version == null || version.isBlank()) {
-            throw new ConfigurationException(
-                    "Version cannot be empty."
-            );
-        }
+        String normalizedVersion = normalizeRequiredText(
+                version,
+                "Version cannot be empty."
+        );
 
-        if (databaseFileName == null || databaseFileName.isBlank()) {
-            throw new ConfigurationException(
-                    "Database file name cannot be empty."
-            );
-        }
+        String normalizedDatabaseFileName = normalizeRequiredText(
+                databaseFileName,
+                "Database file name cannot be empty."
+        );
 
-        this.dataDirectory = dataDirectory;
-        this.logDirectory = logDirectory;
+        this.dataDirectory = dataDirectory
+                .toAbsolutePath()
+                .normalize();
+
+        this.logDirectory = logDirectory
+                .toAbsolutePath()
+                .normalize();
+
         this.pageSize = pageSize;
         this.charset = charset;
-        this.version = version;
-        this.databaseFileName = databaseFileName;
+        this.version = normalizedVersion;
+        this.databaseFileName = normalizedDatabaseFileName;
     }
 
     public static YekdbConfiguration load() {
@@ -95,6 +103,61 @@ public final class YekdbConfiguration {
     }
 
     public Path getDatabaseFilePath() {
-        return dataDirectory.resolve(databaseFileName);
+        return dataDirectory
+                .resolve(databaseFileName)
+                .normalize();
+    }
+
+    private static String normalizeRequiredText(
+            String value,
+            String errorMessage
+    ) {
+        if (value == null || value.isBlank()) {
+            throw new ConfigurationException(errorMessage);
+        }
+
+        return value.trim();
+    }
+
+    @Override
+    public String toString() {
+        return "YekdbConfiguration{" +
+                "dataDirectory=" + dataDirectory +
+                ", logDirectory=" + logDirectory +
+                ", pageSize=" + pageSize +
+                ", charset=" + charset +
+                ", version='" + version + '\'' +
+                ", databaseFileName='" + databaseFileName + '\'' +
+                '}';
+    }
+
+    @Override
+    public boolean equals(Object object) {
+        if (this == object) {
+            return true;
+        }
+
+        if (!(object instanceof YekdbConfiguration that)) {
+            return false;
+        }
+
+        return pageSize == that.pageSize
+                && dataDirectory.equals(that.dataDirectory)
+                && logDirectory.equals(that.logDirectory)
+                && charset.equals(that.charset)
+                && version.equals(that.version)
+                && databaseFileName.equals(that.databaseFileName);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(
+                dataDirectory,
+                logDirectory,
+                pageSize,
+                charset,
+                version,
+                databaseFileName
+        );
     }
 }

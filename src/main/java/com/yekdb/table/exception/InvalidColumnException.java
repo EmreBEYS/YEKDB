@@ -1,17 +1,21 @@
 package com.yekdb.table.exception;
 
 /**
- * Geçersiz sütun tanımı yapıldığında fırlatılır.
+ * Geçersiz bir sütun tanımı yapıldığında fırlatılır.
  *
- * Version: 1.0
+ * Sürüm: 1.0
  */
-public class InvalidColumnException extends RuntimeException {
+public class InvalidColumnException
+        extends IllegalArgumentException {
 
     public InvalidColumnException(String message) {
         super(message);
     }
 
-    public InvalidColumnException(String message, Throwable cause) {
+    public InvalidColumnException(
+            String message,
+            Throwable cause
+    ) {
         super(message, cause);
     }
 }

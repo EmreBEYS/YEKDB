@@ -1,5 +1,6 @@
-package com.yekdb.index;
+package com.yekdb.demo;
 
+import com.yekdb.index.*;
 import com.yekdb.index.exception.DuplicateIndexException;
 import com.yekdb.index.exception.DuplicateIndexKeyException;
 import com.yekdb.index.exception.IndexNotFoundException;

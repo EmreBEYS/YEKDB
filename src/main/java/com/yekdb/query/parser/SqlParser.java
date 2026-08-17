@@ -69,8 +69,7 @@ public final class SqlParser {
 
     private final SqlTokenizer tokenizer;
 
-    private List<SqlToken> tokens;
-    private int currentPosition;
+    private SqlTokenCursor tokenCursor;
 
     /**
      * Varsayılan tokenizer ile parser oluşturur.
@@ -103,16 +102,16 @@ public final class SqlParser {
             String sql
     ) {
 
-        tokens =
-                tokenizer.tokenize(
-                        sql
+        tokenCursor =
+                new SqlTokenCursor(
+                        tokenizer.tokenize(
+                                sql
+                        )
                 );
-
-        currentPosition = 0;
 
         Statement statement =
                 switch (
-                        currentToken().getType()
+                        tokenCursor.current().getType()
                         ) {
 
                     case INSERT ->
@@ -128,16 +127,16 @@ public final class SqlParser {
                             parseDelete();
 
                     default ->
-                            throw error(
+                            throw tokenCursor.error(
                                     "Unsupported SQL statement: "
-                                            + currentToken()
+                                            + tokenCursor.current()
                                             .getValue()
                             );
                 };
 
-        consumeOptionalSemicolon();
+        tokenCursor.consumeOptionalSemicolon();
 
-        expect(
+        tokenCursor.expect(
                 SqlTokenType.END_OF_INPUT,
                 "Unexpected token after SQL statement."
         );
@@ -159,22 +158,22 @@ public final class SqlParser {
      */
     private InsertStatement parseInsert() {
 
-        expect(
+        tokenCursor.expect(
                 SqlTokenType.INSERT,
                 "Expected INSERT keyword."
         );
 
-        expect(
+        tokenCursor.expect(
                 SqlTokenType.INTO,
                 "Expected INTO after INSERT."
         );
 
         String tableName =
-                consumeIdentifier(
+                tokenCursor.consumeIdentifier(
                         "Expected table name after INTO."
                 );
 
-        expect(
+        tokenCursor.expect(
                 SqlTokenType.LEFT_PARENTHESIS,
                 "Expected '(' before INSERT column list."
         );
@@ -182,33 +181,33 @@ public final class SqlParser {
         List<String> columns =
                 new ArrayList<>();
 
-        if (check(
+        if (tokenCursor.check(
                 SqlTokenType.RIGHT_PARENTHESIS
         )) {
 
-            throw error(
+            throw tokenCursor.error(
                     "INSERT statement must contain at least one column."
             );
         }
 
         columns.add(
-                consumeIdentifier(
+                tokenCursor.consumeIdentifier(
                         "Expected column name in INSERT column list."
                 )
         );
 
-        while (match(
+        while (tokenCursor.match(
                 SqlTokenType.COMMA
         )) {
 
             columns.add(
-                    consumeIdentifier(
+                    tokenCursor.consumeIdentifier(
                             "Expected column name after ','."
                     )
             );
         }
 
-        expect(
+        tokenCursor.expect(
                 SqlTokenType.RIGHT_PARENTHESIS,
                 "Expected ')' after INSERT column list."
         );
@@ -227,17 +226,17 @@ public final class SqlParser {
         if (distinctColumnCount
                 != columns.size()) {
 
-            throw error(
+            throw tokenCursor.error(
                     "INSERT column list contains duplicate columns."
             );
         }
 
-        expect(
+        tokenCursor.expect(
                 SqlTokenType.VALUES,
                 "Expected VALUES after INSERT column list."
         );
 
-        expect(
+        tokenCursor.expect(
                 SqlTokenType.LEFT_PARENTHESIS,
                 "Expected '(' after VALUES."
         );
@@ -245,7 +244,7 @@ public final class SqlParser {
         List<Object> values =
                 new ArrayList<>();
 
-        if (!check(
+        if (!tokenCursor.check(
                 SqlTokenType.RIGHT_PARENTHESIS
         )) {
 
@@ -256,20 +255,20 @@ public final class SqlParser {
                 );
 
             } while (
-                    match(
+                    tokenCursor.match(
                             SqlTokenType.COMMA
                     )
             );
         }
 
-        expect(
+        tokenCursor.expect(
                 SqlTokenType.RIGHT_PARENTHESIS,
                 "Expected ')' after INSERT values."
         );
 
         if (values.isEmpty()) {
 
-            throw error(
+            throw tokenCursor.error(
                     "INSERT statement must contain at least one value."
             );
         }
@@ -277,7 +276,7 @@ public final class SqlParser {
         if (columns.size()
                 != values.size()) {
 
-            throw error(
+            throw tokenCursor.error(
                     "INSERT column count and value count must be equal. "
                             + "Columns: "
                             + columns.size()
@@ -315,7 +314,7 @@ public final class SqlParser {
      */
     private SelectStatement parseSelect() {
 
-        expect(
+        tokenCursor.expect(
                 SqlTokenType.SELECT,
                 "Expected SELECT keyword."
         );
@@ -330,7 +329,7 @@ public final class SqlParser {
         /*
          * SELECT *
          */
-        if (match(
+        if (tokenCursor.match(
                 SqlTokenType.ASTERISK
         )) {
 
@@ -346,7 +345,7 @@ public final class SqlParser {
                     parseSelectItem()
             );
 
-            while (match(
+            while (tokenCursor.match(
                     SqlTokenType.COMMA
             )) {
 
@@ -360,13 +359,13 @@ public final class SqlParser {
         // FROM
         // ----------------------------------------------
 
-        expect(
+        tokenCursor.expect(
                 SqlTokenType.FROM,
                 "Expected FROM after selected columns."
         );
 
         String tableName =
-                consumeIdentifier(
+                tokenCursor.consumeIdentifier(
                         "Expected table name after FROM."
                 );
 
@@ -376,24 +375,24 @@ public final class SqlParser {
         /*
          * FROM users AS u
          */
-        if (match(
+        if (tokenCursor.match(
                 SqlTokenType.AS
         )) {
 
             tableAlias =
-                    consumeIdentifier(
+                    tokenCursor.consumeIdentifier(
                             "Expected table alias after AS."
                     );
 
             /*
              * FROM users u
              */
-        } else if (check(
+        } else if (tokenCursor.check(
                 SqlTokenType.IDENTIFIER
         )) {
 
             tableAlias =
-                    consumeIdentifier(
+                    tokenCursor.consumeIdentifier(
                             "Expected table alias."
                     );
         }
@@ -424,10 +423,10 @@ public final class SqlParser {
          *
          * JOIN department d ON ...
          */
-        if (check(
+        if (tokenCursor.check(
                 SqlTokenType.INNER
         )
-                || check(
+                || tokenCursor.check(
                 SqlTokenType.JOIN
         )) {
 
@@ -441,14 +440,14 @@ public final class SqlParser {
          * desteklediği için parser katmanında da
          * ikinci JOIN açık şekilde reddedilir.
          */
-        if (check(
+        if (tokenCursor.check(
                 SqlTokenType.INNER
         )
-                || check(
+                || tokenCursor.check(
                 SqlTokenType.JOIN
         )) {
 
-            throw error(
+            throw tokenCursor.error(
                     "Sprint 00-15 supports exactly one JOIN per SELECT statement."
             );
         }
@@ -460,7 +459,7 @@ public final class SqlParser {
         Expression whereExpression =
                 null;
 
-        if (match(
+        if (tokenCursor.match(
                 SqlTokenType.WHERE
         )) {
 
@@ -481,11 +480,11 @@ public final class SqlParser {
         GroupByClause groupByClause =
                 null;
 
-        if (match(
+        if (tokenCursor.match(
                 SqlTokenType.GROUP
         )) {
 
-            expect(
+            tokenCursor.expect(
                     SqlTokenType.BY,
                     "Expected BY after GROUP."
             );
@@ -503,7 +502,7 @@ public final class SqlParser {
             /*
              * GROUP BY department, city
              */
-            while (match(
+            while (tokenCursor.match(
                     SqlTokenType.COMMA
             )) {
 
@@ -525,13 +524,13 @@ public final class SqlParser {
         HavingClause havingClause =
                 null;
 
-        if (match(
+        if (tokenCursor.match(
                 SqlTokenType.HAVING
         )) {
 
             if (groupByClause == null) {
 
-                throw error(
+                throw tokenCursor.error(
                         "HAVING requires GROUP BY."
                 );
             }
@@ -558,11 +557,11 @@ public final class SqlParser {
         List<OrderByItem> orderByItems =
                 new ArrayList<>();
 
-        if (match(
+        if (tokenCursor.match(
                 SqlTokenType.ORDER
         )) {
 
-            expect(
+            tokenCursor.expect(
                     SqlTokenType.BY,
                     "Expected BY after ORDER."
             );
@@ -571,7 +570,7 @@ public final class SqlParser {
                     parseOrderByItem()
             );
 
-            while (match(
+            while (tokenCursor.match(
                     SqlTokenType.COMMA
             )) {
 
@@ -591,7 +590,7 @@ public final class SqlParser {
         FetchClause fetchClause =
                 null;
 
-        if (match(
+        if (tokenCursor.match(
                 SqlTokenType.LIMIT
         )) {
 
@@ -610,20 +609,20 @@ public final class SqlParser {
         // FETCH
         // ----------------------------------------------
 
-        if (match(
+        if (tokenCursor.match(
                 SqlTokenType.FETCH
         )) {
 
             FetchClause.Mode mode;
 
-            if (match(
+            if (tokenCursor.match(
                     SqlTokenType.FIRST
             )) {
 
                 mode =
                         FetchClause.Mode.FIRST;
 
-            } else if (match(
+            } else if (tokenCursor.match(
                     SqlTokenType.NEXT
             )) {
 
@@ -632,7 +631,7 @@ public final class SqlParser {
 
             } else {
 
-                throw error(
+                throw tokenCursor.error(
                         "Expected FIRST or NEXT after FETCH."
                 );
             }
@@ -648,19 +647,19 @@ public final class SqlParser {
              *
              * İkisini de kabul ediyoruz.
              */
-            if (!match(
+            if (!tokenCursor.match(
                     SqlTokenType.ROW
             )
-                    && !match(
+                    && !tokenCursor.match(
                     SqlTokenType.ROWS
             )) {
 
-                throw error(
+                throw tokenCursor.error(
                         "Expected ROW or ROWS after FETCH row count."
                 );
             }
 
-            expect(
+            tokenCursor.expect(
                     SqlTokenType.ONLY,
                     "Expected ONLY after FETCH ROW/ROWS."
             );
@@ -712,17 +711,17 @@ public final class SqlParser {
          * INNER JOIN ...
          * JOIN ...
          */
-        match(
+        tokenCursor.match(
                 SqlTokenType.INNER
         );
 
-        expect(
+        tokenCursor.expect(
                 SqlTokenType.JOIN,
                 "Expected JOIN keyword."
         );
 
         String tableName =
-                consumeIdentifier(
+                tokenCursor.consumeIdentifier(
                         "Expected table name after JOIN."
                 );
 
@@ -732,29 +731,29 @@ public final class SqlParser {
         /*
          * JOIN department AS d
          */
-        if (match(
+        if (tokenCursor.match(
                 SqlTokenType.AS
         )) {
 
             alias =
-                    consumeIdentifier(
+                    tokenCursor.consumeIdentifier(
                             "Expected table alias after AS."
                     );
 
             /*
              * JOIN department d
              */
-        } else if (check(
+        } else if (tokenCursor.check(
                 SqlTokenType.IDENTIFIER
         )) {
 
             alias =
-                    consumeIdentifier(
+                    tokenCursor.consumeIdentifier(
                             "Expected table alias after JOIN table name."
                     );
         }
 
-        expect(
+        tokenCursor.expect(
                 SqlTokenType.ON,
                 "Expected ON after JOIN table reference."
         );
@@ -786,7 +785,7 @@ public final class SqlParser {
         String leftReference =
                 parseColumnReference();
 
-        expect(
+        tokenCursor.expect(
                 SqlTokenType.EQUALS,
                 "Expected '=' in JOIN ON condition."
         );
@@ -849,12 +848,12 @@ public final class SqlParser {
          *
          * SELECT COUNT(*) AS total
          */
-        if (match(
+        if (tokenCursor.match(
                 SqlTokenType.AS
         )) {
 
             alias =
-                    consumeIdentifier(
+                    tokenCursor.consumeIdentifier(
                             "Expected column alias after AS."
                     );
 
@@ -863,12 +862,12 @@ public final class SqlParser {
              *
              * SELECT COUNT(*) total
              */
-        } else if (check(
+        } else if (tokenCursor.check(
                 SqlTokenType.IDENTIFIER
         )) {
 
             alias =
-                    consumeIdentifier(
+                    tokenCursor.consumeIdentifier(
                             "Expected column alias."
                     );
         }
@@ -895,7 +894,7 @@ public final class SqlParser {
      */
     private boolean isAggregateFunction() {
 
-        if (!check(
+        if (!tokenCursor.check(
                 SqlTokenType.IDENTIFIER
         )) {
 
@@ -903,7 +902,7 @@ public final class SqlParser {
         }
 
         String value =
-                currentToken()
+                tokenCursor.current()
                         .getValue()
                         .toUpperCase();
 
@@ -929,7 +928,7 @@ public final class SqlParser {
             return false;
         }
 
-        return checkNext(
+        return tokenCursor.checkNext(
                 SqlTokenType.LEFT_PARENTHESIS
         );
     }
@@ -951,13 +950,13 @@ public final class SqlParser {
     private String parseAggregateExpression() {
 
         String functionName =
-                currentToken()
+                tokenCursor.current()
                         .getValue()
                         .toUpperCase();
 
-        advance();
+        tokenCursor.advance();
 
-        expect(
+        tokenCursor.expect(
                 SqlTokenType.LEFT_PARENTHESIS,
                 "Expected '(' after aggregate function."
         );
@@ -967,7 +966,7 @@ public final class SqlParser {
         /*
          * COUNT(*)
          */
-        if (match(
+        if (tokenCursor.match(
                 SqlTokenType.ASTERISK
         )) {
 
@@ -975,7 +974,7 @@ public final class SqlParser {
                     "COUNT"
             )) {
 
-                throw error(
+                throw tokenCursor.error(
                         functionName
                                 + "(*) is not supported. "
                                 + "Only COUNT(*) accepts '*'."
@@ -995,7 +994,7 @@ public final class SqlParser {
                     parseColumnReference();
         }
 
-        expect(
+        tokenCursor.expect(
                 SqlTokenType.RIGHT_PARENTHESIS,
                 "Expected ')' after aggregate argument."
         );
@@ -1022,7 +1021,7 @@ public final class SqlParser {
     private String parseColumnReference() {
 
         String firstPart =
-                consumeIdentifier(
+                tokenCursor.consumeIdentifier(
                         "Expected column name."
                 );
 
@@ -1031,7 +1030,7 @@ public final class SqlParser {
          *
          * name
          */
-        if (!match(
+        if (!tokenCursor.match(
                 SqlTokenType.DOT
         )) {
 
@@ -1044,7 +1043,7 @@ public final class SqlParser {
          * u.name
          */
         String secondPart =
-                consumeIdentifier(
+                tokenCursor.consumeIdentifier(
                         "Expected column name after '.'."
                 );
 
@@ -1073,14 +1072,14 @@ public final class SqlParser {
         SortDirection direction =
                 SortDirection.ASC;
 
-        if (match(
+        if (tokenCursor.match(
                 SqlTokenType.ASC
         )) {
 
             direction =
                     SortDirection.ASC;
 
-        } else if (match(
+        } else if (tokenCursor.match(
                 SqlTokenType.DESC
         )) {
 
@@ -1107,17 +1106,17 @@ public final class SqlParser {
             String errorMessage
     ) {
 
-        if (!check(
+        if (!tokenCursor.check(
                 SqlTokenType.NUMBER_LITERAL
         )) {
 
-            throw error(
+            throw tokenCursor.error(
                     errorMessage
             );
         }
 
         SqlToken token =
-                advance();
+                tokenCursor.advance();
 
         String rawValue =
                 token.getValue();
@@ -1129,7 +1128,7 @@ public final class SqlParser {
                 "."
         )) {
 
-            throw error(
+            throw tokenCursor.error(
                     "Row count must be an integer: "
                             + rawValue
             );
@@ -1144,14 +1143,14 @@ public final class SqlParser {
 
             if (value < 0) {
 
-                throw error(
+                throw tokenCursor.error(
                         "Row count cannot be negative."
                 );
             }
 
             if (value > Integer.MAX_VALUE) {
 
-                throw error(
+                throw tokenCursor.error(
                         "Row count is too large: "
                                 + rawValue
                 );
@@ -1184,17 +1183,17 @@ public final class SqlParser {
      */
     private UpdateStatement parseUpdate() {
 
-        expect(
+        tokenCursor.expect(
                 SqlTokenType.UPDATE,
                 "Expected UPDATE keyword."
         );
 
         String tableName =
-                consumeIdentifier(
+                tokenCursor.consumeIdentifier(
                         "Expected table name after UPDATE."
                 );
 
-        expect(
+        tokenCursor.expect(
                 SqlTokenType.SET,
                 "Expected SET after table name."
         );
@@ -1205,11 +1204,11 @@ public final class SqlParser {
         do {
 
             String columnName =
-                    consumeIdentifier(
+                    tokenCursor.consumeIdentifier(
                             "Expected column name in SET clause."
                     );
 
-            expect(
+            tokenCursor.expect(
                     SqlTokenType.EQUALS,
                     "Expected '=' after column name."
             );
@@ -1230,7 +1229,7 @@ public final class SqlParser {
 
             if (duplicateColumn) {
 
-                throw error(
+                throw tokenCursor.error(
                         "Column appears more than once in SET clause: "
                                 + columnName
                 );
@@ -1242,7 +1241,7 @@ public final class SqlParser {
             );
 
         } while (
-                match(
+                tokenCursor.match(
                         SqlTokenType.COMMA
                 )
         );
@@ -1250,7 +1249,7 @@ public final class SqlParser {
         String whereClause =
                 null;
 
-        if (match(
+        if (tokenCursor.match(
                 SqlTokenType.WHERE
         )) {
 
@@ -1282,25 +1281,25 @@ public final class SqlParser {
      */
     private DeleteStatement parseDelete() {
 
-        expect(
+        tokenCursor.expect(
                 SqlTokenType.DELETE,
                 "Expected DELETE keyword."
         );
 
-        expect(
+        tokenCursor.expect(
                 SqlTokenType.FROM,
                 "Expected FROM after DELETE."
         );
 
         String tableName =
-                consumeIdentifier(
+                tokenCursor.consumeIdentifier(
                         "Expected table name after FROM."
                 );
 
         String whereClause =
                 null;
 
-        if (match(
+        if (tokenCursor.match(
                 SqlTokenType.WHERE
         )) {
 
@@ -1324,98 +1323,14 @@ public final class SqlParser {
     private Object parseLiteralValue() {
 
         SqlToken token =
-                currentToken();
+                tokenCursor.current();
 
-        return switch (
-                token.getType()
-                ) {
+        Object value =
+                SqlLiteralParser.parse(token);
 
-            case STRING_LITERAL -> {
+        tokenCursor.advance();
 
-                advance();
-
-                yield token.getValue();
-            }
-
-            case NUMBER_LITERAL -> {
-
-                advance();
-
-                yield parseNumber(
-                        token
-                );
-            }
-
-            case BOOLEAN_LITERAL -> {
-
-                advance();
-
-                yield Boolean.parseBoolean(
-                        token.getValue()
-                );
-            }
-
-            case NULL_LITERAL -> {
-
-                advance();
-
-                yield null;
-            }
-
-            default ->
-                    throw error(
-                            "Expected literal value but found: "
-                                    + token.getValue()
-                    );
-        };
-    }
-
-    /**
-     * Sayısal tokenı uygun Java sayı türüne dönüştürür.
-     */
-    private Number parseNumber(
-            SqlToken token
-    ) {
-
-        String value =
-                token.getValue();
-
-        try {
-
-            if (value.contains(
-                    "."
-            )) {
-
-                return Double.parseDouble(
-                        value
-                );
-            }
-
-            long longValue =
-                    Long.parseLong(
-                            value
-                    );
-
-            if (longValue
-                    >= Integer.MIN_VALUE
-                    && longValue
-                    <= Integer.MAX_VALUE) {
-
-                return (int) longValue;
-            }
-
-            return longValue;
-
-        } catch (
-                NumberFormatException exception
-        ) {
-
-            throw new ParserException(
-                    "Invalid numeric value: "
-                            + value,
-                    exception
-            );
-        }
+        return value;
     }
 
     // ==================================================
@@ -1443,15 +1358,15 @@ public final class SqlParser {
      */
     private String readSelectClauseExpression() {
 
-        if (check(
+        if (tokenCursor.check(
                 SqlTokenType.SEMICOLON
         )
-                || check(
+                || tokenCursor.check(
                 SqlTokenType.END_OF_INPUT
         )
                 || isSelectClauseBoundary()) {
 
-            throw error(
+            throw tokenCursor.error(
                     "Clause expression cannot be empty."
             );
         }
@@ -1461,10 +1376,10 @@ public final class SqlParser {
 
         int parenthesisDepth = 0;
 
-        while (!check(
+        while (!tokenCursor.check(
                 SqlTokenType.END_OF_INPUT
         )
-                && !check(
+                && !tokenCursor.check(
                 SqlTokenType.SEMICOLON
         )) {
 
@@ -1481,7 +1396,7 @@ public final class SqlParser {
             }
 
             SqlToken token =
-                    advance();
+                    tokenCursor.advance();
 
             if (token.is(
                     SqlTokenType.LEFT_PARENTHESIS
@@ -1497,7 +1412,7 @@ public final class SqlParser {
 
                 if (parenthesisDepth < 0) {
 
-                    throw error(
+                    throw tokenCursor.error(
                             "Unexpected ')' in clause expression."
                     );
                 }
@@ -1511,7 +1426,7 @@ public final class SqlParser {
 
         if (parenthesisDepth != 0) {
 
-            throw error(
+            throw tokenCursor.error(
                     "Unbalanced parentheses in clause expression."
             );
         }
@@ -1522,7 +1437,7 @@ public final class SqlParser {
 
         if (result.isBlank()) {
 
-            throw error(
+            throw tokenCursor.error(
                     "Clause expression cannot be empty."
             );
         }
@@ -1535,19 +1450,19 @@ public final class SqlParser {
      */
     private boolean isSelectClauseBoundary() {
 
-        return check(
+        return tokenCursor.check(
                 SqlTokenType.GROUP
         )
-                || check(
+                || tokenCursor.check(
                 SqlTokenType.HAVING
         )
-                || check(
+                || tokenCursor.check(
                 SqlTokenType.ORDER
         )
-                || check(
+                || tokenCursor.check(
                 SqlTokenType.LIMIT
         )
-                || check(
+                || tokenCursor.check(
                 SqlTokenType.FETCH
         );
     }
@@ -1619,14 +1534,14 @@ public final class SqlParser {
      */
     private String readWhereClause() {
 
-        if (check(
+        if (tokenCursor.check(
                 SqlTokenType.SEMICOLON
         )
-                || check(
+                || tokenCursor.check(
                 SqlTokenType.END_OF_INPUT
         )) {
 
-            throw error(
+            throw tokenCursor.error(
                     "WHERE clause cannot be empty."
             );
         }
@@ -1634,15 +1549,15 @@ public final class SqlParser {
         StringBuilder builder =
                 new StringBuilder();
 
-        while (!check(
+        while (!tokenCursor.check(
                 SqlTokenType.SEMICOLON
         )
-                && !check(
+                && !tokenCursor.check(
                 SqlTokenType.END_OF_INPUT
         )) {
 
             SqlToken token =
-                    advance();
+                    tokenCursor.advance();
 
             if (!builder.isEmpty()) {
 
@@ -1688,170 +1603,4 @@ public final class SqlParser {
         return token.getValue();
     }
 
-    // ==================================================
-    // IDENTIFIER
-    // ==================================================
-
-    /**
-     * Identifier tokenını tüketir.
-     */
-    private String consumeIdentifier(
-            String errorMessage
-    ) {
-
-        SqlToken token =
-                expect(
-                        SqlTokenType.IDENTIFIER,
-                        errorMessage
-                );
-
-        return token.getValue();
-    }
-
-    // ==================================================
-    // LOOKAHEAD
-    // ==================================================
-
-    /**
-     * Bir sonraki tokenı tüketmeden kontrol eder.
-     */
-    private boolean checkNext(
-            SqlTokenType tokenType
-    ) {
-
-        int nextPosition =
-                currentPosition + 1;
-
-        if (nextPosition
-                >= tokens.size()) {
-
-            return false;
-        }
-
-        return tokens
-                .get(
-                        nextPosition
-                )
-                .getType()
-                == tokenType;
-    }
-
-    // ==================================================
-    // TOKEN HELPERS
-    // ==================================================
-
-    /**
-     * Beklenen token varsa tüketir.
-     */
-    private SqlToken expect(
-            SqlTokenType expectedType,
-            String errorMessage
-    ) {
-
-        if (!check(
-                expectedType
-        )) {
-
-            throw error(
-                    errorMessage
-                            + " Found: "
-                            + currentToken()
-                            .getType()
-                            + " ('"
-                            + currentToken()
-                            .getValue()
-                            + "')."
-            );
-        }
-
-        return advance();
-    }
-
-    /**
-     * Token verilen türdeyse tüketir.
-     */
-    private boolean match(
-            SqlTokenType tokenType
-    ) {
-
-        if (!check(
-                tokenType
-        )) {
-
-            return false;
-        }
-
-        advance();
-
-        return true;
-    }
-
-    /**
-     * Noktalı virgül varsa tüketir.
-     */
-    private void consumeOptionalSemicolon() {
-
-        match(
-                SqlTokenType.SEMICOLON
-        );
-    }
-
-    /**
-     * Mevcut token tipini kontrol eder.
-     */
-    private boolean check(
-            SqlTokenType tokenType
-    ) {
-
-        return currentToken()
-                .getType()
-                == tokenType;
-    }
-
-    /**
-     * Mevcut tokenı döndürür ve ilerler.
-     */
-    private SqlToken advance() {
-
-        SqlToken token =
-                currentToken();
-
-        if (!check(
-                SqlTokenType.END_OF_INPUT
-        )) {
-
-            currentPosition++;
-        }
-
-        return token;
-    }
-
-    /**
-     * Mevcut token.
-     */
-    private SqlToken currentToken() {
-
-        return tokens.get(
-                currentPosition
-        );
-    }
-
-    // ==================================================
-    // ERROR
-    // ==================================================
-
-    /**
-     * ParserException oluşturur.
-     */
-    private ParserException error(
-            String message
-    ) {
-
-        return new ParserException(
-                message
-                        + " Token position: "
-                        + currentPosition
-                        + "."
-        );
-    }
 }

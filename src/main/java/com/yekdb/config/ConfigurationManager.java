@@ -1,5 +1,6 @@
 package com.yekdb.config;
 
+import com.yekdb.core.YekdbConstants;
 import com.yekdb.exception.ConfigurationException;
 
 import java.io.IOException;
@@ -9,20 +10,18 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Properties;
 
+/**
+ * YEKDB yapılandırmasını classpath üzerindeki yekdb.properties
+ * dosyasından yükler. Dosya bulunamazsa güvenli varsayılanlar kullanılır.
+ */
 public final class ConfigurationManager {
 
     private static final String CONFIGURATION_FILE = "yekdb.properties";
 
     private static final String DEFAULT_DATA_DIRECTORY = "data";
-
     private static final String DEFAULT_LOG_DIRECTORY = "logs";
-
-    private static final int DEFAULT_PAGE_SIZE = 4096;
-
     private static final Charset DEFAULT_CHARSET = StandardCharsets.UTF_8;
-
     private static final String DEFAULT_VERSION = "0.1.0";
-
     private static final String DEFAULT_DATABASE_FILE = "yekdb.data";
 
     private ConfigurationManager() {
@@ -32,29 +31,32 @@ public final class ConfigurationManager {
         Properties properties = loadProperties();
 
         Path dataDirectory = Path.of(
-                properties.getProperty(
+                readText(
+                        properties,
                         "yekdb.data.directory",
                         DEFAULT_DATA_DIRECTORY
                 )
         );
 
         Path logDirectory = Path.of(
-                properties.getProperty(
+                readText(
+                        properties,
                         "yekdb.log.directory",
                         DEFAULT_LOG_DIRECTORY
                 )
         );
 
         int pageSize = readPageSize(properties);
-
         Charset charset = readCharset(properties);
 
-        String version = properties.getProperty(
+        String version = readText(
+                properties,
                 "yekdb.version",
                 DEFAULT_VERSION
         );
 
-        String databaseFileName = properties.getProperty(
+        String databaseFileName = readText(
+                properties,
                 "yekdb.database.file",
                 DEFAULT_DATABASE_FILE
         );
@@ -76,26 +78,13 @@ public final class ConfigurationManager {
                 ConfigurationManager.class.getClassLoader();
 
         try (InputStream inputStream =
-                     classLoader.getResourceAsStream(
-                             CONFIGURATION_FILE
-                     )) {
+                     classLoader.getResourceAsStream(CONFIGURATION_FILE)) {
 
             if (inputStream == null) {
-                System.out.println(
-                        "[CONFIG] Configuration file was not found. "
-                                + "Default values will be used."
-                );
-
                 return properties;
             }
 
             properties.load(inputStream);
-
-            System.out.println(
-                    "[CONFIG] Configuration loaded from "
-                            + CONFIGURATION_FILE
-            );
-
             return properties;
 
         } catch (IOException exception) {
@@ -106,12 +95,11 @@ public final class ConfigurationManager {
         }
     }
 
-    private static int readPageSize(
-            Properties properties
-    ) {
-        String rawPageSize = properties.getProperty(
+    private static int readPageSize(Properties properties) {
+        String rawPageSize = readText(
+                properties,
                 "yekdb.page.size",
-                String.valueOf(DEFAULT_PAGE_SIZE)
+                String.valueOf(YekdbConstants.PAGE_SIZE)
         );
 
         try {
@@ -133,10 +121,9 @@ public final class ConfigurationManager {
         }
     }
 
-    private static Charset readCharset(
-            Properties properties
-    ) {
-        String charsetName = properties.getProperty(
+    private static Charset readCharset(Properties properties) {
+        String charsetName = readText(
+                properties,
                 "yekdb.charset",
                 DEFAULT_CHARSET.name()
         );
@@ -150,5 +137,23 @@ public final class ConfigurationManager {
                     exception
             );
         }
+    }
+
+    private static String readText(
+            Properties properties,
+            String key,
+            String defaultValue
+    ) {
+        String value = properties.getProperty(key, defaultValue);
+
+        if (value == null) {
+            return defaultValue;
+        }
+
+        String normalizedValue = value.trim();
+
+        return normalizedValue.isEmpty()
+                ? defaultValue
+                : normalizedValue;
     }
 }
