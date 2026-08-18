@@ -6,7 +6,7 @@
 ![Java](https://img.shields.io/badge/Java-21-orange)
 ![Maven](https://img.shields.io/badge/Maven-3.x-blue)
 ![JUnit](https://img.shields.io/badge/JUnit-5-green)
-![Tests](https://img.shields.io/badge/Tests-940%20Passing-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-965%20Passing-brightgreen)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 ![Status](https://img.shields.io/badge/Status-Development-yellow)
 
@@ -54,784 +54,403 @@ Main goals:
 
 ## Current Status
 
-### Sprint 00-17
+**Current Sprint:** `00-18`  
+**Status:** Completed ✅
 
-Sprint 00-17 focused on **codebase review, cleanup, responsibility separation, and Query Engine refactoring**.
+YEKDB currently includes:
 
-The sprint was completed without changing the externally expected behavior of the system.
+- Core Engine Architecture
+- Storage Engine Foundation
+- Page Management
+- Record Management
+- Database Management
+- Table Management
+- Index Management
+- Query Execution Foundation
+- SELECT / WHERE Execution
+- Expression Evaluation
+- ORDER BY
+- LIMIT
+- FETCH
+- BETWEEN
+- IN
+- LIKE / NOT LIKE / ILIKE
+- GROUP BY
+- HAVING
+- JOIN Foundation
+- INNER JOIN
+- LEFT JOIN
+- RIGHT JOIN
+- FULL JOIN
+- Multiple JOIN Chains
+- JOIN + GROUP BY / HAVING
+- JOIN + Aggregate Expressions
+- Advanced JOIN Optimization Foundation
+- Persistent Table Schema Recovery
+- Atomic Table Catalog Recovery
+- Corrupted Table File Detection
+- Restart-Safe Table Metadata Recovery
 
-**Current test status:**
+---
+
+## Sprint 00-18 — Persistent Table Catalog & Schema Recovery
+
+Sprint `00-18` introduces persistent table schema recovery to YEKDB.
+
+Previously, table definitions were registered inside the in-memory `TableCatalog`. Physical `.tbl` files remained on disk after shutdown, but a newly created `TableManager` started with an empty catalog.
+
+With this sprint, YEKDB can reconstruct table schemas and metadata directly from physical table files.
+
+### Main Features
+
+- Physical `.tbl` file parsing
+- Table schema reconstruction
+- Column reconstruction
+- DataType recovery
+- TableMetadata recovery
+- Creation timestamp preservation
+- Metadata version preservation
+- Physical filename validation
+- Restart simulation support
+- Multiple-table recovery
+- Atomic catalog recovery
+- Corrupted table file detection
+- Recovery-safe DROP TABLE behavior
+- Non-table file filtering
+- Duplicate table protection after recovery
+
+---
+
+## Table Recovery Architecture
 
 ```text
-940 / 940 tests passed
-Compile successful
+Database Directory
+        │
+        ├── users.tbl
+        ├── orders.tbl
+        └── products.tbl
+                │
+                ▼
+      TableFileMetadataReader
+                │
+                ▼
+       TableRecoveryEntry
+          │             │
+          ▼             ▼
+        Table      TableMetadata
+          │             │
+          └──────┬──────┘
+                 ▼
+            TableCatalog
+                 │
+                 ▼
+            TableManager
 ```
 
 ---
 
-## Architecture
+## Create / Recovery Lifecycle
 
 ```text
-com.yekdb
-├── config
-├── core
-├── database
-├── demo
-├── exception
-├── index
-├── logs
-├── query
-├── storage
-├── table
-└── YekdbApplication.java
+CREATE TABLE
+     │
+     ▼
+   Table
+     │
+     ├──────────────► TableCatalog
+     │
+     ▼
+   .tbl File
 ```
 
-### Core Layers
+After a restart:
 
 ```text
-Application
+.tbl File
     │
     ▼
-Query Engine
-    │
-    ├── Parser
-    ├── Expressions
-    ├── Query Execution
-    ├── JOIN Engine
-    ├── Aggregation
-    └── Optimizer
+TableFileMetadataReader
     │
     ▼
-Database / Table / Index Management
+TableRecoveryEntry
     │
-    ▼
-Storage Engine
-    │
-    ├── DataFile
-    ├── Page Management
-    ├── Record Management
-    └── Serialization
+    ├── Table
+    └── TableMetadata
+           │
+           ▼
+      TableCatalog
 ```
 
 ---
 
-# Features
+## Atomic Catalog Recovery
 
-## Database Management
+Catalog recovery is performed using a temporary catalog.
 
-Supported database-level operations include:
-
-```sql
-CREATE DATABASE university;
-USE university;
-DROP DATABASE university;
+```text
+Disk
+ │
+ ▼
+Temporary TableCatalog
+ │
+ ├── Recover table 1
+ ├── Recover table 2
+ └── Recover table 3
+        │
+        ▼
+All files valid?
+   │         │
+  NO        YES
+   │         │
+   ▼         ▼
+Abort     Replace
+Recovery   Runtime Catalog
 ```
 
-Database management includes:
+If one physical table file is corrupted, the existing runtime catalog is preserved.
 
-- Database creation
-- Database selection
-- Database deletion
-- Database listing
-- Metadata persistence
-- Database metadata integrity checks
-- Centralized database name validation
+This prevents partially recovered catalog states.
 
 ---
 
-## Table Management
+## Corruption Handling
 
-Example:
+YEKDB detects invalid physical table files using:
 
-```sql
-CREATE TABLE students (
-    id INTEGER,
-    name STRING,
-    age INTEGER
+```java
+CorruptedTableFileException
+```
+
+Validation includes:
+
+- Invalid `YEKDB_TABLE` header
+- Missing metadata fields
+- Invalid metadata version
+- Invalid column count
+- Column count mismatch
+- Invalid creation timestamp
+- Invalid column definition
+- Unsupported DataType
+- Empty column schema
+- Physical filename / table name mismatch
+- Incomplete table files
+
+---
+
+## New Components — 00-18
+
+```text
+com.yekdb.table
+│
+├── TableFileMetadataReader.java
+├── TableRecoveryEntry.java
+└── TableManager.java              [UPDATED]
+
+com.yekdb.table.exception
+│
+└── CorruptedTableFileException.java
+```
+
+Existing domain classes remained compatible with the new recovery architecture:
+
+```text
+Table.java
+TableMetadata.java
+TableCatalog.java
+Column.java
+DataType.java
+```
+
+No breaking changes were required.
+
+---
+
+## Recovery Example
+
+```java
+TableManager firstManager =
+        new TableManager(databaseDirectory);
+
+firstManager.createTable(
+        "users",
+        List.of(
+                new Column("id", DataType.INT),
+                new Column("username", DataType.STRING),
+                new Column("active", DataType.BOOLEAN)
+        )
 );
 ```
 
-Current table infrastructure includes:
+After simulating a restart:
 
-- Table creation
-- Table deletion
-- Column definitions
-- Table catalog
-- Table metadata
-- Table name validation
-- Column name validation
-- Duplicate column detection
-- Immutable table schema lists
+```java
+TableManager secondManager =
+        new TableManager(databaseDirectory);
 
-Qualified column names are also supported internally for JOIN results:
+secondManager.loadCatalog();
+
+Table users =
+        secondManager.getTable("users");
+```
+
+The `users` schema is reconstructed directly from:
 
 ```text
-students.id
-departments.name
-e.id
-d.name
+users.tbl
 ```
 
 ---
 
-## Storage Engine
+## Physical Table File Format
 
-The physical storage layer includes:
+Current `.tbl` schema format:
 
 ```text
-StorageEngine
-├── DataFile
-├── DatabaseHeader
-├── PageManager
-├── PageSerializer
-├── RecordManager
-├── RecordSerializer
-├── Row
-└── RowSerializer
+YEKDB_TABLE
+version=1
+tableName=users
+columnCount=3
+createdAt=2026-08-18T08:00:00
+columns=
+id:INT
+username:STRING
+active:BOOLEAN
 ```
 
-Implemented concepts include:
-
-- Fixed-size database pages
-- Database headers
-- Page serialization/deserialization
-- Record storage
-- Record lookup
-- Record update
-- Record deletion
-- Row serialization
-- Persistent page count management
-- Storage lifecycle management
-
-Default page size:
+Supported DataTypes:
 
 ```text
-4096 bytes
+INT
+LONG
+DOUBLE
+BOOLEAN
+STRING
 ```
 
 ---
 
-## Index Infrastructure
+## Testing
 
-YEKDB currently provides an in-memory index abstraction that prepares the architecture for future persistent tree indexes.
+Sprint `00-18` includes dedicated tests for:
 
-Supported index types include:
+- Valid `.tbl` file recovery
+- Column recovery
+- DataType recovery
+- Metadata recovery
+- Creation timestamp preservation
+- Metadata version preservation
+- Invalid magic header
+- Invalid DataType
+- Incorrect column count
+- Filename mismatch
+- Missing table file
+- Restart simulation
+- Multiple table recovery
+- Empty database recovery
+- Repeated catalog reload
+- Atomic recovery
+- DROP after recovery
+- DROP persistence after restart
+- Non-table file filtering
+- Directory filtering
+- Creating new tables after recovery
+- Duplicate table rejection
+- Metadata cleanup
 
-- PRIMARY
-- UNIQUE
-- NON_UNIQUE
-
-Index functionality includes:
-
-- Index creation
-- Index deletion
-- Index lookup
-- RecordPointer mapping
-- Multiple pointers for non-unique keys
-- Duplicate-key protection for unique indexes
-- Index metadata
-- Database/table/column association
-- Identifier normalization
-
-Example structure:
+Dedicated recovery test suites:
 
 ```text
-Index<K>
-    └── Map<K, List<RecordPointer>>
+TableFileMetadataReaderTest
+TableManagerRecoveryTest
 ```
 
-A persistent B+ Tree implementation is planned for a future milestone.
-
----
-
-# Query Engine
-
-The Query Engine is one of the largest parts of YEKDB.
+Current sprint-specific results:
 
 ```text
-query/
-├── command
-├── datasource
-├── evaluator
-├── executor
-├── expression
-├── optimizer
-├── parser
-├── result
-└── statement
+TableFileMetadataReaderTest  → 10 / 10 ✅
+TableManagerRecoveryTest     → 15 / 15 ✅
 ```
 
-The engine follows a general pipeline:
+Full project regression:
+
+```bash
+mvn clean test
+```
+
+Result:
 
 ```text
-SQL
- │
- ▼
-Tokenizer
- │
- ▼
-Parser
- │
- ▼
-Statement / Expression Model
- │
- ▼
-QueryExecutor
- │
- ▼
-Specialized Executors
- │
- ▼
-Query Result
+BUILD SUCCESS
 ```
 
----
+Compilation:
 
-## SELECT
-
-Basic queries:
-
-```sql
-SELECT * FROM employees;
+```bash
+mvn clean compile
 ```
 
-```sql
-SELECT name, salary
-FROM employees
-WHERE salary > 30000;
-```
-
-Supported SELECT functionality includes:
-
-- Column projection
-- `WHERE`
-- Aliases
-- Qualified column resolution
-- Expression evaluation
-- Result column generation
-
----
-
-## Filtering Expressions
-
-Implemented expression support includes:
-
-```sql
-WHERE age > 18
-```
-
-```sql
-WHERE age BETWEEN 18 AND 30
-```
-
-```sql
-WHERE city IN ('Malatya', 'Elazig')
-```
-
-```sql
-WHERE name LIKE 'Em%'
-```
-
-Supported operators/features include:
-
-- Comparison expressions
-- Logical expressions
-- `BETWEEN`
-- `IN`
-- `LIKE`
-- `ILIKE`
-- `NOT LIKE`
-- Literal expressions
-- Column expressions
-- Parenthesized expression parsing
-
----
-
-## ORDER BY and LIMIT
-
-Example:
-
-```sql
-SELECT *
-FROM employees
-ORDER BY salary DESC
-LIMIT 10;
-```
-
-The Query Engine includes support for ordering and result limiting.
-
----
-
-# JOIN Engine
-
-YEKDB currently supports:
+Result:
 
 ```text
-INNER JOIN
-LEFT JOIN
-RIGHT JOIN
-FULL JOIN
-```
-
-Example:
-
-```sql
-SELECT e.name, d.name
-FROM employees e
-INNER JOIN departments d
-    ON e.department_id = d.id;
-```
-
-Multiple JOIN chains are also supported.
-
-Example:
-
-```sql
-SELECT e.name, d.name, c.name
-FROM employees e
-JOIN departments d
-    ON e.department_id = d.id
-JOIN companies c
-    ON d.company_id = c.id;
-```
-
-Additional JOIN capabilities include:
-
-- Qualified column resolution
-- JOIN row assembly
-- Outer JOIN null-row generation
-- Multiple JOIN chains
-- JOIN projection
-- JOIN + aggregation
-- JOIN + GROUP BY
-- JOIN + HAVING
-- JOIN optimization infrastructure
-
----
-
-# GROUP BY, Aggregation and HAVING
-
-Supported aggregate operations include infrastructure for expressions such as:
-
-```sql
-SELECT department_id, COUNT(*)
-FROM employees
-GROUP BY department_id;
-```
-
-```sql
-SELECT department_id, AVG(salary)
-FROM employees
-GROUP BY department_id
-HAVING AVG(salary) > 30000;
-```
-
-Aggregate execution supports:
-
-- `COUNT`
-- `SUM`
-- `AVG`
-- `MIN`
-- `MAX`
-- GROUP BY
-- HAVING
-- JOIN + aggregate
-- Multiple JOIN + aggregate
-
----
-
-# Sprint 00-17 Refactoring
-
-Sprint 00-17 was dedicated primarily to reducing architectural debt.
-
-## Codebase Cleanup
-
-Removed obsolete or unused skeleton classes and packages from earlier development stages.
-
-Examples included unused placeholders for:
-
-- old model classes
-- old command abstractions
-- old catalog placeholders
-- incomplete transaction placeholders
-- incomplete free-space placeholders
-- obsolete index placeholders
-- unused storage exception types
-
-Demo classes were consolidated under:
-
-```text
-com.yekdb.demo
+BUILD SUCCESS
 ```
 
 ---
 
-## Database Refactoring
+## Sprint History
 
-Changes included:
-
-- Centralized database name validation
-- Metadata/name consistency checks
-- Reduced duplicated validation logic
-- Cleaner database manager responsibilities
-- Demo relocation
-
----
-
-## Table Refactoring
-
-Changes included:
-
-- `TableNameValidator`
-- `ColumnNameValidator`
-- Duplicate-column handling
-- Immutable table column snapshots
-- Reduced repeated validation
-- Cleaner `TableManager`
-- Cleaner `TableCatalog`
-- Unified identifier normalization
+| Sprint | Module | Status |
+|---|---|---|
+| 00-03 | Core / Storage Foundation | ✅ |
+| 00-04 | Record & Storage Architecture | ✅ |
+| 00-05 | Physical Storage Engine | ✅ |
+| 00-06 | Database Management | ✅ |
+| 00-07 | Table Management | ✅ |
+| 00-08 | Record Management | ✅ |
+| 00-09 | Index Management | ✅ |
+| 00-10 | Query Execution Foundation | ✅ |
+| 00-11 | SELECT / WHERE Execution | ✅ |
+| 00-12 | Query Engine Expansion | ✅ |
+| 00-13 | Query Processing Improvements | ✅ |
+| 00-14 | Advanced SQL Operations | ✅ |
+| 00-15 | JOIN Foundation | ✅ |
+| 00-16 | Advanced JOIN Operations | ✅ |
+| 00-17 | Query Engine Improvements | ✅ |
+| **00-18** | **Persistent Table Catalog & Schema Recovery** | **✅** |
 
 ---
 
-## Index Refactoring
+## Next Steps
 
-Changes included:
+Future YEKDB development will continue building on this recovery foundation.
 
-- Centralized index identifier validation
-- Case-normalized logical index names
-- Improved metadata validation
-- Cleaner collection handling
-- Safer index/table/column matching
-- Demo relocation
+Possible next areas include:
 
----
-
-## Storage Refactoring
-
-Changes included:
-
-- Removed obsolete `DataFileException`
-- Consolidated page-count ownership
-- Reduced duplicate database-header handling
-- Simplified immutable row snapshots
-- Demo relocation
-
----
-
-## Core / Config / Logging Cleanup
-
-Changes included:
-
-- Shared page-size constant usage
-- Configuration path normalization
-- Configuration string normalization
-- Improved log-message null safety
-- Removed obsolete storage-level exception
-- Cleaned engine documentation
-
----
-
-# Query Refactoring — Phase 1 to Phase 6
-
-The Query Engine was refactored incrementally to protect existing behavior.
-
-Every phase was validated against the complete test suite.
-
-## Phase 1 — Cleanup
-
-- Removed obsolete query mapper code
-- Relocated query demo classes
-- Preserved execution behavior
-
-## Phase 2A — Column Resolution
-
-Introduced:
-
-```text
-SelectColumnResolver
-```
-
-Responsibilities extracted from `SelectExecutor` included:
-
-- column lookup
-- case-insensitive resolution
-- qualified-name normalization
-- result value lookup
-
-## Phase 2B — JOIN Projection
-
-Introduced:
-
-```text
-SelectJoinProjectionExecutor
-```
-
-Responsibilities extracted included:
-
-- JOIN projection
-- multiple-JOIN projection
-- qualified JOIN column processing
-
-## Phase 2C — Aggregation Pipeline
-
-Introduced:
-
-```text
-SelectAggregateExecutor
-```
-
-Responsibilities extracted included:
-
-- aggregate SELECT flow
-- GROUP BY
-- HAVING
-- JOIN aggregates
-- multiple-JOIN aggregates
-- aggregate result generation
-
-This reduced `SelectExecutor` from more than 3700 lines to approximately 1100 lines.
-
----
-
-## Phase 3 — QueryExecutor
-
-Introduced specialized support classes:
-
-```text
-TableMutationExecutionSupport
-SelectCommandExecutionSupport
-ManagementCommandParser
-```
-
-This reduced the responsibilities of the main `QueryExecutor` while keeping its public execution API intact.
-
----
-
-## Phase 4 — SQL Parser
-
-Introduced:
-
-```text
-SqlTokenCursor
-SqlLiteralParser
-```
-
-Responsibilities extracted included:
-
-- token cursor management
-- lookahead
-- token matching
-- token expectations
-- literal conversion
-
-The public parser API remained unchanged.
-
----
-
-## Phase 5 — Expression and JOIN Internals
-
-Introduced:
-
-```text
-ExpressionValueSupport
-JoinRowAssembler
-```
-
-Responsibilities extracted included:
-
-- expression value utilities
-- numeric comparison support
-- LIKE-pattern support
-- JOIN row merging
-- qualified JOIN row construction
-- outer JOIN null-row construction
-
-This significantly reduced both `ExpressionEvaluator` and `JoinExecutor`.
-
----
-
-## Phase 6 — Aggregate Finalization
-
-Introduced:
-
-```text
-AggregateValueSupport
-JoinedAggregateExecutor
-```
-
-Responsibilities extracted included:
-
-- aggregate numeric validation
-- MIN/MAX comparison support
-- JOIN aggregate execution
-- aggregate value helpers
-
-`AggregateExecutor` was reduced from more than 700 lines to roughly 200 lines.
-
----
-
-# Refactoring Result
-
-Several historically large classes were substantially reduced:
-
-```text
-SelectExecutor
-    ~3720 lines
-        ↓
-    ~1165 lines
-
-QueryExecutor
-    ~1369 lines
-        ↓
-    ~816 lines
-
-ExpressionEvaluator
-    ~807 lines
-        ↓
-    ~482 lines
-
-JoinExecutor
-    ~895 lines
-        ↓
-    ~597 lines
-
-AggregateExecutor
-    ~723 lines
-        ↓
-    ~203 lines
-```
-
-The objective was not simply reducing line count. The primary goal was separating responsibilities while maintaining existing behavior.
-
----
-
-# Testing
-
-YEKDB uses JUnit-based automated tests throughout the codebase.
-
-Current status after Sprint 00-17:
-
-```text
-Tests: 940
-Passed: 940
-Failed: 0
-Errors: 0
-```
-
-Every major refactoring stage was verified before continuing to the next phase.
-
----
-
-# Technology Stack
-
-- Java 21
-- Maven
-- JUnit
-- IntelliJ IDEA
-- Git
-- GitHub
-
-Development environments include Windows and macOS, with Linux support considered as the project evolves.
-
----
-
-# Current Development Principles
-
-YEKDB currently follows these principles:
-
-- Keep domain objects responsible for their own invariants
-- Avoid duplicated validation logic
-- Separate parsing from execution
-- Separate query orchestration from specialized execution
-- Keep storage responsibilities clearly owned
-- Prefer immutable snapshots when returning collections
-- Refactor incrementally
-- Preserve behavior through automated tests
-
----
-
-# Roadmap
-
-Planned future areas include:
-
-### SQL Engine
-
-- Subqueries
-- `EXISTS` / `NOT EXISTS`
-- More advanced expression support
-- Additional SQL syntax coverage
-- Query planning improvements
-
-### Storage
-
-- Persistent table catalog
-- Binary table metadata
-- Improved page allocation
-- Free-space management
+- Binary table headers
+- Persistent system catalog
+- Advanced metadata management
+- RecordManager refactoring
 - Persistent indexes
-- B+ Tree
-
-### Transactions
-
-- Transaction manager
-- Commit / rollback
-- Isolation foundations
-- Write-ahead logging concepts
-- Crash recovery foundations
-
-### Database Objects
-
-- Views
-- Triggers
-- Stored procedures
-- Additional constraints
-
-### Security
-
-- Users
-- Roles
-- Permissions
-
-### Client / Server
-
-- Server process
-- Network protocol
-- Multiple concurrent clients
-- Remote query execution
-
-### Tooling
-
-- CLI
-- Administrative interface
-- Improved logging and diagnostics
-- Backup / restore
+- Transaction management
+- Write-Ahead Logging
+- Query optimization
+- EXPLAIN support
+- Client-server architecture
 
 ---
 
-# Repository Philosophy
+## Build
 
-YEKDB is primarily a learning-oriented systems project.
-
-The focus is not to replace production database systems. Instead, the repository is intended to demonstrate how database internals can be designed and implemented step by step while maintaining an increasingly structured architecture.
-
----
-
-## Author
-
-**Yunus Emre KUL**
-
-Computer Engineering  
-İnönü University
-
----
-
-## Development Status
-
-```text
-Sprint 00-17
-Architecture Cleanup & Query Engine Refactoring
-Status: COMPLETED
-
-Compile: SUCCESS
-Tests: 940 / 940 PASSED
+```bash
+mvn clean compile
 ```
+
+## Test
+
+```bash
+mvn clean test
+```
+
+---
+
+**YEKDB — Built from scratch to understand how database systems work internally.**

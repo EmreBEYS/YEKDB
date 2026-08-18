@@ -14,12 +14,7 @@ import com.yekdb.table.Table;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import com.yekdb.storage.StorageEngine;
-import com.yekdb.storage.page.PageType;
-import com.yekdb.storage.record.Record;
-import com.yekdb.storage.record.RecordManager;
-
-import com.yekdb.storage.StorageEngine;
-import com.yekdb.storage.page.PageType;
+import com.yekdb.storage.record.page.PageType;
 import com.yekdb.storage.record.Record;
 import com.yekdb.storage.record.RecordManager;
 

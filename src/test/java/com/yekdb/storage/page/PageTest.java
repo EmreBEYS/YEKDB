@@ -1,5 +1,7 @@
 package com.yekdb.storage.page;
 
+import com.yekdb.storage.record.page.Page;
+import com.yekdb.storage.record.page.PageType;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

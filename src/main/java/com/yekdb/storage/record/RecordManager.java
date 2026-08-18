@@ -1,8 +1,8 @@
 package com.yekdb.storage.record;
 
-import com.yekdb.storage.page.Page;
-import com.yekdb.storage.page.PageManager;
-import com.yekdb.storage.page.PageType;
+import com.yekdb.storage.record.page.Page;
+import com.yekdb.storage.record.page.PageManager;
+import com.yekdb.storage.record.page.PageType;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;

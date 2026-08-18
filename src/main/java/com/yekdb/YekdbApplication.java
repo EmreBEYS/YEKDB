@@ -2,8 +2,8 @@ package com.yekdb;
 
 import com.yekdb.core.YekdbEngine;
 import com.yekdb.storage.file.DatabaseHeader;
-import com.yekdb.storage.page.Page;
-import com.yekdb.storage.page.PageType;
+import com.yekdb.storage.record.page.Page;
+import com.yekdb.storage.record.page.PageType;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;

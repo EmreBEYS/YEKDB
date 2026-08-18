@@ -1,4 +1,4 @@
-package com.yekdb.storage.page;
+package com.yekdb.storage.record.page;
 
 /**
  * YEKDB fiziksel sayfa türlerini temsil eder.

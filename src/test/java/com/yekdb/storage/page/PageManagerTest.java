@@ -2,6 +2,9 @@ package com.yekdb.storage.page;
 
 import com.yekdb.storage.file.DataFile;
 import com.yekdb.storage.file.DatabaseHeader;
+import com.yekdb.storage.record.page.Page;
+import com.yekdb.storage.record.page.PageManager;
+import com.yekdb.storage.record.page.PageType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

@@ -2,7 +2,7 @@ package com.yekdb.core;
 
 import com.yekdb.storage.StorageEngine;
 import com.yekdb.storage.file.DatabaseHeader;
-import com.yekdb.storage.page.Page;
+import com.yekdb.storage.record.page.Page;
 
 import java.io.IOException;
 import java.nio.file.Path;

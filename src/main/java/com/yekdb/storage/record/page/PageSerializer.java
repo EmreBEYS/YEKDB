@@ -1,4 +1,4 @@
-package com.yekdb.storage.page;
+package com.yekdb.storage.record.page;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;

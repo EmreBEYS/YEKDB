@@ -28,9 +28,8 @@ import java.util.Objects;
  */
 public class TableManager {
 
-    private static final String TABLE_FILE_EXTENSION =
-            ".tbl";
-
+    private static final String TABLE_FILE_EXTENSION = ".tbl";
+    private final TableFileMetadataReader metadataReader;
     private final Path databaseDirectory;
     private final TableCatalog tableCatalog;
 
@@ -75,6 +74,88 @@ public class TableManager {
                         .normalize();
 
         this.tableCatalog = tableCatalog;
+        this.metadataReader = new TableFileMetadataReader();
+    }
+
+    /**
+     * Veritabanı dizinindeki fiziksel .tbl dosyalarını
+     * okuyarak tablo kataloğunu yeniden oluşturur.
+     *
+     * Bu metod YEKDB yeniden başlatıldığında disk üzerinde
+     * bulunan tablo şemalarının bellekteki TableCatalog
+     * yapısına geri yüklenmesini sağlar.
+     */
+    public void loadCatalog() {
+
+        ensureDatabaseDirectoryExists();
+
+        TableCatalog recoveredCatalog =
+                new TableCatalog();
+
+        try (var tableFiles =
+                     Files.list(databaseDirectory)) {
+
+            tableFiles
+                    .filter(Files::isRegularFile)
+                    .filter(path ->
+                            path.getFileName()
+                                    .toString()
+                                    .endsWith(
+                                            TABLE_FILE_EXTENSION
+                                    )
+                    )
+                    .sorted()
+                    .forEach(path ->
+                            recoverTable(
+                                    path,
+                                    recoveredCatalog
+                            )
+                    );
+
+        } catch (IOException exception) {
+
+            throw new IllegalStateException(
+                    "Table catalog could not be loaded from: "
+                            + databaseDirectory,
+                    exception
+            );
+        }
+
+        /*
+         * Tüm dosyalar başarılı şekilde okunduktan sonra
+         * gerçek katalog güncellenir.
+         */
+        tableCatalog.clear();
+
+        for (Table table :
+                recoveredCatalog.listTables()) {
+
+            tableCatalog.registerTable(
+                    table,
+                    recoveredCatalog.getMetadata(
+                            table.getTableName()
+                    )
+            );
+        }
+    }
+    /**
+     * Tek bir fiziksel tablo dosyasını okuyarak
+     * kataloğa geri yükler.
+     *
+     * @param tableFile fiziksel tablo dosyası
+     */
+    private void recoverTable(
+            Path tableFile,
+            TableCatalog targetCatalog
+    ) {
+
+        TableRecoveryEntry recoveryEntry =
+                metadataReader.read(tableFile);
+
+        targetCatalog.registerTable(
+                recoveryEntry.table(),
+                recoveryEntry.metadata()
+        );
     }
 
     /**

@@ -1,4 +1,4 @@
-package com.yekdb.storage.page;
+package com.yekdb.storage.record.page;
 
 import com.yekdb.storage.file.DataFile;
 import com.yekdb.storage.file.DatabaseHeader;

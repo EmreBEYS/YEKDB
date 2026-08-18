@@ -4,7 +4,7 @@ import com.yekdb.database.DatabaseManager;
 import com.yekdb.query.executor.ExecuteResult;
 import com.yekdb.query.executor.QueryExecutor;
 import com.yekdb.storage.StorageEngine;
-import com.yekdb.storage.page.PageType;
+import com.yekdb.storage.record.page.PageType;
 import com.yekdb.storage.record.Record;
 import com.yekdb.storage.record.RecordManager;
 import com.yekdb.storage.record.Row;

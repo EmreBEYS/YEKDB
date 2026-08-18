@@ -2,8 +2,8 @@ package com.yekdb.demo;
 
 import com.yekdb.storage.file.DataFile;
 import com.yekdb.storage.file.DatabaseHeader;
-import com.yekdb.storage.page.PageManager;
-import com.yekdb.storage.page.PageType;
+import com.yekdb.storage.record.page.PageManager;
+import com.yekdb.storage.record.page.PageType;
 import com.yekdb.storage.record.Record;
 import com.yekdb.storage.record.RecordManager;
 import com.yekdb.storage.record.Row;

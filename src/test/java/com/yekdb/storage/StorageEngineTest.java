@@ -1,8 +1,8 @@
 package com.yekdb.storage;
 
 import com.yekdb.storage.file.DatabaseHeader;
-import com.yekdb.storage.page.Page;
-import com.yekdb.storage.page.PageType;
+import com.yekdb.storage.record.page.Page;
+import com.yekdb.storage.record.page.PageType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
