@@ -1,8 +1,8 @@
 package com.yekdb.query.result;
 
 import com.yekdb.storage.record.Row;
-import com.yekdb.table.Column;
-import com.yekdb.table.DataType;
+import com.yekdb.storage.table.Column;
+import com.yekdb.storage.table.DataType;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;

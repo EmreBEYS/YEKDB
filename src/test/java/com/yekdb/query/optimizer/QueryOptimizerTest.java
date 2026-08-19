@@ -3,9 +3,9 @@ package com.yekdb.query.optimizer;
 import com.yekdb.query.expression.ComparisonExpression;
 import com.yekdb.query.expression.ComparisonOperator;
 import com.yekdb.query.expression.Expression;
-import com.yekdb.table.Column;
-import com.yekdb.table.DataType;
-import com.yekdb.table.Table;
+import com.yekdb.storage.table.Column;
+import com.yekdb.storage.table.DataType;
+import com.yekdb.storage.table.Table;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

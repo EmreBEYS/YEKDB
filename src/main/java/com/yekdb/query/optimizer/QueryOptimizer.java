@@ -1,7 +1,7 @@
 package com.yekdb.query.optimizer;
 
 import com.yekdb.query.expression.Expression;
-import com.yekdb.table.Table;
+import com.yekdb.storage.table.Table;
 
 import java.util.Objects;
 

@@ -5,25 +5,18 @@ import com.yekdb.query.expression.Expression;
 import com.yekdb.query.optimizer.QueryOptimizer;
 import com.yekdb.query.optimizer.QueryPlan;
 import com.yekdb.query.result.QueryResult;
-import com.yekdb.query.statement.GroupByClause;
 import com.yekdb.query.statement.JoinClause;
 import com.yekdb.query.statement.TableReference;
-import com.yekdb.query.statement.SelectItem;
 import com.yekdb.query.statement.SelectStatement;
 import com.yekdb.storage.record.Row;
-import com.yekdb.table.Column;
-import com.yekdb.table.DataType;
-import com.yekdb.table.Table;
+import com.yekdb.storage.table.Column;
+import com.yekdb.storage.table.Table;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.TreeMap;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * SELECT sorgularını yürütür.

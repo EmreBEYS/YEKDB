@@ -16,8 +16,8 @@ import com.yekdb.query.datasource.QueryDataSource;
 import com.yekdb.query.mapper.StatementCommandMapper;
 import com.yekdb.query.parser.SqlParser;
 import com.yekdb.query.statement.Statement;
-import com.yekdb.table.TableManager;
-import com.yekdb.table.TableMetadata;
+import com.yekdb.storage.table.TableManager;
+import com.yekdb.storage.table.TableMetadata;
 
 
 import java.util.Locale;

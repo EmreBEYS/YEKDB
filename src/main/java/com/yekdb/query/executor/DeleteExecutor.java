@@ -5,7 +5,7 @@ import com.yekdb.query.evaluator.WhereEvaluator;
 import com.yekdb.storage.record.Record;
 import com.yekdb.storage.record.RecordManager;
 import com.yekdb.storage.record.Row;
-import com.yekdb.table.Table;
+import com.yekdb.storage.table.Table;
 
 import java.io.IOException;
 import java.util.List;

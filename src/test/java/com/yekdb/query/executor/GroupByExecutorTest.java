@@ -2,8 +2,8 @@ package com.yekdb.query.executor;
 
 import com.yekdb.query.statement.GroupByClause;
 import com.yekdb.storage.record.Row;
-import com.yekdb.table.Column;
-import com.yekdb.table.DataType;
+import com.yekdb.storage.table.Column;
+import com.yekdb.storage.table.DataType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

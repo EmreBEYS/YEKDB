@@ -1,7 +1,7 @@
 package com.yekdb.query.datasource;
 
 import com.yekdb.storage.record.Row;
-import com.yekdb.table.Table;
+import com.yekdb.storage.table.Table;
 
 import java.util.List;
 

@@ -13,9 +13,9 @@ import com.yekdb.storage.record.page.PageType;
 import com.yekdb.storage.record.Record;
 import com.yekdb.storage.record.RecordManager;
 import com.yekdb.storage.record.Row;
-import com.yekdb.table.Column;
-import com.yekdb.table.DataType;
-import com.yekdb.table.Table;
+import com.yekdb.storage.table.Column;
+import com.yekdb.storage.table.DataType;
+import com.yekdb.storage.table.Table;
 
 import java.io.IOException;
 import java.nio.file.Files;

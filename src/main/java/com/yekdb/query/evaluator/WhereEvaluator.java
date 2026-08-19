@@ -5,7 +5,7 @@ import com.yekdb.query.expression.Expression;
 import com.yekdb.query.expression.LogicalExpression;
 import com.yekdb.query.expression.NotExpression;
 import com.yekdb.storage.record.Row;
-import com.yekdb.table.Table;
+import com.yekdb.storage.table.Table;
 
 import java.util.Objects;
 import java.util.function.Function;

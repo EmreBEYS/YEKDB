@@ -1,8 +1,7 @@
 package com.yekdb.query.result;
 
-import com.yekdb.query.executor.QueryExecutionException;
 import com.yekdb.storage.record.Row;
-import com.yekdb.table.Column;
+import com.yekdb.storage.table.Column;
 
 import java.util.List;
 import java.util.Objects;

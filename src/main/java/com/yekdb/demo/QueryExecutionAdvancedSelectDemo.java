@@ -5,9 +5,9 @@ import com.yekdb.query.datasource.InMemoryQueryDataSource;
 import com.yekdb.query.executor.ExecuteResult;
 import com.yekdb.query.executor.QueryExecutor;
 import com.yekdb.storage.record.Row;
-import com.yekdb.table.Column;
-import com.yekdb.table.DataType;
-import com.yekdb.table.Table;
+import com.yekdb.storage.table.Column;
+import com.yekdb.storage.table.DataType;
+import com.yekdb.storage.table.Table;
 
 import java.nio.file.Files;
 import java.nio.file.Path;

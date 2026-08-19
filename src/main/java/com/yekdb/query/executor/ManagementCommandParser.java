@@ -6,8 +6,8 @@ import com.yekdb.query.command.CreateTableCommand;
 import com.yekdb.query.command.DropDatabaseCommand;
 import com.yekdb.query.command.DropTableCommand;
 import com.yekdb.query.command.UseDatabaseCommand;
-import com.yekdb.table.Column;
-import com.yekdb.table.DataType;
+import com.yekdb.storage.table.Column;
+import com.yekdb.storage.table.DataType;
 
 import java.util.ArrayList;
 import java.util.List;

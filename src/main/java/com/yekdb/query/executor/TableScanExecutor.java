@@ -4,7 +4,7 @@ import com.yekdb.query.evaluator.WhereEvaluator;
 import com.yekdb.query.expression.Expression;
 import com.yekdb.query.result.QueryResult;
 import com.yekdb.storage.record.Row;
-import com.yekdb.table.Table;
+import com.yekdb.storage.table.Table;
 
 import java.util.ArrayList;
 import java.util.List;

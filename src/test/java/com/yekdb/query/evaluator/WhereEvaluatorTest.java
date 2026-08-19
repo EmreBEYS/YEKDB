@@ -7,9 +7,9 @@ import com.yekdb.query.expression.LogicalExpression;
 import com.yekdb.query.expression.LogicalOperator;
 import com.yekdb.query.expression.NotExpression;
 import com.yekdb.storage.record.Row;
-import com.yekdb.table.Column;
-import com.yekdb.table.DataType;
-import com.yekdb.table.Table;
+import com.yekdb.storage.table.Column;
+import com.yekdb.storage.table.DataType;
+import com.yekdb.storage.table.Table;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

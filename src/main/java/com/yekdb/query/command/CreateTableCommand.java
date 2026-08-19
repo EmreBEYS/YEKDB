@@ -1,6 +1,6 @@
 package com.yekdb.query.command;
 
-import com.yekdb.table.Column;
+import com.yekdb.storage.table.Column;
 
 import java.util.List;
 import java.util.Objects;

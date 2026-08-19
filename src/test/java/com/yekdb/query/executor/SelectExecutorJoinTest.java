@@ -10,9 +10,9 @@ import com.yekdb.query.statement.SelectItem;
 import com.yekdb.query.statement.SelectStatement;
 import com.yekdb.query.statement.TableReference;
 import com.yekdb.storage.record.Row;
-import com.yekdb.table.Column;
-import com.yekdb.table.DataType;
-import com.yekdb.table.Table;
+import com.yekdb.storage.table.Column;
+import com.yekdb.storage.table.DataType;
+import com.yekdb.storage.table.Table;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

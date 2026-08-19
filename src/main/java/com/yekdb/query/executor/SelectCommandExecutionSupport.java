@@ -6,7 +6,7 @@ import com.yekdb.query.result.QueryResult;
 import com.yekdb.query.statement.JoinClause;
 import com.yekdb.query.statement.SelectStatement;
 import com.yekdb.storage.record.Row;
-import com.yekdb.table.Table;
+import com.yekdb.storage.table.Table;
 
 import java.util.ArrayList;
 import java.util.List;

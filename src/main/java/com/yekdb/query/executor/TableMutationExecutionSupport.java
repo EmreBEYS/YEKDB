@@ -7,8 +7,8 @@ import com.yekdb.storage.StorageEngine;
 import com.yekdb.storage.record.page.PageType;
 import com.yekdb.storage.record.Record;
 import com.yekdb.storage.record.RecordManager;
-import com.yekdb.table.Table;
-import com.yekdb.table.TableManager;
+import com.yekdb.storage.table.Table;
+import com.yekdb.storage.table.TableManager;
 
 import java.io.IOException;
 import java.nio.file.Path;

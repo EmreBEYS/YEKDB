@@ -3,7 +3,7 @@ package com.yekdb.query.executor;
 import com.yekdb.query.statement.OrderByItem;
 import com.yekdb.query.statement.SortDirection;
 import com.yekdb.storage.record.Row;
-import com.yekdb.table.Column;
+import com.yekdb.storage.table.Column;
 
 import java.util.ArrayList;
 import java.util.Comparator;

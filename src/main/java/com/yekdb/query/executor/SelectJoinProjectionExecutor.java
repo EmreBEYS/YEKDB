@@ -5,8 +5,8 @@ import com.yekdb.query.statement.SelectItem;
 import com.yekdb.query.statement.SelectStatement;
 import com.yekdb.query.statement.TableReference;
 import com.yekdb.storage.record.Row;
-import com.yekdb.table.Column;
-import com.yekdb.table.Table;
+import com.yekdb.storage.table.Column;
+import com.yekdb.storage.table.Table;
 
 import java.util.ArrayList;
 import java.util.List;

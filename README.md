@@ -6,7 +6,7 @@
 ![Java](https://img.shields.io/badge/Java-21-orange)
 ![Maven](https://img.shields.io/badge/Maven-3.x-blue)
 ![JUnit](https://img.shields.io/badge/JUnit-5-green)
-![Tests](https://img.shields.io/badge/Tests-965%20Passing-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-1013%20Passing-brightgreen)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 ![Status](https://img.shields.io/badge/Status-Development-yellow)
 
@@ -31,7 +31,7 @@ The project is designed to explore how relational database systems work internal
 - Persistence and regression testing
 
 YEKDB does **not** rely on PostgreSQL, MySQL, SQLite, or another database engine for its internal storage or query execution.
-> Current development milestone: **Sprint 00-17 — Architecture Cleanup & Query Engine Refactoring**
+> Current development milestone: **Sprint 00-19 — Binary Table Header**
 
 ---
 
@@ -54,7 +54,7 @@ Main goals:
 
 ## Current Status
 
-**Current Sprint:** `00-18`  
+**Current Sprint:** `00-19`  
 **Status:** Completed ✅
 
 YEKDB currently includes:
@@ -90,34 +90,44 @@ YEKDB currently includes:
 - Atomic Table Catalog Recovery
 - Corrupted Table File Detection
 - Restart-Safe Table Metadata Recovery
+- 512-byte Binary Table Headers
+- Binary Table Header Serialization / Deserialization
+- Binary Header Integrity Validation
+- Header / Schema Cross-Validation
+- Persistent Table IDs
+- Restart-Safe Table ID Allocation
 
 ---
 
-## Sprint 00-18 — Persistent Table Catalog & Schema Recovery
+## Sprint 00-19 — Binary Table Header
 
-Sprint `00-18` introduces persistent table schema recovery to YEKDB.
+Sprint `00-19` introduces a fixed binary table header format and integrates it into YEKDB's physical `.tbl` storage and recovery architecture.
 
-Previously, table definitions were registered inside the in-memory `TableCatalog`. Physical `.tbl` files remained on disk after shutdown, but a newly created `TableManager` started with an empty catalog.
+Previously, table schema metadata was stored only as UTF-8 text inside physical table files.
 
-With this sprint, YEKDB can reconstruct table schemas and metadata directly from physical table files.
+With this sprint, every table file now starts with a **512-byte binary header** containing core physical metadata. The existing UTF-8 schema remains stored after the header and is located through the `schemaOffset` field.
 
 ### Main Features
 
-- Physical `.tbl` file parsing
-- Table schema reconstruction
-- Column reconstruction
-- DataType recovery
-- TableMetadata recovery
-- Creation timestamp preservation
-- Metadata version preservation
-- Physical filename validation
-- Restart simulation support
-- Multiple-table recovery
-- Atomic catalog recovery
-- Corrupted table file detection
-- Recovery-safe DROP TABLE behavior
-- Non-table file filtering
-- Duplicate table protection after recovery
+- Fixed 512-byte binary table header
+- Binary magic number and format version
+- Persistent table ID
+- UTF-8 table name serialization
+- Column count persistence
+- Row count persistence
+- First / last data page metadata
+- Schema offset persistence
+- Header flags
+- Reserved future metadata area
+- Binary serialization / deserialization
+- Header validation
+- Corrupted header detection
+- Physical header read / write support
+- Binary-aware table creation
+- Binary-aware catalog recovery
+- Header / schema cross-validation
+- Restart-safe table ID allocation
+- Full regression coverage
 
 ---
 
@@ -131,20 +141,29 @@ Database Directory
         └── products.tbl
                 │
                 ▼
-      TableFileMetadataReader
+         TableHeaderIO
                 │
                 ▼
-       TableRecoveryEntry
-          │             │
-          ▼             ▼
-        Table      TableMetadata
-          │             │
-          └──────┬──────┘
-                 ▼
-            TableCatalog
-                 │
-                 ▼
-            TableManager
+         Binary TableHeader
+                │
+                ▼
+          schemaOffset
+                │
+                ▼
+     TableFileMetadataReader
+                │
+                ▼
+        TableRecoveryEntry
+           │             │
+           ▼             ▼
+         Table      TableMetadata
+           │             │
+           └──────┬──────┘
+                  ▼
+             TableCatalog
+                  │
+                  ▼
+             TableManager
 ```
 
 ---
@@ -157,7 +176,25 @@ CREATE TABLE
      ▼
    Table
      │
+     ▼
+TableMetadata
+     │
+     ▼
+TableIdAllocator
+     │
+     ▼
+TableHeader
+     │
+     ▼
+TableHeaderSerializer
+     │
+     ▼
+512-byte Binary Header
+     │
      ├──────────────► TableCatalog
+     │
+     ▼
+UTF-8 Schema
      │
      ▼
    .tbl File
@@ -169,6 +206,15 @@ After a restart:
 .tbl File
     │
     ▼
+TableHeaderIO
+    │
+    ▼
+Binary Header Validation
+    │
+    ▼
+schemaOffset
+    │
+    ▼
 TableFileMetadataReader
     │
     ▼
@@ -178,7 +224,10 @@ TableRecoveryEntry
     └── TableMetadata
            │
            ▼
-      TableCatalog
+       TableCatalog
+           │
+           ▼
+ TableIdAllocator Sync
 ```
 
 ---
@@ -215,19 +264,28 @@ This prevents partially recovered catalog states.
 
 ## Corruption Handling
 
-YEKDB detects invalid physical table files using:
+YEKDB detects invalid physical table files and binary headers using:
 
 ```java
 CorruptedTableFileException
+CorruptedTableHeaderException
+InvalidTableHeaderException
 ```
 
 Validation includes:
 
-- Invalid `YEKDB_TABLE` header
+- Invalid binary magic number
+- Unsupported binary format version
+- Invalid header size
+- Truncated binary header
+- Invalid table name length
+- Invalid table metadata
+- Invalid schema offset
 - Missing metadata fields
 - Invalid metadata version
 - Invalid column count
-- Column count mismatch
+- Header / schema table name mismatch
+- Header / schema column count mismatch
 - Invalid creation timestamp
 - Invalid column definition
 - Unsupported DataType
@@ -237,31 +295,41 @@ Validation includes:
 
 ---
 
-## New Components — 00-18
+## New Components — 00-19
 
 ```text
-com.yekdb.table
+com.yekdb.storage.table.header
 │
-├── TableFileMetadataReader.java
-├── TableRecoveryEntry.java
-└── TableManager.java              [UPDATED]
-
-com.yekdb.table.exception
-│
-└── CorruptedTableFileException.java
+├── TableHeader.java
+├── TableHeaderConstants.java
+├── TableHeaderFile.java
+├── TableHeaderIO.java
+├── TableHeaderSerializer.java
+├── TableHeaderValidator.java
+└── TableIdAllocator.java
 ```
 
-Existing domain classes remained compatible with the new recovery architecture:
+Updated components:
+
+```text
+TableManager.java
+TableFileMetadataReader.java
+TableFileMetadataReaderTest.java
+TableManagerTest.java
+```
+
+Existing schema and catalog classes remain compatible with the binary header architecture:
 
 ```text
 Table.java
 TableMetadata.java
 TableCatalog.java
+TableRecoveryEntry.java
 Column.java
 DataType.java
 ```
 
-No breaking changes were required.
+No breaking changes were required to the logical table model.
 
 ---
 
@@ -303,18 +371,47 @@ users.tbl
 
 ## Physical Table File Format
 
-Current `.tbl` schema format:
+Current `.tbl` layout:
 
 ```text
-YEKDB_TABLE
-version=1
-tableName=users
-columnCount=3
-createdAt=2026-08-18T08:00:00
-columns=
-id:INT
-username:STRING
-active:BOOLEAN
+Offset     Size       Field
+------------------------------------------------
+0          4          Magic Number
+4          2          Format Version
+6          2          Header Size
+8          8          Table ID
+16         2          Table Name Length
+18         255        Table Name
+273        4          Column Count
+277        8          Row Count
+285        8          First Data Page ID
+293        8          Last Data Page ID
+301        8          Schema Offset
+309        4          Flags
+313        199        Reserved
+------------------------------------------------
+Total                 512 bytes
+```
+
+The schema begins at the offset stored inside the header:
+
+```text
+0
+│
+├── Binary Table Header
+│   512 bytes
+│
+512
+│
+├── YEKDB_TABLE
+├── version=1
+├── tableName=users
+├── columnCount=3
+├── createdAt=2026-08-19T08:00:00
+├── columns=
+├── id:INT
+├── username:STRING
+└── active:BOOLEAN
 ```
 
 Supported DataTypes:
@@ -331,47 +428,32 @@ STRING
 
 ## Testing
 
-Sprint `00-18` includes dedicated tests for:
+Sprint `00-19` includes dedicated tests for:
 
-- Valid `.tbl` file recovery
-- Column recovery
-- DataType recovery
-- Metadata recovery
-- Creation timestamp preservation
-- Metadata version preservation
-- Invalid magic header
-- Invalid DataType
-- Incorrect column count
-- Filename mismatch
-- Missing table file
-- Restart simulation
-- Multiple table recovery
-- Empty database recovery
-- Repeated catalog reload
-- Atomic recovery
-- DROP after recovery
-- DROP persistence after restart
-- Non-table file filtering
-- Directory filtering
-- Creating new tables after recovery
-- Duplicate table rejection
-- Metadata cleanup
+- TableHeader model
+- Header validation
+- Binary serialization
+- Binary deserialization
+- Round-trip serialization
+- UTF-8 table names
+- Binary magic number validation
+- Format version validation
+- Header size validation
+- Invalid table name length
+- Reserved byte verification
+- Physical header write / read
+- Truncated header detection
+- Corrupted header detection
+- Binary header integration in `TableManager`
+- Schema offset verification
+- Binary-aware `TableFileMetadataReader`
+- Header / schema integrity validation
+- Persistent table ID allocation
+- Restart-safe table ID continuation
+- Catalog recovery after restart
+- Full regression verification
 
-Dedicated recovery test suites:
-
-```text
-TableFileMetadataReaderTest
-TableManagerRecoveryTest
-```
-
-Current sprint-specific results:
-
-```text
-TableFileMetadataReaderTest  → 10 / 10 ✅
-TableManagerRecoveryTest     → 15 / 15 ✅
-```
-
-Full project regression:
+Current full project regression:
 
 ```bash
 mvn clean test
@@ -380,6 +462,11 @@ mvn clean test
 Result:
 
 ```text
+Tests run: 1013
+Failures: 0
+Errors: 0
+Skipped: 0
+
 BUILD SUCCESS
 ```
 
@@ -416,20 +503,21 @@ BUILD SUCCESS
 | 00-15 | JOIN Foundation | ✅ |
 | 00-16 | Advanced JOIN Operations | ✅ |
 | 00-17 | Query Engine Improvements | ✅ |
-| **00-18** | **Persistent Table Catalog & Schema Recovery** | **✅** |
+| 00-18 | Persistent Table Catalog & Schema Recovery | ✅ |
+| **00-19** | **Binary Table Header** | **✅** |
 
 ---
 
 ## Next Steps
 
-Future YEKDB development will continue building on this recovery foundation.
+Future YEKDB development will continue building on the binary storage foundation introduced in Sprint `00-19`.
 
 Possible next areas include:
 
-- Binary table headers
 - Persistent system catalog
 - Advanced metadata management
 - RecordManager refactoring
+- Record / page integration with binary table metadata
 - Persistent indexes
 - Transaction management
 - Write-Ahead Logging
