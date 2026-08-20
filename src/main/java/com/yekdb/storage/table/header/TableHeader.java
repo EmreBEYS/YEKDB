@@ -2,6 +2,7 @@ package com.yekdb.storage.table.header;
 
 import java.util.Objects;
 
+
 /**
  * Bir tablonun disk üzerinde saklanan temel metadata bilgisini temsil eder.
  *

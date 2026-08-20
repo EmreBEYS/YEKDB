@@ -6,6 +6,7 @@ import com.yekdb.storage.table.header.TableHeader;
 import com.yekdb.storage.table.header.TableHeaderConstants;
 import com.yekdb.storage.table.header.TableHeaderIO;
 import com.yekdb.storage.table.header.TableHeaderSerializer;
+import com.yekdb.storage.table.header.TableHeaderUpdater;
 import com.yekdb.storage.table.header.TableIdAllocator;
 
 import java.io.IOException;
@@ -28,7 +29,7 @@ import java.util.Objects;
  * Tablo ve sütun doğrulamaları ilgili domain sınıflarında
  * gerçekleştirildiği için burada tekrar doğrulama yapılmaz.
  *
- * Sürüm: 1.1
+ * Sürüm: 1.2
  */
 public class TableManager {
 
@@ -379,6 +380,146 @@ public class TableManager {
     }
 
     /**
+     * Verilen tablonun disk üzerindeki Binary Table Header
+     * bilgisini döndürür.
+     *
+     * @param tableName tablo adı
+     * @return persistent table header
+     */
+    public TableHeader getTableHeader(
+            String tableName
+    ) {
+
+        Path tableFile =
+                requireManagedTableFile(
+                        tableName
+                );
+
+        try {
+            return TableHeaderIO.read(
+                    tableFile
+            );
+
+        } catch (IOException exception) {
+            throw new IllegalStateException(
+                    "Table header could not be read: "
+                            + tableName,
+                    exception
+            );
+        }
+    }
+
+    /**
+     * Tablonun persistent rowCount metadata değerini
+     * belirtilen değer ile değiştirir.
+     *
+     * @param tableName tablo adı
+     * @param rowCount yeni row count
+     * @return güncellenmiş persistent header
+     */
+    public TableHeader updateTableRowCount(
+            String tableName,
+            long rowCount
+    ) {
+
+        Path tableFile =
+                requireManagedTableFile(
+                        tableName
+                );
+
+        return TableHeaderUpdater.persistRowCount(
+                tableFile,
+                rowCount
+        );
+    }
+
+    /**
+     * Tablonun persistent rowCount metadata değerini
+     * bir artırır.
+     *
+     * @param tableName tablo adı
+     * @return güncellenmiş persistent header
+     */
+    public TableHeader incrementTableRowCount(
+            String tableName
+    ) {
+
+        Path tableFile =
+                requireManagedTableFile(
+                        tableName
+                );
+
+        return TableHeaderUpdater.persistIncrementRowCount(
+                tableFile
+        );
+    }
+
+    /**
+     * Tablonun persistent rowCount metadata değerini
+     * bir azaltır.
+     *
+     * @param tableName tablo adı
+     * @return güncellenmiş persistent header
+     */
+    public TableHeader decrementTableRowCount(
+            String tableName
+    ) {
+
+        Path tableFile =
+                requireManagedTableFile(
+                        tableName
+                );
+
+        return TableHeaderUpdater.persistDecrementRowCount(
+                tableFile
+        );
+    }
+
+    /**
+     * Tablonun first/last physical data page metadata
+     * değerlerini atomik olarak günceller.
+     *
+     * @param tableName       tablo adı
+     * @param firstDataPageId ilk data page ID
+     * @param lastDataPageId  son data page ID
+     * @return güncellenmiş persistent header
+     */
+    public TableHeader updateTableDataPageRange(
+            String tableName,
+            long firstDataPageId,
+            long lastDataPageId
+    ) {
+
+        Path tableFile =
+                requireManagedTableFile(
+                        tableName
+                );
+
+        return TableHeaderUpdater.persistDataPageRange(
+                tableFile,
+                firstDataPageId,
+                lastDataPageId
+        );
+    }
+
+    /**
+     * Tablonun physical data page range metadata değerini
+     * boş duruma getirir.
+     *
+     * @param tableName tablo adı
+     * @return güncellenmiş persistent header
+     */
+    public TableHeader clearTableDataPageRange(
+            String tableName
+    ) {
+        return updateTableDataPageRange(
+                tableName,
+                -1L,
+                -1L
+        );
+    }
+
+    /**
      * Katalogdaki tabloları döndürür.
      *
      * @return tablo listesi
@@ -441,6 +582,62 @@ public class TableManager {
                     exception
             );
         }
+    }
+
+    /**
+     * Tablo adını doğrular ve tablonun hem katalog hem de
+     * fiziksel storage tarafından yönetildiğini garanti eder.
+     *
+     * @param tableName tablo adı
+     * @return doğrulanmış fiziksel .tbl yolu
+     */
+    private Path requireManagedTableFile(
+            String tableName
+    ) {
+
+        String normalizedName =
+                TableNameValidator.validate(
+                        tableName
+                );
+
+        Path tableFile =
+                resolveTableFile(
+                        normalizedName
+                );
+
+        boolean registered =
+                tableCatalog.containsTable(
+                        normalizedName
+                );
+
+        boolean fileExists =
+                Files.isRegularFile(
+                        tableFile
+                );
+
+        if (!registered && !fileExists) {
+            throw new TableNotFoundException(
+                    "Table not found: "
+                            + normalizedName
+            );
+        }
+
+        if (!registered) {
+            throw new TableNotFoundException(
+                    "Table exists on disk but is not registered "
+                            + "in catalog: "
+                            + normalizedName
+            );
+        }
+
+        if (!fileExists) {
+            throw new IllegalStateException(
+                    "Table is registered in catalog but physical file is missing: "
+                            + normalizedName
+            );
+        }
+
+        return tableFile;
     }
 
     /**

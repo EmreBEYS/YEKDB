@@ -1,12 +1,12 @@
 # YEKDB
 ### Yet Another Embedded Key Database
 
-> An educational relational database management system built from scratch in Java 21, with its own storage, SQL parsing, query execution, JOIN engine, aggregation pipeline, and rule-based JOIN optimization architecture.
+> An educational relational database management system built from scratch in Java 21, with its own storage, SQL parsing, query execution, JOIN engine, aggregation pipeline, rule-based JOIN optimization, persistent table recovery, and binary metadata management architecture.
 
 ![Java](https://img.shields.io/badge/Java-21-orange)
 ![Maven](https://img.shields.io/badge/Maven-3.x-blue)
 ![JUnit](https://img.shields.io/badge/JUnit-5-green)
-![Tests](https://img.shields.io/badge/Tests-1013%20Passing-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-1066%20Passing-brightgreen)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 ![Status](https://img.shields.io/badge/Status-Development-yellow)
 
@@ -28,10 +28,13 @@ The project is designed to explore how relational database systems work internal
 - JOIN processing
 - GROUP BY / HAVING / aggregate execution
 - Rule-based query optimization
-- Persistence and regression testing
+- Persistent table recovery
+- Binary table metadata management
+- Regression testing
 
 YEKDB does **not** rely on PostgreSQL, MySQL, SQLite, or another database engine for its internal storage or query execution.
-> Current development milestone: **Sprint 00-19 — Binary Table Header**
+
+> Current development milestone: **Sprint 00-20 — Persistent Table Metadata Mutation & TableManager Integration**
 
 ---
 
@@ -48,13 +51,14 @@ Main goals:
 - Support joins, filtering, grouping, aggregation, and sorting
 - Develop an extensible index infrastructure
 - Keep the codebase modular and test-driven
-- Prepare the architecture for future transactions, persistence improvements, and client/server support
+- Build restart-safe persistent metadata foundations
+- Prepare the architecture for transactions, WAL, persistent indexes, and client/server support
 
 ---
 
 ## Current Status
 
-**Current Sprint:** `00-19`  
+**Current Sprint:** `00-20`  
 **Status:** Completed ✅
 
 YEKDB currently includes:
@@ -69,23 +73,15 @@ YEKDB currently includes:
 - Query Execution Foundation
 - SELECT / WHERE Execution
 - Expression Evaluation
-- ORDER BY
-- LIMIT
-- FETCH
-- BETWEEN
-- IN
+- ORDER BY / LIMIT / FETCH
+- BETWEEN / IN
 - LIKE / NOT LIKE / ILIKE
-- GROUP BY
-- HAVING
-- JOIN Foundation
-- INNER JOIN
-- LEFT JOIN
-- RIGHT JOIN
-- FULL JOIN
+- GROUP BY / HAVING
+- INNER / LEFT / RIGHT / FULL JOIN
 - Multiple JOIN Chains
 - JOIN + GROUP BY / HAVING
 - JOIN + Aggregate Expressions
-- Advanced JOIN Optimization Foundation
+- Rule-Based JOIN Optimization Foundation
 - Persistent Table Schema Recovery
 - Atomic Table Catalog Recovery
 - Corrupted Table File Detection
@@ -96,38 +92,232 @@ YEKDB currently includes:
 - Header / Schema Cross-Validation
 - Persistent Table IDs
 - Restart-Safe Table ID Allocation
+- Persistent Row Count Mutation
+- Persistent First / Last Data Page Metadata Mutation
+- Read-Back Header Verification
+- Failure-Safe Header Updates
+- TableManager Metadata Mutation API
 
 ---
 
-## Sprint 00-19 — Binary Table Header
+# Sprint 00-20 — Persistent Table Metadata Mutation & TableManager Integration
 
-Sprint `00-19` introduces a fixed binary table header format and integrates it into YEKDB's physical `.tbl` storage and recovery architecture.
+Sprint `00-20` builds directly on the binary table-header foundation introduced in Sprint `00-19`.
 
-Previously, table schema metadata was stored only as UTF-8 text inside physical table files.
+The binary header already contained fields such as `rowCount`, `firstDataPageId`, and `lastDataPageId`; Sprint `00-20` turns those fields into safely mutable, persistent storage metadata and exposes them through `TableManager`.
 
-With this sprint, every table file now starts with a **512-byte binary header** containing core physical metadata. The existing UTF-8 schema remains stored after the header and is located through the `schemaOffset` field.
+## Main Features
 
-### Main Features
+- Immutable `TableHeader` mutation model
+- `rowCount` update support
+- `rowCount` increment / decrement support
+- Overflow and negative-count protection
+- First / last data page range mutation
+- Atomic page-range validation
+- Empty data-page range represented as `-1 / -1`
+- Persistent metadata updates through `TableHeaderIO`
+- Read → mutate → validate → write → read-back verification
+- Schema-preserving header rewrite
+- File-size preservation during header updates
+- Invalid mutation leaves physical file unchanged
+- Missing / truncated / corrupted file protection
+- Restart-safe metadata recovery
+- `TableManager` integration for storage-facing metadata operations
+- Table-name normalization during metadata updates
+- Full regression verification
 
-- Fixed 512-byte binary table header
-- Binary magic number and format version
-- Persistent table ID
-- UTF-8 table name serialization
-- Column count persistence
-- Row count persistence
-- First / last data page metadata
-- Schema offset persistence
-- Header flags
-- Reserved future metadata area
-- Binary serialization / deserialization
-- Header validation
-- Corrupted header detection
-- Physical header read / write support
-- Binary-aware table creation
-- Binary-aware catalog recovery
-- Header / schema cross-validation
-- Restart-safe table ID allocation
-- Full regression coverage
+---
+
+## Persistent Metadata Architecture
+
+```text
+Record / Storage Layer
+        │
+        ▼
+   TableManager
+        │
+        ├── getTableHeader()
+        ├── updateTableRowCount()
+        ├── incrementTableRowCount()
+        ├── decrementTableRowCount()
+        ├── updateTableDataPageRange()
+        └── clearTableDataPageRange()
+        │
+        ▼
+TableHeaderUpdater
+        │
+        ▼
+TableHeaderValidator
+        │
+        ▼
+TableHeaderIO
+        │
+        ▼
+     .tbl File
+```
+
+The upper storage layers do not need to know binary field offsets or physical header layout details.
+
+---
+
+## Metadata Mutation Flow
+
+```text
+.tbl File
+   │
+   ▼
+TableHeaderIO.read()
+   │
+   ▼
+Current TableHeader
+   │
+   ▼
+TableHeaderUpdater
+   │
+   ▼
+Validation
+   │
+   ▼
+TableHeaderIO.write()
+   │
+   ▼
+TableHeaderIO.read()
+   │
+   ▼
+Read-Back Verification
+```
+
+If validation fails, the write step is never reached and the physical file remains unchanged.
+
+---
+
+## TableManager Metadata API
+
+```java
+TableHeader header =
+        tableManager.getTableHeader("users");
+
+tableManager.updateTableRowCount(
+        "users",
+        25L
+);
+
+tableManager.incrementTableRowCount(
+        "users"
+);
+
+tableManager.decrementTableRowCount(
+        "users"
+);
+
+tableManager.updateTableDataPageRange(
+        "users",
+        100L,
+        105L
+);
+
+tableManager.clearTableDataPageRange(
+        "users"
+);
+```
+
+This keeps header persistence details encapsulated inside the table-storage layer.
+
+---
+
+## Physical Table File Format
+
+The physical layout introduced in Sprint `00-19` remains compatible:
+
+```text
+Offset     Size       Field
+------------------------------------------------
+0          4          Magic Number
+4          2          Format Version
+6          2          Header Size
+8          8          Table ID
+16         2          Table Name Length
+18         255        Table Name
+273        4          Column Count
+277        8          Row Count
+285        8          First Data Page ID
+293        8          Last Data Page ID
+301        8          Schema Offset
+309        4          Flags
+313        199        Reserved
+------------------------------------------------
+Total                 512 bytes
+```
+
+The UTF-8 schema still begins after the fixed binary header.
+
+```text
+0
+│
+├── Binary Table Header
+│   512 bytes
+│
+512
+│
+├── YEKDB_TABLE
+├── version=1
+├── tableName=users
+├── columnCount=3
+├── createdAt=...
+├── columns=
+├── id:INT
+├── username:STRING
+└── active:BOOLEAN
+```
+
+`FORMAT_VERSION` remains `1` because Sprint `00-20` does not introduce an incompatible physical layout change.
+
+---
+
+## Safety & Integrity Guarantees
+
+Sprint `00-20` verifies that:
+
+- Row count cannot become negative
+- Row count increment cannot overflow `Long.MAX_VALUE`
+- Data page IDs must both be `-1` or both be valid non-negative IDs
+- First data page ID cannot be greater than last data page ID
+- Invalid mutation attempts do not modify the table file
+- Corrupted headers are rejected
+- Truncated headers are rejected
+- Missing table files are rejected
+- Header rewrites do not truncate the schema region
+- Header rewrites do not change physical file size
+- Immutable metadata fields remain unchanged during mutation
+- Persisted metadata survives manager recreation and catalog reload
+
+---
+
+## Key Components
+
+### Binary Header Foundation
+
+```text
+com.yekdb.storage.table.header
+│
+├── TableHeader.java
+├── TableHeaderConstants.java
+├── TableHeaderFile.java
+├── TableHeaderIO.java
+├── TableHeaderSerializer.java
+├── TableHeaderValidator.java
+├── TableIdAllocator.java
+├── TableHeaderUpdater.java
+└── TableHeaderUpdateException.java
+```
+
+### Updated Integration
+
+```text
+com.yekdb.storage.table.TableManager
+```
+
+`TableManager` now acts as the main storage-facing API for persistent table metadata mutation.
 
 ---
 
@@ -166,292 +356,35 @@ Database Directory
              TableManager
 ```
 
----
-
-## Create / Recovery Lifecycle
-
-```text
-CREATE TABLE
-     │
-     ▼
-   Table
-     │
-     ▼
-TableMetadata
-     │
-     ▼
-TableIdAllocator
-     │
-     ▼
-TableHeader
-     │
-     ▼
-TableHeaderSerializer
-     │
-     ▼
-512-byte Binary Header
-     │
-     ├──────────────► TableCatalog
-     │
-     ▼
-UTF-8 Schema
-     │
-     ▼
-   .tbl File
-```
-
-After a restart:
-
-```text
-.tbl File
-    │
-    ▼
-TableHeaderIO
-    │
-    ▼
-Binary Header Validation
-    │
-    ▼
-schemaOffset
-    │
-    ▼
-TableFileMetadataReader
-    │
-    ▼
-TableRecoveryEntry
-    │
-    ├── Table
-    └── TableMetadata
-           │
-           ▼
-       TableCatalog
-           │
-           ▼
- TableIdAllocator Sync
-```
-
----
-
-## Atomic Catalog Recovery
-
-Catalog recovery is performed using a temporary catalog.
-
-```text
-Disk
- │
- ▼
-Temporary TableCatalog
- │
- ├── Recover table 1
- ├── Recover table 2
- └── Recover table 3
-        │
-        ▼
-All files valid?
-   │         │
-  NO        YES
-   │         │
-   ▼         ▼
-Abort     Replace
-Recovery   Runtime Catalog
-```
-
-If one physical table file is corrupted, the existing runtime catalog is preserved.
-
-This prevents partially recovered catalog states.
-
----
-
-## Corruption Handling
-
-YEKDB detects invalid physical table files and binary headers using:
-
-```java
-CorruptedTableFileException
-CorruptedTableHeaderException
-InvalidTableHeaderException
-```
-
-Validation includes:
-
-- Invalid binary magic number
-- Unsupported binary format version
-- Invalid header size
-- Truncated binary header
-- Invalid table name length
-- Invalid table metadata
-- Invalid schema offset
-- Missing metadata fields
-- Invalid metadata version
-- Invalid column count
-- Header / schema table name mismatch
-- Header / schema column count mismatch
-- Invalid creation timestamp
-- Invalid column definition
-- Unsupported DataType
-- Empty column schema
-- Physical filename / table name mismatch
-- Incomplete table files
-
----
-
-## New Components — 00-19
-
-```text
-com.yekdb.storage.table.header
-│
-├── TableHeader.java
-├── TableHeaderConstants.java
-├── TableHeaderFile.java
-├── TableHeaderIO.java
-├── TableHeaderSerializer.java
-├── TableHeaderValidator.java
-└── TableIdAllocator.java
-```
-
-Updated components:
-
-```text
-TableManager.java
-TableFileMetadataReader.java
-TableFileMetadataReaderTest.java
-TableManagerTest.java
-```
-
-Existing schema and catalog classes remain compatible with the binary header architecture:
-
-```text
-Table.java
-TableMetadata.java
-TableCatalog.java
-TableRecoveryEntry.java
-Column.java
-DataType.java
-```
-
-No breaking changes were required to the logical table model.
-
----
-
-## Recovery Example
-
-```java
-TableManager firstManager =
-        new TableManager(databaseDirectory);
-
-firstManager.createTable(
-        "users",
-        List.of(
-                new Column("id", DataType.INT),
-                new Column("username", DataType.STRING),
-                new Column("active", DataType.BOOLEAN)
-        )
-);
-```
-
-After simulating a restart:
-
-```java
-TableManager secondManager =
-        new TableManager(databaseDirectory);
-
-secondManager.loadCatalog();
-
-Table users =
-        secondManager.getTable("users");
-```
-
-The `users` schema is reconstructed directly from:
-
-```text
-users.tbl
-```
-
----
-
-## Physical Table File Format
-
-Current `.tbl` layout:
-
-```text
-Offset     Size       Field
-------------------------------------------------
-0          4          Magic Number
-4          2          Format Version
-6          2          Header Size
-8          8          Table ID
-16         2          Table Name Length
-18         255        Table Name
-273        4          Column Count
-277        8          Row Count
-285        8          First Data Page ID
-293        8          Last Data Page ID
-301        8          Schema Offset
-309        4          Flags
-313        199        Reserved
-------------------------------------------------
-Total                 512 bytes
-```
-
-The schema begins at the offset stored inside the header:
-
-```text
-0
-│
-├── Binary Table Header
-│   512 bytes
-│
-512
-│
-├── YEKDB_TABLE
-├── version=1
-├── tableName=users
-├── columnCount=3
-├── createdAt=2026-08-19T08:00:00
-├── columns=
-├── id:INT
-├── username:STRING
-└── active:BOOLEAN
-```
-
-Supported DataTypes:
-
-```text
-INT
-LONG
-DOUBLE
-BOOLEAN
-STRING
-```
+Catalog recovery remains atomic: recovered tables are first loaded into a temporary catalog and the active catalog is replaced only after successful recovery.
 
 ---
 
 ## Testing
 
-Sprint `00-19` includes dedicated tests for:
+Sprint `00-20` adds coverage for:
 
-- TableHeader model
-- Header validation
-- Binary serialization
-- Binary deserialization
-- Round-trip serialization
-- UTF-8 table names
-- Binary magic number validation
-- Format version validation
-- Header size validation
-- Invalid table name length
-- Reserved byte verification
-- Physical header write / read
-- Truncated header detection
-- Corrupted header detection
-- Binary header integration in `TableManager`
-- Schema offset verification
-- Binary-aware `TableFileMetadataReader`
-- Header / schema integrity validation
-- Persistent table ID allocation
-- Restart-safe table ID continuation
-- Catalog recovery after restart
-- Full regression verification
+- Row count mutation
+- Immutable header behavior
+- Negative row count rejection
+- Row count overflow
+- Data page range mutation
+- Invalid page-range rejection
+- Partial page-range rejection
+- Header persistence
+- Increment / decrement persistence
+- Schema preservation
+- Physical file-size preservation
+- Read-back verification
+- Missing table files
+- Corrupted headers
+- Truncated headers
+- Failure-safe disk behavior
+- Sequential metadata mutation
+- `TableManager` metadata API
+- Missing-table manager operations
+- Table-name normalization
+- Restart / reopen recovery
 
 Current full project regression:
 
@@ -462,10 +395,9 @@ mvn clean test
 Result:
 
 ```text
-Tests run: 1013
+Tests run: 1066
 Failures: 0
 Errors: 0
-Skipped: 0
 
 BUILD SUCCESS
 ```
@@ -504,25 +436,27 @@ BUILD SUCCESS
 | 00-16 | Advanced JOIN Operations | ✅ |
 | 00-17 | Query Engine Improvements | ✅ |
 | 00-18 | Persistent Table Catalog & Schema Recovery | ✅ |
-| **00-19** | **Binary Table Header** | **✅** |
+| 00-19 | Binary Table Header | ✅ |
+| **00-20** | **Persistent Table Metadata Mutation & TableManager Integration** | **✅** |
 
 ---
 
 ## Next Steps
 
-Future YEKDB development will continue building on the binary storage foundation introduced in Sprint `00-19`.
+Future development can now build on a persistent and safely mutable table-metadata layer.
 
 Possible next areas include:
 
-- Persistent system catalog
-- Advanced metadata management
-- RecordManager refactoring
-- Record / page integration with binary table metadata
+- Physical record/page integration with persistent metadata
+- Data page allocation lifecycle
+- Free-space management
+- RecordManager responsibility refactoring
 - Persistent indexes
+- Persistent system catalog
 - Transaction management
 - Write-Ahead Logging
-- Query optimization
-- EXPLAIN support
+- Recovery improvements
+- Query optimization / EXPLAIN
 - Client-server architecture
 
 ---
