@@ -1,5 +1,7 @@
 package com.yekdb.index;
 
+import com.yekdb.storage.record.RecordId;
+
 import com.yekdb.index.exception.DuplicateIndexKeyException;
 import com.yekdb.index.exception.InvalidIndexException;
 
@@ -92,6 +94,19 @@ public class Index<K extends Comparable<K>>
     }
 
     /**
+     * Canonical storage RecordId ile indeks girdisi ekler.
+     */
+    public void insertRecordId(
+            K key,
+            RecordId recordId
+    ) {
+        insert(
+                key,
+                RecordPointer.fromRecordId(recordId)
+        );
+    }
+
+    /**
      * IndexEntry nesnesi üzerinden kayıt ekler.
      */
     public void insert(IndexEntry<K> entry) {
@@ -124,6 +139,16 @@ public class Index<K extends Comparable<K>>
         }
 
         return List.copyOf(pointers);
+    }
+
+    /**
+     * Anahtara ait pointer'ları canonical RecordId listesi olarak döndürür.
+     */
+    public List<RecordId> searchRecordIds(K key) {
+        return search(key)
+                .stream()
+                .map(RecordPointer::toRecordId)
+                .toList();
     }
 
     /**
@@ -175,6 +200,19 @@ public class Index<K extends Comparable<K>>
     }
 
     /**
+     * Anahtara bağlı canonical RecordId ilişkisini siler.
+     */
+    public boolean removeRecordId(
+            K key,
+            RecordId recordId
+    ) {
+        return remove(
+                key,
+                RecordPointer.fromRecordId(recordId)
+        );
+    }
+
+    /**
      * Var olan pointer'ı yeni pointer ile değiştirir.
      */
     public boolean update(
@@ -213,6 +251,21 @@ public class Index<K extends Comparable<K>>
         );
 
         return true;
+    }
+
+    /**
+     * Canonical RecordId ilişkisini yeni fiziksel adresle günceller.
+     */
+    public boolean updateRecordId(
+            K key,
+            RecordId oldRecordId,
+            RecordId newRecordId
+    ) {
+        return update(
+                key,
+                RecordPointer.fromRecordId(oldRecordId),
+                RecordPointer.fromRecordId(newRecordId)
+        );
     }
 
     /**

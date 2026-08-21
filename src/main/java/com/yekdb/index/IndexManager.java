@@ -3,6 +3,7 @@ package com.yekdb.index;
 import com.yekdb.index.exception.DuplicateIndexException;
 import com.yekdb.index.exception.IndexNotFoundException;
 import com.yekdb.index.exception.InvalidIndexException;
+import com.yekdb.storage.record.RecordId;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -363,6 +364,24 @@ public class IndexManager implements Serializable {
     }
 
     /**
+     * İndekse canonical storage RecordId ile yeni kayıt ekler.
+     */
+    public <K extends Comparable<K>> void insertRecordIdEntry(
+            String indexName,
+            K key,
+            RecordId recordId
+    ) {
+
+        Index<K> index =
+                getTypedIndex(indexName);
+
+        index.insertRecordId(
+                key,
+                recordId
+        );
+    }
+
+    /**
      * İndeks içerisinde anahtar arar.
      */
     public <K extends Comparable<K>>
@@ -375,6 +394,21 @@ public class IndexManager implements Serializable {
                 getTypedIndex(indexName);
 
         return index.search(key);
+    }
+
+    /**
+     * İndeks aramasını canonical RecordId listesi olarak döndürür.
+     */
+    public <K extends Comparable<K>>
+    List<RecordId> searchRecordIds(
+            String indexName,
+            K key
+    ) {
+
+        Index<K> index =
+                getTypedIndex(indexName);
+
+        return index.searchRecordIds(key);
     }
 
     /**
@@ -412,6 +446,25 @@ public class IndexManager implements Serializable {
     }
 
     /**
+     * Belirli bir canonical RecordId ilişkisini siler.
+     */
+    public <K extends Comparable<K>>
+    boolean deleteRecordIdEntry(
+            String indexName,
+            K key,
+            RecordId recordId
+    ) {
+
+        Index<K> index =
+                getTypedIndex(indexName);
+
+        return index.removeRecordId(
+                key,
+                recordId
+        );
+    }
+
+    /**
      * Pointer bilgisini günceller.
      */
     public <K extends Comparable<K>>
@@ -429,6 +482,27 @@ public class IndexManager implements Serializable {
                 key,
                 oldPointer,
                 newPointer
+        );
+    }
+
+    /**
+     * Canonical RecordId bilgisini yeni fiziksel adresle günceller.
+     */
+    public <K extends Comparable<K>>
+    boolean updateRecordIdEntry(
+            String indexName,
+            K key,
+            RecordId oldRecordId,
+            RecordId newRecordId
+    ) {
+
+        Index<K> index =
+                getTypedIndex(indexName);
+
+        return index.updateRecordId(
+                key,
+                oldRecordId,
+                newRecordId
         );
     }
 

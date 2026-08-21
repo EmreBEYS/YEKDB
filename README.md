@@ -1,478 +1,672 @@
+<div align="center">
+
 # YEKDB
-### Yet Another Embedded Key Database
 
-> An educational relational database management system built from scratch in Java 21, with its own storage, SQL parsing, query execution, JOIN engine, aggregation pipeline, rule-based JOIN optimization, persistent table recovery, and binary metadata management architecture.
+### A relational database management system built from scratch in Java for education and research
 
-![Java](https://img.shields.io/badge/Java-21-orange)
-![Maven](https://img.shields.io/badge/Maven-3.x-blue)
-![JUnit](https://img.shields.io/badge/JUnit-5-green)
-![Tests](https://img.shields.io/badge/Tests-1066%20Passing-brightgreen)
-![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
-![Status](https://img.shields.io/badge/Status-Development-yellow)
+![Java](https://img.shields.io/badge/Java-21-orange?logo=openjdk)
+![Maven](https://img.shields.io/badge/Maven-Build-blue?logo=apachemaven)
+![Tests](https://img.shields.io/badge/Tests-1084%2F1084-success)
+![Status](https://img.shields.io/badge/Status-Active%20Development-brightgreen)
+
+</div>
 
 ---
 
 ## About the Project
 
-**YEKDB** is an educational relational database management system developed from scratch without using an existing database engine as its backend.
+**YEKDB** is a database management system developed from scratch in Java to explore and implement the internal architecture of a relational DBMS.
 
-The project is designed to explore how relational database systems work internally by implementing the core layers independently:
+The project goes beyond executing SQL-like statements. It covers physical file management, page-based storage, record serialization, table metadata, indexing, query parsing, expression evaluation, JOIN processing, aggregation, and query optimization.
 
-- Physical storage
-- Page and record management
-- Table and index management
-- SQL tokenization and parsing
-- Expression evaluation
-- Query execution
-- CRUD operations
-- JOIN processing
-- GROUP BY / HAVING / aggregate execution
-- Rule-based query optimization
-- Persistent table recovery
-- Binary table metadata management
-- Regression testing
-
-YEKDB does **not** rely on PostgreSQL, MySQL, SQLite, or another database engine for its internal storage or query execution.
-
-> Current development milestone: **Sprint 00-20 — Persistent Table Metadata Mutation & TableManager Integration**
-
----
-
-## Project Goals
-
-YEKDB is designed to gradually evolve into a PostgreSQL-inspired database engine while keeping the internal architecture understandable, testable, and modular.
-
-Main goals:
-
-- Build a DBMS from the ground up
-- Understand physical page and record storage
-- Implement database and table management
-- Build an SQL parsing and execution pipeline
-- Support joins, filtering, grouping, aggregation, and sorting
-- Develop an extensible index infrastructure
-- Keep the codebase modular and test-driven
-- Build restart-safe persistent metadata foundations
-- Prepare the architecture for transactions, WAL, persistent indexes, and client/server support
+Development follows a sprint-based workflow. The current milestone is **00-21 — RecordManager Refactor / Physical Record-Page Integration**, which is now complete.
 
 ---
 
 ## Current Status
 
-**Current Sprint:** `00-20`  
-**Status:** Completed ✅
-
-YEKDB currently includes:
-
-- Core Engine Architecture
-- Storage Engine Foundation
-- Page Management
-- Record Management
-- Database Management
-- Table Management
-- Index Management
-- Query Execution Foundation
-- SELECT / WHERE Execution
-- Expression Evaluation
-- ORDER BY / LIMIT / FETCH
-- BETWEEN / IN
-- LIKE / NOT LIKE / ILIKE
-- GROUP BY / HAVING
-- INNER / LEFT / RIGHT / FULL JOIN
-- Multiple JOIN Chains
-- JOIN + GROUP BY / HAVING
-- JOIN + Aggregate Expressions
-- Rule-Based JOIN Optimization Foundation
-- Persistent Table Schema Recovery
-- Atomic Table Catalog Recovery
-- Corrupted Table File Detection
-- Restart-Safe Table Metadata Recovery
-- 512-byte Binary Table Headers
-- Binary Table Header Serialization / Deserialization
-- Binary Header Integrity Validation
-- Header / Schema Cross-Validation
-- Persistent Table IDs
-- Restart-Safe Table ID Allocation
-- Persistent Row Count Mutation
-- Persistent First / Last Data Page Metadata Mutation
-- Read-Back Header Verification
-- Failure-Safe Header Updates
-- TableManager Metadata Mutation API
+- **Sprint:** `00-21`
+- **Sprint Name:** `RecordManager Refactor / Physical Record-Page Integration`
+- **Build:** Successful
+- **Compile:** Successful
+- **Package:** Successful
+- **Tests:** **1084 / 1084 passing**
+- **Status:** Active Development
 
 ---
 
-# Sprint 00-20 — Persistent Table Metadata Mutation & TableManager Integration
+## 00-21 Sprint Summary
 
-Sprint `00-20` builds directly on the binary table-header foundation introduced in Sprint `00-19`.
+Sprint 00-21 refactored the relationship between the record layer and the physical page layer. `RecordManager` can now work with explicit physical record addresses while preserving the existing logical record API.
 
-The binary header already contained fields such as `rowCount`, `firstDataPageId`, and `lastDataPageId`; Sprint `00-20` turns those fields into safely mutable, persistent storage metadata and exposes them through `TableManager`.
+### Completed Work
 
-## Main Features
-
-- Immutable `TableHeader` mutation model
-- `rowCount` update support
-- `rowCount` increment / decrement support
-- Overflow and negative-count protection
-- First / last data page range mutation
-- Atomic page-range validation
-- Empty data-page range represented as `-1 / -1`
-- Persistent metadata updates through `TableHeaderIO`
-- Read → mutate → validate → write → read-back verification
-- Schema-preserving header rewrite
-- File-size preservation during header updates
-- Invalid mutation leaves physical file unchanged
-- Missing / truncated / corrupted file protection
-- Restart-safe metadata recovery
-- `TableManager` integration for storage-facing metadata operations
-- Table-name normalization during metadata updates
-- Full regression verification
+- Added `RecordId(pageId, slotId)` as the physical record identifier.
+- Added `RecordLocation` to represent page, slot, offset, serialized size, and record information.
+- Preserved logical `long recordId` APIs while introducing physical `RecordId` APIs.
+- Added physical insert support.
+- Added physical read support.
+- Added physical update support.
+- Added physical delete support.
+- Implemented tombstone-based deletion.
+- Preserved physical slot stability after deletes.
+- Centralized physical page and slot validation.
+- Added validation for null IDs, missing pages, missing slots, and deleted records.
+- Added wrong-`PageType` validation.
+- Hardened page/slot boundary checks.
+- Removed redundant page reads from physical lookup paths.
+- Cleaned up `RecordId` and hardened `RecordLocation` validation.
+- Integrated the index layer with the physical `RecordId` model.
+- Preserved `RecordPointer` as a backward-compatible compatibility layer.
+- Kept the dependency direction as Index → Storage.
+- Completed the full regression suite successfully.
 
 ---
 
-## Persistent Metadata Architecture
+## Record Addressing Model
+
+YEKDB distinguishes between logical and physical record identities.
 
 ```text
-Record / Storage Layer
-        │
-        ▼
-   TableManager
-        │
-        ├── getTableHeader()
-        ├── updateTableRowCount()
-        ├── incrementTableRowCount()
-        ├── decrementTableRowCount()
-        ├── updateTableDataPageRange()
-        └── clearTableDataPageRange()
-        │
-        ▼
-TableHeaderUpdater
-        │
-        ▼
-TableHeaderValidator
-        │
-        ▼
-TableHeaderIO
-        │
-        ▼
-     .tbl File
+Logical Record ID
+────────────────────────
+long recordId
+
+Stable logical identity of a record.
+
+
+Physical Record ID
+────────────────────────
+RecordId(pageId, slotId)
+
+Physical location of a record inside storage.
 ```
 
-The upper storage layers do not need to know binary field offsets or physical header layout details.
-
----
-
-## Metadata Mutation Flow
-
-```text
-.tbl File
-   │
-   ▼
-TableHeaderIO.read()
-   │
-   ▼
-Current TableHeader
-   │
-   ▼
-TableHeaderUpdater
-   │
-   ▼
-Validation
-   │
-   ▼
-TableHeaderIO.write()
-   │
-   ▼
-TableHeaderIO.read()
-   │
-   ▼
-Read-Back Verification
-```
-
-If validation fails, the write step is never reached and the physical file remains unchanged.
-
----
-
-## TableManager Metadata API
+Example:
 
 ```java
-TableHeader header =
-        tableManager.getTableHeader("users");
+RecordId physicalId =
+        recordManager.findPhysicalRecordId(15);
 
-tableManager.updateTableRowCount(
-        "users",
-        25L
-);
-
-tableManager.incrementTableRowCount(
-        "users"
-);
-
-tableManager.decrementTableRowCount(
-        "users"
-);
-
-tableManager.updateTableDataPageRange(
-        "users",
-        100L,
-        105L
-);
-
-tableManager.clearTableDataPageRange(
-        "users"
-);
+Record record =
+        recordManager.readRecord(physicalId);
 ```
 
-This keeps header persistence details encapsulated inside the table-storage layer.
+When a physical `RecordId` is available, `RecordManager` can access the target page directly instead of scanning every page in storage.
 
 ---
 
-## Physical Table File Format
+## Tombstone Delete
 
-The physical layout introduced in Sprint `00-19` remains compatible:
+Physical records are not immediately removed from the page payload when deleted. Instead, YEKDB uses a tombstone flag.
 
 ```text
-Offset     Size       Field
-------------------------------------------------
-0          4          Magic Number
-4          2          Format Version
-6          2          Header Size
-8          8          Table ID
-16         2          Table Name Length
-18         255        Table Name
-273        4          Column Count
-277        8          Row Count
-285        8          First Data Page ID
-293        8          Last Data Page ID
-301        8          Schema Offset
-309        4          Flags
-313        199        Reserved
-------------------------------------------------
-Total                 512 bytes
+Before
+
+Page 4
+┌────────┬────────┬────────┬────────┐
+│ Slot 0 │ Slot 1 │ Slot 2 │ Slot 3 │
+│   A    │   B    │   C    │   D    │
+└────────┴────────┴────────┴────────┘
+
+
+After deleting B
+
+Page 4
+┌────────┬─────────────┬────────┬────────┐
+│ Slot 0 │   Slot 1    │ Slot 2 │ Slot 3 │
+│   A    │ B [DELETED] │   C    │   D    │
+└────────┴─────────────┴────────┴────────┘
 ```
 
-The UTF-8 schema still begins after the fixed binary header.
+Therefore:
 
 ```text
-0
+C → RecordId(4, 2)
+D → RecordId(4, 3)
+```
+
+remain unchanged.
+
+This prevents physical identifiers of following records from shifting after a delete.
+
+---
+
+## RecordManager API
+
+### Logical API
+
+```java
+Record insert(Row row);
+
+Record getRecord(long recordId);
+
+Row getRow(long recordId);
+
+void update(
+        long recordId,
+        Row newRow
+);
+
+void delete(long recordId);
+```
+
+### Physical API
+
+```java
+RecordId insertWithLocation(Row row);
+
+RecordLocation insertAndLocate(Row row);
+
+Record readRecord(RecordId recordId);
+
+RecordLocation locateRecord(RecordId recordId);
+
+RecordId findPhysicalRecordId(long recordId);
+
+void update(
+        RecordId recordId,
+        Row newRow
+);
+
+void delete(RecordId recordId);
+```
+
+---
+
+## Index / Record Integration
+
+The index layer is now compatible with the physical `RecordId` addressing model.
+
+```text
+Index Key
+    │
+    ▼
+RecordId(pageId, slotId)
+    │
+    ▼
+RecordManager
+    │
+    ▼
+Physical Page
+    │
+    ▼
+Record
+```
+
+The existing `RecordPointer` abstraction is preserved for backward compatibility with existing APIs, tests, and code paths.
+
+The intended dependency direction remains:
+
+```text
+Index
+  │
+  ▼
+Storage / RecordId
+```
+
+`RecordManager` does not depend on the index package.
+
+---
+
+## Storage Architecture
+
+```text
+Row
+ │
+ ▼
+RowSerializer
+ │
+ ▼
+Record
+ │
+ ▼
+RecordSerializer
+ │
+ ▼
+RecordManager
+ │
+ ├──────────────► RecordId
+ │                    │
+ │                    ├─ pageId
+ │                    └─ slotId
+ │
+ ├──────────────► RecordLocation
+ │                    │
+ │                    ├─ Page
+ │                    ├─ offset
+ │                    ├─ serializedSize
+ │                    └─ slotId
+ │
+ ▼
+Page
+ │
+ ▼
+PageManager
+ │
+ ▼
+DataFile
+ │
+ ▼
+Disk
+```
+
+---
+
+## Page Structure
+
+YEKDB stores physical records inside fixed-size pages.
+
+The page header tracks information such as:
+
+```text
+Page ID
+Page Type
+Record Count
+Used Bytes
+Next Page ID
+```
+
+`RecordManager` walks serialized records inside the page payload to resolve physical slot locations.
+
+---
+
+## Storage Layer
+
+The storage layer currently contains components such as:
+
+```text
+com.yekdb.storage
+├── StorageEngine
 │
-├── Binary Table Header
-│   512 bytes
+├── file
+│   ├── DataFile
+│   └── DatabaseHeader
 │
-512
+├── record
+│   ├── Record
+│   ├── RecordId
+│   ├── RecordLocation
+│   ├── RecordManager
+│   ├── RecordSerializer
+│   ├── Row
+│   ├── RowSerializer
+│   │
+│   └── page
+│       ├── Page
+│       ├── PageHeader
+│       ├── PageManager
+│       ├── PageSerializer
+│       └── PageType
 │
-├── YEKDB_TABLE
-├── version=1
-├── tableName=users
-├── columnCount=3
-├── createdAt=...
-├── columns=
-├── id:INT
-├── username:STRING
-└── active:BOOLEAN
+└── table
+    ├── Column
+    ├── DataType
+    ├── Table
+    ├── TableCatalog
+    ├── TableManager
+    ├── TableMetadata
+    │
+    └── header
+        ├── TableHeader
+        ├── TableHeaderConstants
+        ├── TableHeaderFile
+        ├── TableHeaderIO
+        ├── TableHeaderSerializer
+        ├── TableHeaderUpdater
+        ├── TableHeaderValidator
+        └── TableIdAllocator
 ```
 
-`FORMAT_VERSION` remains `1` because Sprint `00-20` does not introduce an incompatible physical layout change.
+---
+
+## Query Engine
+
+The query layer separates SQL-like parsing, expression evaluation, execution, and optimization into dedicated components.
+
+### Core Statements
+
+- `CREATE DATABASE`
+- `DROP DATABASE`
+- `USE`
+- `CREATE TABLE`
+- `DROP TABLE`
+- `INSERT`
+- `SELECT`
+- `UPDATE`
+- `DELETE`
+
+### Expression Support
+
+- Comparison expressions
+- Logical expressions
+- `NOT`
+- `BETWEEN`
+- `IN`
+- `LIKE`
+- Qualified column resolution
+
+### SELECT Features
+
+- `WHERE`
+- `ORDER BY`
+- `LIMIT`
+- `FETCH`
+- `GROUP BY`
+- `HAVING`
+- Aggregate expressions
+
+### JOIN Support
+
+- `INNER JOIN`
+- `LEFT JOIN`
+- `RIGHT JOIN`
+- `FULL JOIN`
+- Multiple JOIN chains
+- JOIN + WHERE
+- JOIN + GROUP BY
+- JOIN + HAVING
+- JOIN + aggregate expressions
+- JOIN optimization
 
 ---
 
-## Safety & Integrity Guarantees
-
-Sprint `00-20` verifies that:
-
-- Row count cannot become negative
-- Row count increment cannot overflow `Long.MAX_VALUE`
-- Data page IDs must both be `-1` or both be valid non-negative IDs
-- First data page ID cannot be greater than last data page ID
-- Invalid mutation attempts do not modify the table file
-- Corrupted headers are rejected
-- Truncated headers are rejected
-- Missing table files are rejected
-- Header rewrites do not truncate the schema region
-- Header rewrites do not change physical file size
-- Immutable metadata fields remain unchanged during mutation
-- Persisted metadata survives manager recreation and catalog reload
-
----
-
-## Key Components
-
-### Binary Header Foundation
+## Query Execution Architecture
 
 ```text
-com.yekdb.storage.table.header
+SQL
+ │
+ ▼
+SqlTokenizer
+ │
+ ▼
+SqlParser
+ │
+ ▼
+Statement
+ │
+ ▼
+StatementCommandMapper
+ │
+ ▼
+Command
+ │
+ ▼
+QueryExecutor
+ │
+ ├── SelectExecutor
+ ├── InsertExecutor
+ ├── UpdateExecutor
+ ├── DeleteExecutor
+ ├── JoinExecutor
+ ├── MultiJoinExecutor
+ ├── GroupByExecutor
+ ├── AggregateExecutor
+ ├── OrderByExecutor
+ └── LimitExecutor
+ │
+ ▼
+Storage / Table Layer
+```
+
+---
+
+## Query Optimization
+
+YEKDB contains dedicated components for query and JOIN planning.
+
+```text
+query.optimizer
+├── JoinExecutionContext
+├── JoinOptimizationResult
+├── JoinOptimizationRule
+├── JoinOptimizer
+├── QueryOptimizer
+├── QueryPlan
+└── QueryPlanType
+```
+
+This keeps execution behavior separate from optimization decisions.
+
+---
+
+## Index Layer
+
+The index subsystem includes the following core components:
+
+```text
+com.yekdb.index
+├── Index
+├── IndexEntry
+├── IndexIdentifierValidator
+├── IndexManager
+├── IndexMetadata
+├── IndexType
+├── RecordPointer
 │
-├── TableHeader.java
-├── TableHeaderConstants.java
-├── TableHeaderFile.java
-├── TableHeaderIO.java
-├── TableHeaderSerializer.java
-├── TableHeaderValidator.java
-├── TableIdAllocator.java
-├── TableHeaderUpdater.java
-└── TableHeaderUpdateException.java
+└── exception
+    ├── DuplicateIndexException
+    ├── DuplicateIndexKeyException
+    ├── IndexNotFoundException
+    └── InvalidIndexException
 ```
 
-### Updated Integration
-
-```text
-com.yekdb.storage.table.TableManager
-```
-
-`TableManager` now acts as the main storage-facing API for persistent table metadata mutation.
+As of sprint 00-21, the index addressing model is compatible with storage-layer `RecordId` values while retaining `RecordPointer` compatibility.
 
 ---
 
-## Table Recovery Architecture
+## Physical Validation
+
+Physical record access is validated before an operation is executed.
 
 ```text
-Database Directory
-        │
-        ├── users.tbl
-        ├── orders.tbl
-        └── products.tbl
-                │
-                ▼
-         TableHeaderIO
-                │
-                ▼
-         Binary TableHeader
-                │
-                ▼
-          schemaOffset
-                │
-                ▼
-     TableFileMetadataReader
-                │
-                ▼
-        TableRecoveryEntry
-           │             │
-           ▼             ▼
-         Table      TableMetadata
-           │             │
-           └──────┬──────┘
-                  ▼
-             TableCatalog
-                  │
-                  ▼
-             TableManager
+RecordId
+   │
+   ▼
+Page exists?
+   │
+   ▼
+Correct PageType?
+   │
+   ▼
+Slot within bounds?
+   │
+   ▼
+Record location valid?
+   │
+   ▼
+Operation
 ```
 
-Catalog recovery remains atomic: recovered tables are first loaded into a temporary catalog and the active catalog is replaced only after successful recovery.
+Covered edge cases include:
+
+- Null `RecordId`
+- Missing physical page
+- Missing physical slot
+- Slot equal to `recordCount`
+- Slot greater than `recordCount`
+- Wrong page type
+- Reading a deleted physical record
+- Updating a deleted physical record
+- Deleting an already deleted physical record
+- Null row during physical update
 
 ---
 
-## Testing
+## Test Status
 
-Sprint `00-20` adds coverage for:
-
-- Row count mutation
-- Immutable header behavior
-- Negative row count rejection
-- Row count overflow
-- Data page range mutation
-- Invalid page-range rejection
-- Partial page-range rejection
-- Header persistence
-- Increment / decrement persistence
-- Schema preservation
-- Physical file-size preservation
-- Read-back verification
-- Missing table files
-- Corrupted headers
-- Truncated headers
-- Failure-safe disk behavior
-- Sequential metadata mutation
-- `TableManager` metadata API
-- Missing-table manager operations
-- Table-name normalization
-- Restart / reopen recovery
-
-Current full project regression:
-
-```bash
-mvn clean test
-```
-
-Result:
+Current full regression result:
 
 ```text
-Tests run: 1066
-Failures: 0
-Errors: 0
+Tests run: 1084
+Failures : 0
+Errors   : 0
+Skipped  : 0
 
 BUILD SUCCESS
 ```
 
-Compilation:
+Major test areas include:
 
-```bash
-mvn clean compile
-```
-
-Result:
-
-```text
-BUILD SUCCESS
-```
-
----
-
-## Sprint History
-
-| Sprint | Module | Status |
-|---|---|---|
-| 00-03 | Core / Storage Foundation | ✅ |
-| 00-04 | Record & Storage Architecture | ✅ |
-| 00-05 | Physical Storage Engine | ✅ |
-| 00-06 | Database Management | ✅ |
-| 00-07 | Table Management | ✅ |
-| 00-08 | Record Management | ✅ |
-| 00-09 | Index Management | ✅ |
-| 00-10 | Query Execution Foundation | ✅ |
-| 00-11 | SELECT / WHERE Execution | ✅ |
-| 00-12 | Query Engine Expansion | ✅ |
-| 00-13 | Query Processing Improvements | ✅ |
-| 00-14 | Advanced SQL Operations | ✅ |
-| 00-15 | JOIN Foundation | ✅ |
-| 00-16 | Advanced JOIN Operations | ✅ |
-| 00-17 | Query Engine Improvements | ✅ |
-| 00-18 | Persistent Table Catalog & Schema Recovery | ✅ |
-| 00-19 | Binary Table Header | ✅ |
-| **00-20** | **Persistent Table Metadata Mutation & TableManager Integration** | **✅** |
-
----
-
-## Next Steps
-
-Future development can now build on a persistent and safely mutable table-metadata layer.
-
-Possible next areas include:
-
-- Physical record/page integration with persistent metadata
-- Data page allocation lifecycle
-- Free-space management
-- RecordManager responsibility refactoring
-- Persistent indexes
-- Persistent system catalog
-- Transaction management
-- Write-Ahead Logging
-- Recovery improvements
-- Query optimization / EXPLAIN
-- Client-server architecture
+- Record serialization
+- Row serialization
+- Page management
+- Page serialization
+- Physical RecordId addressing
+- Physical insert
+- Physical read
+- Physical update
+- Tombstone delete
+- Slot stability
+- Page boundary validation
+- Wrong PageType validation
+- Database management
+- Table management
+- Index management
+- SQL parsing
+- Expression evaluation
+- SELECT execution
+- CRUD persistence
+- JOIN execution
+- Multiple JOIN chains
+- GROUP BY / HAVING
+- Aggregation
+- Query optimization
+- Integration and regression behavior
 
 ---
 
 ## Build
 
+Compile the project with Maven:
+
 ```bash
 mvn clean compile
 ```
 
-## Test
+Run the full test suite:
 
 ```bash
-mvn clean test
+mvn test
+```
+
+Build the package:
+
+```bash
+mvn clean package
+```
+
+Current sprint status:
+
+```text
+compile  ✅
+test     ✅ 1084/1084
+package  ✅
 ```
 
 ---
 
-**YEKDB — Built from scratch to understand how database systems work internally.**
+## Project Structure
+
+```text
+src
+├── main
+│   ├── java
+│   │   └── com.yekdb
+│   │       ├── config
+│   │       ├── core
+│   │       ├── database
+│   │       ├── demo
+│   │       ├── exception
+│   │       ├── index
+│   │       ├── logs
+│   │       ├── query
+│   │       └── storage
+│   │
+│   └── resources
+│       └── yekdb.properties
+│
+└── test
+    └── java
+        └── com.yekdb
+```
+
+---
+
+## Design Principles
+
+YEKDB development follows several architectural principles:
+
+- Keep storage, query, and index responsibilities separated.
+- Hide physical storage details from higher layers where practical.
+- Preserve backward compatibility during refactors when possible.
+- Prefer small, testable components.
+- Keep serialization formats explicit.
+- Reject invalid or corrupted physical state instead of silently accepting it.
+- Run the full regression suite at the end of each sprint.
+- Build a reliable physical storage foundation before adding higher-level features.
+- Keep dependency directions explicit and avoid circular coupling.
+
+---
+
+## Sprint History
+
+YEKDB development progresses through small, controlled implementation sprints.
+
+Recent milestones:
+
+```text
+00-17  ✅ Query / codebase stabilization
+00-18  ✅ Storage development
+00-19  ✅ Binary Table Header
+00-20  ✅ Table Header / physical metadata continuation
+00-21  ✅ RecordManager Refactor / Physical Record-Page Integration
+```
+
+### 00-21 Result
+
+```text
+Record
+   │
+   ▼
+RecordManager
+   │
+   ├── Logical Record ID
+   ├── Physical RecordId
+   ├── Physical Insert
+   ├── Physical Read
+   ├── Physical Update
+   ├── Tombstone Delete
+   ├── Physical Validation
+   └── Index RecordId Integration
+   │
+   ▼
+Page / Storage
+```
+
+---
+
+## Next Steps
+
+Future storage and engine work may include:
+
+- Slotted-page architecture
+- Stable slot directory
+- Free-space management
+- Record relocation
+- Further index/record physical lookup optimization
+- Buffer pool and cache management
+- Transaction infrastructure
+- Write-ahead logging and recovery
+- Concurrency control
+- Query planner improvements
+
+---
+
+<div align="center">
+
+**YEKDB — Building a Database Management System from Scratch in Java**
+
+`00-21 complete • 1084/1084 tests passing`
+
+</div>

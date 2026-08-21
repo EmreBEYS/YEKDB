@@ -1221,4 +1221,425 @@ class RecordManagerTest {
                 )
         );
     }
+    @Test
+    void shouldUpdateRecordUsingPhysicalRecordId() throws Exception {
+        Row originalRow = new Row(List.of("Emre", 21));
+
+        RecordLocation location =
+                recordManager.insertAndLocate(originalRow);
+
+        Row updatedRow = new Row(List.of("Emre", 22));
+
+        recordManager.update(
+                location.getRecordId(),
+                updatedRow
+        );
+
+        Record updatedRecord =
+                recordManager.readRecord(
+                        location.getRecordId()
+                );
+
+        Row result =
+                RowSerializer.deserialize(
+                        updatedRecord.getData()
+                );
+
+        assertEquals(updatedRow, result);
+    }
+    @Test
+    void physicalUpdateShouldPreserveLogicalRecordId() throws Exception {
+        RecordLocation location =
+                recordManager.insertAndLocate(
+                        new Row(List.of("before"))
+                );
+
+        long logicalRecordId =
+                location.record().getRecordId();
+
+        recordManager.update(
+                location.getRecordId(),
+                new Row(List.of("after-after-after"))
+        );
+
+        Record updated =
+                recordManager.readRecord(
+                        location.getRecordId()
+                );
+
+        assertEquals(
+                logicalRecordId,
+                updated.getRecordId()
+        );
+    }
+    @Test
+    void shouldUpdateRecordWhenSerializedSizeChanges() throws Exception {
+        RecordLocation location =
+                recordManager.insertAndLocate(
+                        new Row(List.of("a"))
+                );
+
+        RecordId physicalId =
+                location.getRecordId();
+
+        Row largerRow =
+                new Row(List.of(
+                        "this-is-a-much-larger-value-than-before"
+                ));
+
+        recordManager.update(
+                physicalId,
+                largerRow
+        );
+
+        Record updated =
+                recordManager.readRecord(physicalId);
+
+        Row result =
+                RowSerializer.deserialize(
+                        updated.getData()
+                );
+
+        assertEquals(largerRow, result);
+    }
+    @Test
+    void shouldDeleteRecordUsingPhysicalRecordId()
+            throws Exception {
+
+        RecordLocation location =
+                recordManager.insertAndLocate(
+                        new Row(List.of("Emre"))
+                );
+
+        RecordId physicalId =
+                location.getRecordId();
+
+        recordManager.delete(physicalId);
+
+        RecordLocation deletedLocation =
+                recordManager.locateRecord(
+                        physicalId
+                );
+
+        assertNotNull(deletedLocation);
+
+        assertTrue(
+                deletedLocation.record().isDeleted()
+        );
+    }
+    @Test
+    void physicalDeleteShouldPreserveLogicalRecordId()
+            throws Exception {
+
+        RecordLocation location =
+                recordManager.insertAndLocate(
+                        new Row(List.of("before"))
+                );
+
+        long logicalId =
+                location.record().getRecordId();
+
+        RecordId physicalId =
+                location.getRecordId();
+
+        recordManager.delete(physicalId);
+
+        RecordLocation deletedLocation =
+                recordManager.locateRecord(
+                        physicalId
+                );
+
+        assertNotNull(deletedLocation);
+
+        assertEquals(
+                logicalId,
+                deletedLocation.record().getRecordId()
+        );
+
+        assertTrue(
+                deletedLocation.record().isDeleted()
+        );
+    }
+    @Test
+    void deletingRecordShouldNotShiftFollowingPhysicalSlots()
+            throws Exception {
+
+        RecordLocation first =
+                recordManager.insertAndLocate(
+                        new Row(List.of("A"))
+                );
+
+        RecordLocation second =
+                recordManager.insertAndLocate(
+                        new Row(List.of("B"))
+                );
+
+        RecordLocation third =
+                recordManager.insertAndLocate(
+                        new Row(List.of("C"))
+                );
+
+        RecordId thirdPhysicalId =
+                third.getRecordId();
+
+        recordManager.delete(
+                second.getRecordId()
+        );
+
+        Record thirdAfterDelete =
+                recordManager.readRecord(
+                        thirdPhysicalId
+                );
+
+        assertNotNull(
+                thirdAfterDelete
+        );
+
+        assertEquals(
+                third.record().getRecordId(),
+                thirdAfterDelete.getRecordId()
+        );
+    }
+
+    @Test
+    void shouldRejectNullPhysicalRecordIdDuringRead() {
+
+        assertThrows(
+                NullPointerException.class,
+                () -> recordManager.readRecord(null)
+        );
+    }
+    @Test
+    void shouldRejectNullPhysicalRecordIdDuringUpdate() {
+
+        Row newRow =
+                new Row(List.of("updated"));
+
+        assertThrows(
+                NullPointerException.class,
+                () -> recordManager.update(
+                        (RecordId) null,
+                        newRow
+                )
+        );
+    }
+    @Test
+    void shouldRejectNullPhysicalRecordIdDuringDelete() {
+
+        assertThrows(
+                NullPointerException.class,
+                () -> recordManager.delete(
+                        (RecordId) null
+                )
+        );
+    }
+    @Test
+    void shouldRejectPhysicalRecordIdWithMissingPage()
+            throws Exception {
+
+        RecordId invalidId =
+                new RecordId(
+                        999_999,
+                        0
+                );
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> recordManager.readRecord(
+                        invalidId
+                )
+        );
+    }
+    @Test
+    void shouldRejectPhysicalRecordIdWithMissingSlot()
+            throws Exception {
+
+        RecordLocation location =
+                recordManager.insertAndLocate(
+                        new Row(List.of("existing"))
+                );
+
+        RecordId invalidSlot =
+                new RecordId(
+                        location.getPageId(),
+                        999_999
+                );
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> recordManager.readRecord(
+                        invalidSlot
+                )
+        );
+    }
+    @Test
+    void shouldRejectReadingDeletedPhysicalRecord()
+            throws Exception {
+
+        RecordLocation location =
+                recordManager.insertAndLocate(
+                        new Row(List.of("deleted"))
+                );
+
+        RecordId physicalId =
+                location.getRecordId();
+
+        recordManager.delete(
+                physicalId
+        );
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> recordManager.readRecord(
+                        physicalId
+                )
+        );
+    }
+    @Test
+    void shouldRejectUpdatingDeletedPhysicalRecord()
+            throws Exception {
+
+        RecordLocation location =
+                recordManager.insertAndLocate(
+                        new Row(List.of("before"))
+                );
+
+        RecordId physicalId =
+                location.getRecordId();
+
+        recordManager.delete(
+                physicalId
+        );
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> recordManager.update(
+                        physicalId,
+                        new Row(List.of("after"))
+                )
+        );
+    }
+    @Test
+    void shouldRejectDeletingPhysicalRecordTwice()
+            throws Exception {
+
+        RecordLocation location =
+                recordManager.insertAndLocate(
+                        new Row(List.of("delete-me"))
+                );
+
+        RecordId physicalId =
+                location.getRecordId();
+
+        recordManager.delete(
+                physicalId
+        );
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> recordManager.delete(
+                        physicalId
+                )
+        );
+    }
+    @Test
+    void shouldRejectNullRowDuringPhysicalUpdate()
+            throws Exception {
+
+        RecordLocation location =
+                recordManager.insertAndLocate(
+                        new Row(List.of("existing"))
+                );
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> recordManager.update(
+                        location.getRecordId(),
+                        null
+                )
+        );
+    }
+    @Test
+    void shouldRejectSlotEqualToRecordCount()
+            throws Exception {
+
+        RecordLocation location =
+                recordManager.insertAndLocate(
+                        new Row(List.of("A"))
+                );
+
+        int pageId =
+                location.getPageId();
+
+        Page page =
+                pageManager.readPage(pageId);
+
+        RecordId invalidId =
+                new RecordId(
+                        pageId,
+                        page.getHeader().getRecordCount()
+                );
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> recordManager.readRecord(
+                        invalidId
+                )
+        );
+    }
+    @Test
+    void shouldRejectSlotGreaterThanRecordCount()
+            throws Exception {
+
+        RecordLocation location =
+                recordManager.insertAndLocate(
+                        new Row(List.of("A"))
+                );
+
+        RecordId invalidId =
+                new RecordId(
+                        location.getPageId(),
+                        999_999
+                );
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> recordManager.readRecord(
+                        invalidId
+                )
+        );
+    }
+    @Test
+    void shouldRejectPhysicalRecordIdForWrongPageType()
+            throws Exception {
+
+        int pageId =
+                pageManager.getPageCount();
+
+        Page nonRecordPage =
+                new Page(
+                        pageId,
+                        PageType.INDEX
+                );
+
+        pageManager.writePage(
+                nonRecordPage
+        );
+
+        pageManager.sync();
+
+        RecordId invalidId =
+                new RecordId(
+                        pageId,
+                        0
+                );
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> recordManager.readRecord(
+                        invalidId
+                )
+        );
+    }
+
 }

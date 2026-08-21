@@ -75,6 +75,47 @@ public final class RecordManager {
     public synchronized Record insert(Row row)
             throws IOException {
 
+        return insertInternal(row).record();
+    }
+
+    /**
+     * Row nesnesini fiziksel kayıt olarak ekler ve oluşan
+     * fiziksel RecordId bilgisini döndürür.
+     *
+     * Mevcut insert(Row) API'sini bozmadan page/slot adreslemesi
+     * gereken katmanların kullanabilmesi için sağlanır.
+     *
+     * @param row Eklenecek satır
+     * @return Kaydın fiziksel Page/Slot kimliği
+     */
+    public synchronized RecordId insertWithLocation(Row row)
+            throws IOException {
+
+        return insertInternal(row).getRecordId();
+    }
+
+    /**
+     * Row nesnesini ekler ve fiziksel konum bilgisini döndürür.
+     *
+     * Özellikle storage testleri ve ileride index entegrasyonu için
+     * kaydın page, slot, offset ve serialized size bilgilerine
+     * doğrudan erişim sağlar.
+     */
+    public synchronized RecordLocation insertAndLocate(Row row)
+            throws IOException {
+
+        return insertInternal(row);
+    }
+
+    /**
+     * Insert işleminin tek gerçek uygulamasıdır.
+     *
+     * Böylece insert(Row), insertWithLocation(Row) ve
+     * insertAndLocate(Row) aynı fiziksel yazma yolunu kullanır.
+     */
+    private RecordLocation insertInternal(Row row)
+            throws IOException {
+
         validateRow(row);
 
         long recordId = nextRecordId.getAndIncrement();
@@ -103,6 +144,12 @@ public final class RecordManager {
                 recordBytes.length
         );
 
+        int slotId =
+                targetPage.getHeader().getRecordCount();
+
+        int writeOffset =
+                targetPage.getHeader().getUsedBytes();
+
         appendRecordToPage(
                 targetPage,
                 recordBytes
@@ -111,7 +158,13 @@ public final class RecordManager {
         pageManager.writePage(targetPage);
         pageManager.sync();
 
-        return record;
+        return new RecordLocation(
+                targetPage,
+                writeOffset,
+                recordBytes.length,
+                slotId,
+                record
+        );
     }
 
     /**
@@ -144,6 +197,139 @@ public final class RecordManager {
     }
 
     /**
+     * Fiziksel RecordId üzerinden aktif kaydı okur.
+     *
+     * Fiziksel konum doğrulaması merkezi requirePhysicalLocation(...)
+     * metodu üzerinden gerçekleştirilir.
+     */
+    public synchronized Record readRecord(RecordId recordId)
+            throws IOException {
+
+        RecordLocation location =
+                requirePhysicalLocation(recordId);
+
+        if (location.record().isDeleted()) {
+            throw new IllegalStateException(
+                    "Record has been deleted at physical location: " +
+                            recordId
+            );
+        }
+
+        return location.record();
+    }
+
+    /**
+     * Fiziksel Page/Slot kimliğine ait RecordLocation bilgisini bulur.
+     *
+     * <p>Bu metod bulunamayan fiziksel adresler için {@code null}
+     * döndürür. Strict validation gereken read/update/delete yolları
+     * {@link #requirePhysicalLocation(RecordId)} kullanır.</p>
+     */
+    public synchronized RecordLocation locateRecord(RecordId recordId)
+            throws IOException {
+
+        Objects.requireNonNull(
+                recordId,
+                "RecordId cannot be null."
+        );
+
+        if (recordId.pageId() >= pageManager.getPageCount()) {
+            return null;
+        }
+
+        Page page = pageManager.readPage(
+                recordId.pageId()
+        );
+
+        if (page.getHeader().getPageType()
+                != recordPageType) {
+            return null;
+        }
+
+        if (recordId.slotId()
+                >= page.getHeader().getRecordCount()) {
+            return null;
+        }
+
+        return locateRecordInPage(
+                page,
+                recordId.slotId()
+        );
+    }
+
+    /**
+     * Daha önce okunmuş bir record page içerisinde belirtilen slotu bulur.
+     *
+     * <p>Page nesnesinin caller tarafından doğrulanmış olması beklenir.
+     * Böylece physical read/update/delete akışlarında aynı page'in iki kez
+     * diskten okunması engellenir.</p>
+     */
+    private RecordLocation locateRecordInPage(
+            Page page,
+            int slotId
+    ) {
+
+        int offset = 0;
+        int currentSlotId = 0;
+        int usedBytes =
+                page.getHeader().getUsedBytes();
+
+        while (offset < usedBytes) {
+
+            int serializedSize =
+                    calculateRecordSize(
+                            page,
+                            offset
+                    );
+
+            if (currentSlotId == slotId) {
+
+                byte[] recordBytes =
+                        Arrays.copyOfRange(
+                                page.getPayload(),
+                                offset,
+                                offset + serializedSize
+                        );
+
+                Record record =
+                        RecordSerializer.deserialize(
+                                recordBytes
+                        );
+
+                return new RecordLocation(
+                        page,
+                        offset,
+                        serializedSize,
+                        currentSlotId,
+                        record
+                );
+            }
+
+            offset += serializedSize;
+            currentSlotId++;
+        }
+
+        return null;
+    }
+
+    /**
+     * Mantıksal long Record ID değerini fiziksel Page/Slot kimliğine
+     * dönüştürür.
+     */
+    public synchronized RecordId findPhysicalRecordId(long recordId)
+            throws IOException {
+
+        validateRecordId(recordId);
+
+        RecordLocation location =
+                findRecordLocation(recordId);
+
+        return location == null
+                ? null
+                : location.getRecordId();
+    }
+
+    /**
      * Belirtilen kayda ait Row nesnesini diskten okur.
      *
      * @param recordId Kayıt kimliği
@@ -160,11 +346,9 @@ public final class RecordManager {
     }
 
     /**
-     * Belirtilen kaydın verisini günceller.
+     * Belirtilen kaydın verisini mantıksal Record ID üzerinden günceller.
      *
-     * Yeni kayıt aynı fiziksel sayfaya sığmalıdır.
-     *
-     * @param recordId Güncellenecek kayıt kimliği
+     * @param recordId Güncellenecek mantıksal kayıt kimliği
      * @param newRow Yeni satır verisi
      */
     public synchronized void update(
@@ -184,9 +368,51 @@ public final class RecordManager {
             );
         }
 
+        updateAtLocation(
+                location,
+                newRow
+        );
+    }
+
+    /**
+     * Belirtilen kaydın verisini fiziksel Page/Slot RecordId üzerinden günceller.
+     *
+     * @param recordId Güncellenecek fiziksel kayıt kimliği
+     * @param newRow Yeni satır verisi
+     */
+    public synchronized void update(
+            RecordId recordId,
+            Row newRow
+    ) throws IOException {
+
+        validateRow(newRow);
+
+        RecordLocation location =
+                requirePhysicalLocation(recordId);
+
+        updateAtLocation(
+                location,
+                newRow
+        );
+    }
+
+    /**
+     * Logical ve physical update yollarının ortak uygulamasıdır.
+     */
+    private void updateAtLocation(
+            RecordLocation location,
+            Row newRow
+    ) throws IOException {
+
+        Objects.requireNonNull(
+                location,
+                "RecordLocation cannot be null."
+        );
+
         if (location.record().isDeleted()) {
             throw new IllegalStateException(
-                    "Cannot update a deleted record: " + recordId
+                    "Cannot update a deleted record. Record ID: " +
+                            location.record().getRecordId()
             );
         }
 
@@ -194,12 +420,14 @@ public final class RecordManager {
                 RowSerializer.serialize(newRow);
 
         Record updatedRecord = new Record(
-                recordId,
+                location.record().getRecordId(),
                 rowBytes
         );
 
         byte[] updatedRecordBytes =
-                RecordSerializer.serialize(updatedRecord);
+                RecordSerializer.serialize(
+                        updatedRecord
+                );
 
         int newPageUsedBytes =
                 location.page().getHeader().getUsedBytes()
@@ -209,7 +437,9 @@ public final class RecordManager {
         if (newPageUsedBytes > Page.PAYLOAD_SIZE) {
             throw new IllegalStateException(
                     "Updated record does not fit in its current page. " +
-                            "Record ID: " + recordId + "."
+                            "Record ID: " +
+                            location.record().getRecordId() +
+                            "."
             );
         }
 
@@ -218,17 +448,20 @@ public final class RecordManager {
                 updatedRecordBytes
         );
 
-        pageManager.writePage(location.page());
+        pageManager.writePage(
+                location.page()
+        );
+
         pageManager.sync();
     }
 
     /**
-     * Belirtilen kaydı mantıksal olarak siler.
+     * Belirtilen kaydı mantıksal Record ID üzerinden siler.
      *
-     * Record fiziksel olarak sayfada kalır ve deleted flag değeri
+     * Record fiziksel olarak sayfada tutulmaya devam eder ve deleted flag
      * true yapılır.
      *
-     * @param recordId Silinecek kayıt kimliği
+     * @param recordId Silinecek mantıksal kayıt kimliği
      */
     public synchronized void delete(long recordId)
             throws IOException {
@@ -244,29 +477,142 @@ public final class RecordManager {
             );
         }
 
-        if (location.record().isDeleted()) {
+        deleteAtLocation(location);
+    }
+
+    /**
+     * Belirtilen kaydı fiziksel Page/Slot RecordId üzerinden siler.
+     *
+     * Tombstone delete kullanıldığı için kayıt payload'dan çıkarılmaz ve
+     * sonraki slot numaraları değişmez.
+     *
+     * @param recordId Silinecek fiziksel kayıt kimliği
+     */
+    public synchronized void delete(RecordId recordId)
+            throws IOException {
+
+        RecordLocation location =
+                requirePhysicalLocation(recordId);
+
+        deleteAtLocation(location);
+    }
+
+    /**
+     * Logical ve physical delete yollarının ortak tombstone uygulamasıdır.
+     */
+    private void deleteAtLocation(
+            RecordLocation location
+    ) throws IOException {
+
+        Objects.requireNonNull(
+                location,
+                "RecordLocation cannot be null."
+        );
+
+        Record record =
+                location.record();
+
+        if (record.isDeleted()) {
             throw new IllegalStateException(
-                    "Record has already been deleted: " + recordId
+                    "Record has already been deleted: " +
+                            record.getRecordId()
             );
         }
 
-        location.record().markAsDeleted();
+        record.markAsDeleted();
 
         byte[] deletedRecordBytes =
-                RecordSerializer.serialize(
-                        location.record()
-                );
+                RecordSerializer.serialize(record);
 
-        System.arraycopy(
-                deletedRecordBytes,
-                0,
-                location.page().getPayload(),
-                location.offset(),
-                deletedRecordBytes.length
+        /*
+         * Tombstone delete:
+         * Serialized record boyutu değişmediği için fiziksel slot ve
+         * sonraki kayıtların slot numaraları korunur.
+         */
+        replaceRecordInPage(
+                location,
+                deletedRecordBytes
         );
 
-        pageManager.writePage(location.page());
+        pageManager.writePage(
+                location.page()
+        );
+
         pageManager.sync();
+    }
+
+    /**
+     * Fiziksel RecordId değerini doğrular ve karşılık gelen
+     * RecordLocation bilgisini döndürür.
+     *
+     * <p>Page yalnızca bir kez okunur. Page type ve slot sınırı
+     * doğrulandıktan sonra aynı Page nesnesi üzerinde slot çözümlemesi
+     * yapılır.</p>
+     */
+    private RecordLocation requirePhysicalLocation(
+            RecordId recordId
+    ) throws IOException {
+
+        Objects.requireNonNull(
+                recordId,
+                "RecordId cannot be null."
+        );
+
+        int pageCount =
+                pageManager.getPageCount();
+
+        if (recordId.pageId() >= pageCount) {
+            throw new IllegalArgumentException(
+                    "Physical page does not exist: " +
+                            recordId.pageId()
+            );
+        }
+
+        Page page =
+                pageManager.readPage(
+                        recordId.pageId()
+                );
+
+        if (page.getHeader().getPageType()
+                != recordPageType) {
+
+            throw new IllegalArgumentException(
+                    "Physical page is not a record page. " +
+                            "Page ID: " +
+                            recordId.pageId() +
+                            ", actual type: " +
+                            page.getHeader().getPageType()
+            );
+        }
+
+        if (recordId.slotId()
+                >= page.getHeader().getRecordCount()) {
+
+            throw new IllegalArgumentException(
+                    "Physical slot does not exist. " +
+                            "Page ID: " +
+                            recordId.pageId() +
+                            ", slot ID: " +
+                            recordId.slotId() +
+                            ", record count: " +
+                            page.getHeader().getRecordCount()
+            );
+        }
+
+        RecordLocation location =
+                locateRecordInPage(
+                        page,
+                        recordId.slotId()
+                );
+
+        if (location == null) {
+            throw new IllegalArgumentException(
+                    "Record does not exist at physical location: " +
+                            recordId
+            );
+        }
+
+        return location;
     }
 
     /**
@@ -467,6 +813,7 @@ public final class RecordManager {
             }
 
             int offset = 0;
+            int slotId = 0;
             int usedBytes =
                     page.getHeader().getUsedBytes();
 
@@ -495,11 +842,13 @@ public final class RecordManager {
                             page,
                             offset,
                             serializedSize,
+                            slotId,
                             record
                     );
                 }
 
                 offset += serializedSize;
+                slotId++;
             }
         }
 
@@ -722,14 +1071,5 @@ public final class RecordManager {
         }
     }
 
-    /**
-     * Bir kaydın fiziksel konum bilgisini taşır.
-     */
-    private record RecordLocation(
-            Page page,
-            int offset,
-            int serializedSize,
-            Record record
-    ) {
-    }
+
 }

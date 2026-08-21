@@ -1,47 +1,59 @@
 package com.yekdb.index;
 
+import com.yekdb.storage.record.RecordId;
+
 import java.io.Serializable;
 import java.util.Objects;
 
 /**
- * Bir kaydın fiziksel konumunu temsil eder.
+ * Bir kaydın fiziksel konumunu temsil eden legacy index pointer tipidir.
  *
- * RecordPointer, bir kaydın veri dosyası içerisindeki
- * sayfa (Page) ve slot (Record) konumunu gösterir.
- *
- * Örnek:
- * Page 12
- * Slot 7
+ * <p>Storage katmanındaki canonical fiziksel adres tipi artık
+ * {@link RecordId}'dir. RecordPointer mevcut index API'leri ve serialized
+ * verilerle geriye dönük uyumluluk için korunur ve RecordId ile çift yönlü
+ * dönüşüm sağlar.</p>
  */
 public class RecordPointer implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
-    /**
-     * Kaydın bulunduğu sayfa numarası.
-     */
     private int pageId;
-
-    /**
-     * Sayfa içerisindeki kayıt numarası.
-     */
     private int slotId;
 
-    /**
-     * Varsayılan constructor.
-     */
     public RecordPointer() {
     }
 
-    /**
-     * Parametreli constructor.
-     *
-     * @param pageId Sayfa numarası
-     * @param slotId Slot numarası
-     */
     public RecordPointer(int pageId, int slotId) {
         this.pageId = pageId;
         this.slotId = slotId;
+    }
+
+    /**
+     * Canonical RecordId üzerinden compatibility pointer oluşturur.
+     */
+    public RecordPointer(RecordId recordId) {
+        Objects.requireNonNull(
+                recordId,
+                "RecordId cannot be null."
+        );
+        this.pageId = recordId.pageId();
+        this.slotId = recordId.slotId();
+    }
+
+    public static RecordPointer fromRecordId(RecordId recordId) {
+        return new RecordPointer(recordId);
+    }
+
+    /**
+     * Bu pointer'ı storage katmanının canonical RecordId tipine dönüştürür.
+     */
+    public RecordId toRecordId() {
+        if (!isValid()) {
+            throw new IllegalStateException(
+                    "Cannot convert invalid RecordPointer to RecordId: " + this
+            );
+        }
+        return new RecordId(pageId, slotId);
     }
 
     public int getPageId() {
@@ -60,11 +72,6 @@ public class RecordPointer implements Serializable {
         this.slotId = slotId;
     }
 
-    /**
-     * Pointer'ın geçerli olup olmadığını kontrol eder.
-     *
-     * @return geçerliyse true
-     */
     public boolean isValid() {
         return pageId >= 0 && slotId >= 0;
     }

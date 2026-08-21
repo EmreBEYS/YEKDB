@@ -1,5 +1,7 @@
 package com.yekdb.index;
 
+import com.yekdb.storage.record.RecordId;
+
 import java.io.Serializable;
 import java.util.Objects;
 
@@ -63,6 +65,24 @@ public class IndexEntry<K extends Comparable<K>> implements Comparable<IndexEntr
 
     public void setPointer(RecordPointer pointer) {
         this.pointer = pointer;
+    }
+
+    /**
+     * Pointer bilgisini canonical RecordId olarak döndürür.
+     */
+    public RecordId getRecordId() {
+        return pointer == null
+                ? null
+                : pointer.toRecordId();
+    }
+
+    /**
+     * Canonical RecordId bilgisini compatibility pointer'a dönüştürür.
+     */
+    public void setRecordId(RecordId recordId) {
+        this.pointer = recordId == null
+                ? null
+                : RecordPointer.fromRecordId(recordId);
     }
 
     /**
