@@ -1,672 +1,322 @@
-<div align="center">
-
 # YEKDB
+### Yet Another Embedded Key Database
 
-### A relational database management system built from scratch in Java for education and research
+> A relational database management system written from scratch in Java, built sprint by sprint to explore real DBMS internals.
 
-![Java](https://img.shields.io/badge/Java-21-orange?logo=openjdk)
-![Maven](https://img.shields.io/badge/Maven-Build-blue?logo=apachemaven)
-![Tests](https://img.shields.io/badge/Tests-1084%2F1084-success)
-![Status](https://img.shields.io/badge/Status-Active%20Development-brightgreen)
-
-</div>
-
----
-
-## About the Project
-
-**YEKDB** is a database management system developed from scratch in Java to explore and implement the internal architecture of a relational DBMS.
-
-The project goes beyond executing SQL-like statements. It covers physical file management, page-based storage, record serialization, table metadata, indexing, query parsing, expression evaluation, JOIN processing, aggregation, and query optimization.
-
-Development follows a sprint-based workflow. The current milestone is **00-21 — RecordManager Refactor / Physical Record-Page Integration**, which is now complete.
+![Java](https://img.shields.io/badge/Java-21-orange)
+![Maven](https://img.shields.io/badge/Maven-3.x-blue)
+![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-green)
+![Status](https://img.shields.io/badge/Status-Active%20Development-yellow)
+![Tests](https://img.shields.io/badge/JUnit-1111%20Tests%20Passed-brightgreen)
+![Sprint](https://img.shields.io/badge/Sprint-00--22-blueviolet)
 
 ---
 
-## Current Status
+## About
 
-- **Sprint:** `00-21`
-- **Sprint Name:** `RecordManager Refactor / Physical Record-Page Integration`
-- **Build:** Successful
-- **Compile:** Successful
-- **Package:** Successful
-- **Tests:** **1084 / 1084 passing**
-- **Status:** Active Development
+YEKDB (Yet Another Embedded Key Database) is an educational and research-oriented relational database management system implemented entirely from scratch in Java.
+
+The project is not based on PostgreSQL, MySQL, SQLite, or another database codebase. Storage, record management, metadata, SQL processing, query execution, indexing, recovery-oriented structures, and the command-line layer are developed independently to understand how modern database systems are structured internally.
+
+The long-term goal is a complete page-oriented database engine with durable storage, relational query execution, transactions, indexing, recovery, concurrency control, and client/server support.
 
 ---
 
-## 00-21 Sprint Summary
-
-Sprint 00-21 refactored the relationship between the record layer and the physical page layer. `RecordManager` can now work with explicit physical record addresses while preserving the existing logical record API.
-
-### Completed Work
-
-- Added `RecordId(pageId, slotId)` as the physical record identifier.
-- Added `RecordLocation` to represent page, slot, offset, serialized size, and record information.
-- Preserved logical `long recordId` APIs while introducing physical `RecordId` APIs.
-- Added physical insert support.
-- Added physical read support.
-- Added physical update support.
-- Added physical delete support.
-- Implemented tombstone-based deletion.
-- Preserved physical slot stability after deletes.
-- Centralized physical page and slot validation.
-- Added validation for null IDs, missing pages, missing slots, and deleted records.
-- Added wrong-`PageType` validation.
-- Hardened page/slot boundary checks.
-- Removed redundant page reads from physical lookup paths.
-- Cleaned up `RecordId` and hardened `RecordLocation` validation.
-- Integrated the index layer with the physical `RecordId` model.
-- Preserved `RecordPointer` as a backward-compatible compatibility layer.
-- Kept the dependency direction as Index → Storage.
-- Completed the full regression suite successfully.
-
----
-
-## Record Addressing Model
-
-YEKDB distinguishes between logical and physical record identities.
-
-```text
-Logical Record ID
-────────────────────────
-long recordId
-
-Stable logical identity of a record.
-
-
-Physical Record ID
-────────────────────────
-RecordId(pageId, slotId)
-
-Physical location of a record inside storage.
-```
-
-Example:
-
-```java
-RecordId physicalId =
-        recordManager.findPhysicalRecordId(15);
-
-Record record =
-        recordManager.readRecord(physicalId);
-```
-
-When a physical `RecordId` is available, `RecordManager` can access the target page directly instead of scanning every page in storage.
-
----
-
-## Tombstone Delete
-
-Physical records are not immediately removed from the page payload when deleted. Instead, YEKDB uses a tombstone flag.
-
-```text
-Before
-
-Page 4
-┌────────┬────────┬────────┬────────┐
-│ Slot 0 │ Slot 1 │ Slot 2 │ Slot 3 │
-│   A    │   B    │   C    │   D    │
-└────────┴────────┴────────┴────────┘
-
-
-After deleting B
-
-Page 4
-┌────────┬─────────────┬────────┬────────┐
-│ Slot 0 │   Slot 1    │ Slot 2 │ Slot 3 │
-│   A    │ B [DELETED] │   C    │   D    │
-└────────┴─────────────┴────────┴────────┘
-```
-
-Therefore:
-
-```text
-C → RecordId(4, 2)
-D → RecordId(4, 3)
-```
-
-remain unchanged.
-
-This prevents physical identifiers of following records from shifting after a delete.
-
----
-
-## RecordManager API
-
-### Logical API
-
-```java
-Record insert(Row row);
-
-Record getRecord(long recordId);
-
-Row getRow(long recordId);
-
-void update(
-        long recordId,
-        Row newRow
-);
-
-void delete(long recordId);
-```
-
-### Physical API
-
-```java
-RecordId insertWithLocation(Row row);
-
-RecordLocation insertAndLocate(Row row);
-
-Record readRecord(RecordId recordId);
-
-RecordLocation locateRecord(RecordId recordId);
-
-RecordId findPhysicalRecordId(long recordId);
-
-void update(
-        RecordId recordId,
-        Row newRow
-);
-
-void delete(RecordId recordId);
-```
-
----
-
-## Index / Record Integration
-
-The index layer is now compatible with the physical `RecordId` addressing model.
-
-```text
-Index Key
-    │
-    ▼
-RecordId(pageId, slotId)
-    │
-    ▼
-RecordManager
-    │
-    ▼
-Physical Page
-    │
-    ▼
-Record
-```
-
-The existing `RecordPointer` abstraction is preserved for backward compatibility with existing APIs, tests, and code paths.
-
-The intended dependency direction remains:
-
-```text
-Index
-  │
-  ▼
-Storage / RecordId
-```
-
-`RecordManager` does not depend on the index package.
-
----
-
-## Storage Architecture
-
-```text
-Row
- │
- ▼
-RowSerializer
- │
- ▼
-Record
- │
- ▼
-RecordSerializer
- │
- ▼
-RecordManager
- │
- ├──────────────► RecordId
- │                    │
- │                    ├─ pageId
- │                    └─ slotId
- │
- ├──────────────► RecordLocation
- │                    │
- │                    ├─ Page
- │                    ├─ offset
- │                    ├─ serializedSize
- │                    └─ slotId
- │
- ▼
-Page
- │
- ▼
-PageManager
- │
- ▼
-DataFile
- │
- ▼
-Disk
-```
-
----
-
-## Page Structure
-
-YEKDB stores physical records inside fixed-size pages.
-
-The page header tracks information such as:
-
-```text
-Page ID
-Page Type
-Record Count
-Used Bytes
-Next Page ID
-```
-
-`RecordManager` walks serialized records inside the page payload to resolve physical slot locations.
-
----
-
-## Storage Layer
-
-The storage layer currently contains components such as:
-
-```text
-com.yekdb.storage
-├── StorageEngine
-│
-├── file
-│   ├── DataFile
-│   └── DatabaseHeader
-│
-├── record
-│   ├── Record
-│   ├── RecordId
-│   ├── RecordLocation
-│   ├── RecordManager
-│   ├── RecordSerializer
-│   ├── Row
-│   ├── RowSerializer
-│   │
-│   └── page
-│       ├── Page
-│       ├── PageHeader
-│       ├── PageManager
-│       ├── PageSerializer
-│       └── PageType
-│
-└── table
-    ├── Column
-    ├── DataType
-    ├── Table
-    ├── TableCatalog
-    ├── TableManager
-    ├── TableMetadata
-    │
-    └── header
-        ├── TableHeader
-        ├── TableHeaderConstants
-        ├── TableHeaderFile
-        ├── TableHeaderIO
-        ├── TableHeaderSerializer
-        ├── TableHeaderUpdater
-        ├── TableHeaderValidator
-        └── TableIdAllocator
-```
-
----
-
-## Query Engine
-
-The query layer separates SQL-like parsing, expression evaluation, execution, and optimization into dedicated components.
-
-### Core Statements
-
-- `CREATE DATABASE`
-- `DROP DATABASE`
-- `USE`
-- `CREATE TABLE`
-- `DROP TABLE`
-- `INSERT`
-- `SELECT`
-- `UPDATE`
-- `DELETE`
-
-### Expression Support
-
-- Comparison expressions
-- Logical expressions
-- `NOT`
-- `BETWEEN`
-- `IN`
-- `LIKE`
-- Qualified column resolution
-
-### SELECT Features
-
-- `WHERE`
+## Current Capabilities
+
+### Core & Storage
+
+- Configuration and logging infrastructure
+- Persistent `.ydb` database files
+- Physical page architecture and page serialization
+- Page headers and random page access
+- Table management and persistent table metadata
+- Binary table header format
+- Table catalog and schema recovery
+- Physical record/page integration
+- Record identifiers based on physical page/slot locations
+- Record insert/read/update/delete workflows
+- Tombstone-based delete behavior
+- RecordManager refactor and physical page integration
+
+### Query Layer
+
+- SQL tokenization and parsing infrastructure
+- Statement / command mapping
+- Query execution pipeline
+- Predicate expressions
+- `BETWEEN / NOT BETWEEN`
+- `IN / NOT IN`
+- `LIKE / NOT LIKE`
+- `ILIKE / NOT ILIKE`
+- Qualified columns and aliases
 - `ORDER BY`
 - `LIMIT`
 - `FETCH`
 - `GROUP BY`
 - `HAVING`
-- Aggregate expressions
-
-### JOIN Support
-
-- `INNER JOIN`
-- `LEFT JOIN`
-- `RIGHT JOIN`
-- `FULL JOIN`
+- `COUNT / SUM / AVG / MIN / MAX`
+- `INNER / LEFT / RIGHT / FULL JOIN`
 - Multiple JOIN chains
-- JOIN + WHERE
-- JOIN + GROUP BY
-- JOIN + HAVING
-- JOIN + aggregate expressions
-- JOIN optimization
+- JOIN + filtering / grouping / aggregation combinations
+- Rule-based JOIN optimization foundations
+
+### CLI Infrastructure — Sprint 00-22
+
+YEKDB now contains a dedicated CLI command layer that will serve as the foundation for the interactive SQL terminal planned for Sprint 00-23.
+
+Built-in commands:
+
+```text
+help
+version
+status
+exit
+```
+
+CLI architecture:
+
+```text
+Raw Input
+   |
+   v
+CliCommandParser
+   |
+   v
+ParsedCliCommand
+   |
+   v
+CliCommandRegistry
+   |
+   v
+CliCommand
+   |
+   v
+CliCommandResult
+```
+
+The CLI layer includes:
+
+- `CliApplication`
+- `CliContext`
+- `CliCommand`
+- `CliCommandParser`
+- `CliCommandRegistry`
+- `CliCommandResult`
+- `ParsedCliCommand`
+- `HelpCommand`
+- `VersionCommand`
+- `StatusCommand`
+- `ExitCommand`
+- CLI-specific exceptions
+- Unit and integration tests
+
+The CLI currently handles built-in commands only. SQL input and the interactive `yekdb>` terminal loop are intentionally reserved for Sprint 00-23.
 
 ---
 
-## Query Execution Architecture
+## Architecture
 
 ```text
-SQL
- │
- ▼
-SqlTokenizer
- │
- ▼
-SqlParser
- │
- ▼
-Statement
- │
- ▼
-StatementCommandMapper
- │
- ▼
-Command
- │
- ▼
-QueryExecutor
- │
- ├── SelectExecutor
- ├── InsertExecutor
- ├── UpdateExecutor
- ├── DeleteExecutor
- ├── JoinExecutor
- ├── MultiJoinExecutor
- ├── GroupByExecutor
- ├── AggregateExecutor
- ├── OrderByExecutor
- └── LimitExecutor
- │
- ▼
-Storage / Table Layer
+                         YEKDB
+                           |
+          +----------------+----------------+
+          |                                 |
+          v                                 v
+      Query Layer                       CLI Layer
+          |                                 |
+          v                                 v
+ Parser / Mapper / Executor           Command Registry
+          |                                 |
+          +---------------+-----------------+
+                          |
+                          v
+                     Core / Engine
+                          |
+                          v
+                    Table / Catalog
+                          |
+                          v
+                     RecordManager
+                          |
+                          v
+                      PageManager
+                          |
+                          v
+                       DataFile
+                          |
+                          v
+                  Persistent Storage
 ```
 
----
-
-## Query Optimization
-
-YEKDB contains dedicated components for query and JOIN planning.
-
-```text
-query.optimizer
-├── JoinExecutionContext
-├── JoinOptimizationResult
-├── JoinOptimizationRule
-├── JoinOptimizer
-├── QueryOptimizer
-├── QueryPlan
-└── QueryPlanType
-```
-
-This keeps execution behavior separate from optimization decisions.
-
----
-
-## Index Layer
-
-The index subsystem includes the following core components:
-
-```text
-com.yekdb.index
-├── Index
-├── IndexEntry
-├── IndexIdentifierValidator
-├── IndexManager
-├── IndexMetadata
-├── IndexType
-├── RecordPointer
-│
-└── exception
-    ├── DuplicateIndexException
-    ├── DuplicateIndexKeyException
-    ├── IndexNotFoundException
-    └── InvalidIndexException
-```
-
-As of sprint 00-21, the index addressing model is compatible with storage-layer `RecordId` values while retaining `RecordPointer` compatibility.
-
----
-
-## Physical Validation
-
-Physical record access is validated before an operation is executed.
-
-```text
-RecordId
-   │
-   ▼
-Page exists?
-   │
-   ▼
-Correct PageType?
-   │
-   ▼
-Slot within bounds?
-   │
-   ▼
-Record location valid?
-   │
-   ▼
-Operation
-```
-
-Covered edge cases include:
-
-- Null `RecordId`
-- Missing physical page
-- Missing physical slot
-- Slot equal to `recordCount`
-- Slot greater than `recordCount`
-- Wrong page type
-- Reading a deleted physical record
-- Updating a deleted physical record
-- Deleting an already deleted physical record
-- Null row during physical update
-
----
-
-## Test Status
-
-Current full regression result:
-
-```text
-Tests run: 1084
-Failures : 0
-Errors   : 0
-Skipped  : 0
-
-BUILD SUCCESS
-```
-
-Major test areas include:
-
-- Record serialization
-- Row serialization
-- Page management
-- Page serialization
-- Physical RecordId addressing
-- Physical insert
-- Physical read
-- Physical update
-- Tombstone delete
-- Slot stability
-- Page boundary validation
-- Wrong PageType validation
-- Database management
-- Table management
-- Index management
-- SQL parsing
-- Expression evaluation
-- SELECT execution
-- CRUD persistence
-- JOIN execution
-- Multiple JOIN chains
-- GROUP BY / HAVING
-- Aggregation
-- Query optimization
-- Integration and regression behavior
-
----
-
-## Build
-
-Compile the project with Maven:
-
-```bash
-mvn clean compile
-```
-
-Run the full test suite:
-
-```bash
-mvn test
-```
-
-Build the package:
-
-```bash
-mvn clean package
-```
-
-Current sprint status:
-
-```text
-compile  ✅
-test     ✅ 1084/1084
-package  ✅
-```
+The CLI is kept separate from physical storage internals. Commands operate through controlled application/context boundaries rather than directly depending on `PageManager` or `RecordManager`.
 
 ---
 
 ## Project Structure
 
 ```text
-src
-├── main
-│   ├── java
-│   │   └── com.yekdb
-│   │       ├── config
-│   │       ├── core
-│   │       ├── database
-│   │       ├── demo
-│   │       ├── exception
-│   │       ├── index
-│   │       ├── logs
-│   │       ├── query
-│   │       └── storage
-│   │
-│   └── resources
-│       └── yekdb.properties
+src/
+├── main/java/com/yekdb/
+│   ├── cli/
+│   │   ├── command/
+│   │   └── exception/
+│   ├── core/
+│   ├── database/
+│   ├── index/
+│   ├── logging/
+│   ├── query/
+│   ├── storage/
+│   │   ├── file/
+│   │   ├── page/
+│   │   └── record/
+│   └── table/
 │
-└── test
-    └── java
-        └── com.yekdb
+└── test/java/com/yekdb/
+    ├── cli/
+    └── ...
 ```
 
----
-
-## Design Principles
-
-YEKDB development follows several architectural principles:
-
-- Keep storage, query, and index responsibilities separated.
-- Hide physical storage details from higher layers where practical.
-- Preserve backward compatibility during refactors when possible.
-- Prefer small, testable components.
-- Keep serialization formats explicit.
-- Reject invalid or corrupted physical state instead of silently accepting it.
-- Run the full regression suite at the end of each sprint.
-- Build a reliable physical storage foundation before adding higher-level features.
-- Keep dependency directions explicit and avoid circular coupling.
+The exact package tree evolves as refactoring continues, but package boundaries are kept focused on subsystem responsibilities.
 
 ---
 
-## Sprint History
+## Testing
 
-YEKDB development progresses through small, controlled implementation sprints.
+YEKDB uses JUnit 5 and regression testing after each development phase.
 
-Recent milestones:
+Current project status after Sprint 00-22:
 
 ```text
-00-17  ✅ Query / codebase stabilization
-00-18  ✅ Storage development
-00-19  ✅ Binary Table Header
-00-20  ✅ Table Header / physical metadata continuation
-00-21  ✅ RecordManager Refactor / Physical Record-Page Integration
+Compile: SUCCESS
+Tests:   1111 / 1111 PASSED
 ```
 
-### 00-21 Result
+Sprint 00-22 added dedicated tests for:
+
+- CLI command parsing
+- Command registry behavior
+- Built-in command execution
+- CLI lifecycle state
+- Unknown command handling
+- Blank input handling
+- Case-insensitive command lookup
+- Full CLI integration lifecycle
+
+The complete legacy regression suite also remains green.
+
+Run the complete suite with:
+
+```bash
+mvn clean test
+```
+
+---
+
+## Development Timeline
+
+Recent completed sprints:
+
+- **00-17** — Architecture Cleanup & Query Engine Refactoring
+- **00-18** — Persistent Table Catalog & Schema Recovery
+- **00-19** — Binary Table Header
+- **00-20** — Physical table / storage integration work
+- **00-21** — RecordManager Refactor / Physical Record-Page Integration
+- **00-22** — CLI Infrastructure / Command Layer
+
+### Next Sprint
+
+**00-23 — Interactive SQL Terminal**
+
+Planned direction:
 
 ```text
-Record
-   │
-   ▼
-RecordManager
-   │
-   ├── Logical Record ID
-   ├── Physical RecordId
-   ├── Physical Insert
-   ├── Physical Read
-   ├── Physical Update
-   ├── Tombstone Delete
-   ├── Physical Validation
-   └── Index RecordId Integration
-   │
-   ▼
-Page / Storage
+yekdb> SELECT * FROM users;
+        |
+        v
+Interactive Terminal
+        |
+        v
+SQL Parser / Query Layer
+        |
+        v
+Query Executor
+        |
+        v
+Storage / Record Layer
 ```
 
----
-
-## Next Steps
-
-Future storage and engine work may include:
-
-- Slotted-page architecture
-- Stable slot directory
-- Free-space management
-- Record relocation
-- Further index/record physical lookup optimization
-- Buffer pool and cache management
-- Transaction infrastructure
-- Write-ahead logging and recovery
-- Concurrency control
-- Query planner improvements
+Sprint 00-23 will focus on terminal input/output, the `yekdb>` prompt, command loop behavior, and forwarding SQL statements into the existing query pipeline.
 
 ---
 
-<div align="center">
+## Roadmap
 
-**YEKDB — Building a Database Management System from Scratch in Java**
+### Completed / Established
 
-`00-21 complete • 1084/1084 tests passing`
+- Project architecture
+- Configuration and logging
+- Persistent storage engine
+- Page-oriented storage
+- Record management
+- Table catalog and schema recovery
+- Binary table metadata
+- SQL parsing foundations
+- Advanced SELECT execution
+- JOIN execution and optimization foundations
+- CLI command infrastructure
 
-</div>
+### Upcoming
+
+- Interactive SQL terminal
+- Further physical storage / free-space work
+- Persistent index recovery
+- B+ Tree persistence improvements
+- Transaction manager
+- Write Ahead Logging (WAL)
+- Buffer pool
+- Concurrency control / MVCC
+- Client/server architecture
+- Query planning and cost-based optimization improvements
+
+---
+
+## Technologies
+
+- Java 21
+- Maven
+- JUnit 5
+- IntelliJ IDEA
+- Git
+- GitHub
+
+---
+
+## Documentation
+
+Development is documented sprint-by-sprint with technical developer notes covering:
+
+- Sprint objectives
+- Architecture changes
+- New classes and responsibilities
+- Design decisions
+- Test and regression results
+- Known limitations
+- Follow-up work
+
+Latest documentation: **Developer Notes — Sprint 00-22: CLI Infrastructure / Command Layer**.
+
+---
+
+## License
+
+This project is licensed under the MIT License.
+
+---
+
+## Author
+
+**Yunus Emre KUL**  
+Computer Engineering
+
+Developing YEKDB from scratch as a long-term database systems engineering project.
