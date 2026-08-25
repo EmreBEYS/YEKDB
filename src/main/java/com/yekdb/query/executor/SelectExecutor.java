@@ -8,6 +8,7 @@ import com.yekdb.query.result.QueryResult;
 import com.yekdb.query.statement.JoinClause;
 import com.yekdb.query.statement.TableReference;
 import com.yekdb.query.statement.SelectStatement;
+import com.yekdb.query.statement.SelectItem;
 import com.yekdb.storage.record.Row;
 import com.yekdb.storage.table.Column;
 import com.yekdb.storage.table.Table;
@@ -261,9 +262,10 @@ public final class SelectExecutor {
      * 2 - GROUP BY
      * 3 - Aggregate
      * 4 - HAVING
-     * 5 - ORDER BY
-     * 6 - LIMIT / FETCH
-     * 7 - QueryResult
+     * 5 - SELECT projection
+     * 6 - ORDER BY
+     * 7 - LIMIT / FETCH
+     * 8 - QueryResult
      */
     public QueryResult executeStatement(
             Table table,
@@ -373,6 +375,29 @@ public final class SelectExecutor {
                                         .getExpression()
                         );
             }
+
+        } else {
+
+            // ------------------------------------------
+            // 4 - NORMAL SELECT PROJECTION
+            // ------------------------------------------
+
+            SingleTableProjection projection =
+                    projectSingleTableRows(
+                            table,
+                            currentRows,
+                            statement
+                    );
+
+            currentColumns =
+                    new ArrayList<>(
+                            projection.columns()
+                    );
+
+            currentRows =
+                    new ArrayList<>(
+                            projection.rows()
+                    );
         }
 
         // ----------------------------------------------
@@ -1120,6 +1145,244 @@ public final class SelectExecutor {
         }
 
         return matched;
+    }
+
+
+    // ==================================================
+    // SINGLE-TABLE SELECT PROJECTION
+    // ==================================================
+
+    /**
+     * Normal single-table SELECT projection işlemini gerçekleştirir.
+     *
+     * SELECT * kullanılmışsa mevcut schema ve satırlar korunur.
+     * Belirli kolonlar seçilmişse yalnızca ilgili kolonlar ve değerler
+     * sonuç setine taşınır.
+     */
+    private SingleTableProjection projectSingleTableRows(
+            Table table,
+            List<Row> rows,
+            SelectStatement statement
+    ) {
+
+        Objects.requireNonNull(
+                table,
+                "Table cannot be null."
+        );
+
+        Objects.requireNonNull(
+                rows,
+                "Row list cannot be null."
+        );
+
+        Objects.requireNonNull(
+                statement,
+                "SelectStatement cannot be null."
+        );
+
+        if (statement.selectsAllColumns()) {
+
+            return new SingleTableProjection(
+                    List.copyOf(
+                            table.getColumns()
+                    ),
+                    new ArrayList<>(
+                            rows
+                    )
+            );
+        }
+
+        List<Column> tableColumns =
+                table.getColumns();
+
+        List<Column> resultColumns =
+                new ArrayList<>();
+
+        List<Integer> selectedIndexes =
+                new ArrayList<>();
+
+        for (SelectItem item
+                : statement.getSelectItems()) {
+
+            String expression =
+                    item.getExpression()
+                            .trim();
+
+            int columnIndex =
+                    findSingleTableColumnIndex(
+                            tableColumns,
+                            expression
+                    );
+
+            Column sourceColumn =
+                    tableColumns.get(
+                            columnIndex
+                    );
+
+            String outputName =
+                    getSingleTableOutputColumnName(
+                            item
+                    );
+
+            boolean duplicate =
+                    resultColumns.stream()
+                            .anyMatch(
+                                    column ->
+                                            column.getName()
+                                                    .equalsIgnoreCase(
+                                                            outputName
+                                                    )
+                            );
+
+            if (duplicate) {
+
+                throw new QueryExecutionException(
+                        "Duplicate SELECT result column: "
+                                + outputName
+                );
+            }
+
+            resultColumns.add(
+                    new Column(
+                            outputName,
+                            sourceColumn.getDataType()
+                    )
+            );
+
+            selectedIndexes.add(
+                    columnIndex
+            );
+        }
+
+        List<Row> resultRows =
+                new ArrayList<>();
+
+        for (Row row : rows) {
+
+            List<Object> projectedValues =
+                    new ArrayList<>();
+
+            for (Integer columnIndex
+                    : selectedIndexes) {
+
+                projectedValues.add(
+                        row.getValue(
+                                columnIndex
+                        )
+                );
+            }
+
+            resultRows.add(
+                    new Row(
+                            projectedValues
+                    )
+            );
+        }
+
+        return new SingleTableProjection(
+                List.copyOf(
+                        resultColumns
+                ),
+                resultRows
+        );
+    }
+
+    /**
+     * Tek tablo SELECT ifadesindeki kolonun fiziksel kolon indexini bulur.
+     */
+    private int findSingleTableColumnIndex(
+            List<Column> columns,
+            String columnName
+    ) {
+
+        String normalizedName =
+                normalizeSingleTableColumnName(
+                        columnName
+                );
+
+        for (int index = 0;
+             index < columns.size();
+             index++) {
+
+            Column column =
+                    columns.get(
+                            index
+                    );
+
+            if (column.getName()
+                    .equalsIgnoreCase(
+                            normalizedName
+                    )) {
+
+                return index;
+            }
+        }
+
+        throw new QueryExecutionException(
+                "Column not found: "
+                        + columnName
+        );
+    }
+
+    /**
+     * Qualified kolon adını normalize eder.
+     *
+     * users.name -> name
+     * u.name     -> name
+     * name       -> name
+     */
+    private String normalizeSingleTableColumnName(
+            String columnName
+    ) {
+
+        String normalized =
+                Objects.requireNonNull(
+                        columnName,
+                        "Column name cannot be null."
+                ).trim();
+
+        int dotIndex =
+                normalized.lastIndexOf('.');
+
+        if (dotIndex >= 0) {
+
+            normalized =
+                    normalized.substring(
+                            dotIndex + 1
+                    );
+        }
+
+        return normalized;
+    }
+
+    /**
+     * SELECT sonucunda gösterilecek kolon adını belirler.
+     */
+    private String getSingleTableOutputColumnName(
+            SelectItem item
+    ) {
+
+        String alias =
+                item.getAlias();
+
+        if (alias != null
+                && !alias.isBlank()) {
+
+            return alias.trim();
+        }
+
+        return normalizeSingleTableColumnName(
+                item.getExpression()
+        );
+    }
+
+    /**
+     * Normal single-table SELECT projection sonucu.
+     */
+    private record SingleTableProjection(
+            List<Column> columns,
+            List<Row> rows
+    ) {
     }
 
     // ==================================================

@@ -84,8 +84,9 @@ final class SelectCommandExecutionSupport {
                         + queryResult.getExecutionTimeMillis()
                         + " ms";
 
-        return ExecuteResult.success(
+        return ExecuteResult.selectSuccess(
                 message,
+                queryResult.getColumns(),
                 queryResult.getRows()
         );
     }

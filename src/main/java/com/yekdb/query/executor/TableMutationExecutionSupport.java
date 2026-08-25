@@ -78,7 +78,8 @@ final class TableMutationExecutionSupport {
                     "Row inserted successfully into table '"
                             + table.getTableName()
                             + "'. Record ID: "
-                            + insertedRecord.getRecordId()
+                            + insertedRecord.getRecordId(),
+                    1
             );
 
         } catch (IOException exception) {
@@ -112,7 +113,8 @@ final class TableMutationExecutionSupport {
                     "UPDATE executed successfully on table '"
                             + table.getTableName()
                             + "'. Updated row count: "
-                            + updatedRowCount
+                            + updatedRowCount,
+                    updatedRowCount
             );
 
         } catch (IOException exception) {
@@ -146,7 +148,8 @@ final class TableMutationExecutionSupport {
                     "DELETE executed successfully on table '"
                             + table.getTableName()
                             + "'. Deleted row count: "
-                            + deletedRowCount
+                            + deletedRowCount,
+                    deletedRowCount
             );
 
         } catch (IOException exception) {

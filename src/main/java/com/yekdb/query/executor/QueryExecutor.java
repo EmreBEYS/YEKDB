@@ -19,7 +19,6 @@ import com.yekdb.query.statement.Statement;
 import com.yekdb.storage.table.TableManager;
 import com.yekdb.storage.table.TableMetadata;
 
-
 import java.util.Locale;
 import java.util.Objects;
 
@@ -65,22 +64,16 @@ public final class QueryExecutor implements AutoCloseable {
     /**
      * INSERT komutlarını tablo şeması ve fiziksel
      * RecordManager üzerinden çalıştırır.
-     *
-     * Sprint 00-12 kapsamında eklenmiştir.
      */
     private final InsertExecutor insertExecutor;
 
     /**
      * UPDATE komutlarını fiziksel kayıtlar üzerinde çalıştırır.
-     *
-     * Sprint 00-12 kapsamında eklenmiştir.
      */
     private final UpdateExecutor updateExecutor;
 
     /**
      * DELETE komutlarını fiziksel kayıtlar üzerinde çalıştırır.
-     *
-     * Sprint 00-12 kapsamında eklenmiştir.
      */
     private final DeleteExecutor deleteExecutor;
 
@@ -88,18 +81,21 @@ public final class QueryExecutor implements AutoCloseable {
      * INSERT / UPDATE / DELETE fiziksel storage yaşam döngüsünü
      * QueryExecutor dışında yönetir.
      */
-    private final TableMutationExecutionSupport mutationExecutionSupport;
+    private final TableMutationExecutionSupport
+            mutationExecutionSupport;
 
     /**
      * SELECT için QueryDataSource hazırlama ve JOIN veri yükleme
      * sorumluluğunu kapsüller.
      */
-    private final SelectCommandExecutionSupport selectExecutionSupport;
+    private final SelectCommandExecutionSupport
+            selectExecutionSupport;
 
     /**
-     * Geriye dönük management SQL komutlarını ayrıştırır.
+     * Management SQL komutlarını ayrıştırır.
      */
-    private final ManagementCommandParser managementCommandParser;
+    private final ManagementCommandParser
+            managementCommandParser;
 
     /**
      * Aktif veritabanına bağlı tablo yöneticisidir.
@@ -109,12 +105,11 @@ public final class QueryExecutor implements AutoCloseable {
     /**
      * Yalnızca veritabanı ve tablo yönetimi desteği bulunan
      * QueryExecutor oluşturur.
-     *
-     * @param databaseManager veritabanı yöneticisi
      */
     public QueryExecutor(
             DatabaseManager databaseManager
     ) {
+
         this(
                 databaseManager,
                 null,
@@ -127,14 +122,12 @@ public final class QueryExecutor implements AutoCloseable {
 
     /**
      * SELECT desteği bulunan QueryExecutor oluşturur.
-     *
-     * @param databaseManager veritabanı yöneticisi
-     * @param queryDataSource SELECT veri kaynağı
      */
     public QueryExecutor(
             DatabaseManager databaseManager,
             QueryDataSource queryDataSource
     ) {
+
         this(
                 databaseManager,
                 queryDataSource,
@@ -148,16 +141,13 @@ public final class QueryExecutor implements AutoCloseable {
     /**
      * Eski testler ve istemciler için üç parametreli
      * constructor korunur.
-     *
-     * @param databaseManager veritabanı yöneticisi
-     * @param queryDataSource sorgu veri kaynağı
-     * @param selectExecutor SELECT yürütücüsü
      */
     public QueryExecutor(
             DatabaseManager databaseManager,
             QueryDataSource queryDataSource,
             SelectExecutor selectExecutor
     ) {
+
         this(
                 databaseManager,
                 queryDataSource,
@@ -170,11 +160,6 @@ public final class QueryExecutor implements AutoCloseable {
 
     /**
      * Eski dört parametreli constructor korunur.
-     *
-     * @param databaseManager veritabanı yöneticisi
-     * @param queryDataSource sorgu veri kaynağı
-     * @param selectExecutor SELECT yürütücüsü
-     * @param insertExecutor INSERT yürütücüsü
      */
     public QueryExecutor(
             DatabaseManager databaseManager,
@@ -182,6 +167,7 @@ public final class QueryExecutor implements AutoCloseable {
             SelectExecutor selectExecutor,
             InsertExecutor insertExecutor
     ) {
+
         this(
                 databaseManager,
                 queryDataSource,
@@ -194,12 +180,6 @@ public final class QueryExecutor implements AutoCloseable {
 
     /**
      * Eski beş parametreli constructor korunur.
-     *
-     * @param databaseManager veritabanı yöneticisi
-     * @param queryDataSource sorgu veri kaynağı
-     * @param selectExecutor SELECT yürütücüsü
-     * @param insertExecutor INSERT yürütücüsü
-     * @param updateExecutor UPDATE yürütücüsü
      */
     public QueryExecutor(
             DatabaseManager databaseManager,
@@ -208,6 +188,7 @@ public final class QueryExecutor implements AutoCloseable {
             InsertExecutor insertExecutor,
             UpdateExecutor updateExecutor
     ) {
+
         this(
                 databaseManager,
                 queryDataSource,
@@ -220,13 +201,6 @@ public final class QueryExecutor implements AutoCloseable {
 
     /**
      * Bütün bağımlılıkların dışarıdan verilebildiği constructor.
-     *
-     * @param databaseManager veritabanı yöneticisi
-     * @param queryDataSource sorgu veri kaynağı
-     * @param selectExecutor SELECT yürütücüsü
-     * @param insertExecutor INSERT yürütücüsü
-     * @param updateExecutor UPDATE yürütücüsü
-     * @param deleteExecutor DELETE yürütücüsü
      */
     public QueryExecutor(
             DatabaseManager databaseManager,
@@ -236,32 +210,39 @@ public final class QueryExecutor implements AutoCloseable {
             UpdateExecutor updateExecutor,
             DeleteExecutor deleteExecutor
     ) {
-        this.databaseManager = Objects.requireNonNull(
-                databaseManager,
-                "DatabaseManager cannot be null."
-        );
 
-        this.queryDataSource = queryDataSource;
+        this.databaseManager =
+                Objects.requireNonNull(
+                        databaseManager,
+                        "DatabaseManager cannot be null."
+                );
 
-        this.selectExecutor = Objects.requireNonNull(
-                selectExecutor,
-                "SelectExecutor cannot be null."
-        );
+        this.queryDataSource =
+                queryDataSource;
 
-        this.insertExecutor = Objects.requireNonNull(
-                insertExecutor,
-                "InsertExecutor cannot be null."
-        );
+        this.selectExecutor =
+                Objects.requireNonNull(
+                        selectExecutor,
+                        "SelectExecutor cannot be null."
+                );
 
-        this.updateExecutor = Objects.requireNonNull(
-                updateExecutor,
-                "UpdateExecutor cannot be null."
-        );
+        this.insertExecutor =
+                Objects.requireNonNull(
+                        insertExecutor,
+                        "InsertExecutor cannot be null."
+                );
 
-        this.deleteExecutor = Objects.requireNonNull(
-                deleteExecutor,
-                "DeleteExecutor cannot be null."
-        );
+        this.updateExecutor =
+                Objects.requireNonNull(
+                        updateExecutor,
+                        "UpdateExecutor cannot be null."
+                );
+
+        this.deleteExecutor =
+                Objects.requireNonNull(
+                        deleteExecutor,
+                        "DeleteExecutor cannot be null."
+                );
 
         this.mutationExecutionSupport =
                 new TableMutationExecutionSupport(
@@ -284,23 +265,18 @@ public final class QueryExecutor implements AutoCloseable {
     /**
      * SQL metnini uygun Command nesnesine dönüştürerek çalıştırır.
      *
-     * Bu metot eski testlerle geriye uyumluluk sağlar.
+     * Desteklenen:
      *
-     * Desteklenen SQL metinleri:
-     *
-     * CREATE DATABASE database_name
-     * USE DATABASE database_name
-     * USE database_name
-     * DROP DATABASE database_name
-     * CREATE TABLE table_name (...)
-     * DROP TABLE table_name
-     * INSERT INTO table_name (...) VALUES (...)
-     * SELECT ...
-     * UPDATE table_name SET ... [WHERE ...]
-     * DELETE FROM table_name [WHERE ...]
-     *
-     * @param sql çalıştırılacak SQL metni
-     * @return yürütme sonucu
+     * CREATE DATABASE
+     * USE DATABASE
+     * USE
+     * DROP DATABASE
+     * CREATE TABLE
+     * DROP TABLE
+     * INSERT
+     * SELECT
+     * UPDATE
+     * DELETE
      */
     public ExecuteResult execute(
             String sql
@@ -320,20 +296,8 @@ public final class QueryExecutor implements AutoCloseable {
                 );
 
         /*
-         * SQL komutunun ilk keyword'ünü whitespace bağımsız al.
-         *
-         * Böylece:
-         *
-         * SELECT * FROM users
-         *
-         * ve
-         *
-         * SELECT
-         *     department,
-         *     COUNT(*)
-         * FROM employees
-         *
-         * aynı şekilde SELECT olarak algılanır.
+         * SQL komutunun ilk keyword'ünü whitespace bağımsız
+         * şekilde belirle.
          */
         String firstKeyword =
                 normalizedSql
@@ -343,7 +307,7 @@ public final class QueryExecutor implements AutoCloseable {
                         );
 
         /*
-         * Data query / mutation işlemleri yeni parser
+         * DML / SELECT işlemleri gerçek SQL parser
          * pipeline'ından geçer.
          */
         if (firstKeyword.equals("INSERT")
@@ -360,9 +324,7 @@ public final class QueryExecutor implements AutoCloseable {
                                 normalizedSql
                         );
 
-            } catch (
-                    RuntimeException exception
-            ) {
+            } catch (RuntimeException exception) {
 
                 throw new QueryExecutionException(
                         "SQL parsing failed: "
@@ -380,12 +342,11 @@ public final class QueryExecutor implements AutoCloseable {
                                 statement
                         );
 
-            } catch (
-                    RuntimeException exception
-            ) {
+            } catch (RuntimeException exception) {
 
                 if (exception
-                        instanceof QueryExecutionException queryExecutionException) {
+                        instanceof QueryExecutionException
+                        queryExecutionException) {
 
                     throw queryExecutionException;
                 }
@@ -403,13 +364,8 @@ public final class QueryExecutor implements AutoCloseable {
         }
 
         /*
-         * CREATE DATABASE
-         * USE DATABASE
-         * DROP DATABASE
-         * CREATE TABLE
-         * DROP TABLE
-         *
-         * mevcut management parser yolunda kalır.
+         * Management komutları mevcut
+         * ManagementCommandParser üzerinden yürütülür.
          */
         Command command =
                 parseSqlCommand(
@@ -422,81 +378,231 @@ public final class QueryExecutor implements AutoCloseable {
     }
 
     /**
-     * Verilen Command nesnesini çalıştırır.
-     *
-     * @param command çalıştırılacak komut
-     * @return yürütme sonucu
+     * Verilen Command nesnesini ilgili executor
+     * veya management metoduna yönlendirir.
      */
-    public ExecuteResult execute(Command command) {
+    public ExecuteResult execute(
+            Command command
+    ) {
+
         if (command == null) {
+
             throw new QueryExecutionException(
                     "Command cannot be null."
             );
         }
 
         try {
-            if (command instanceof CreateDatabaseCommand value) {
-                return executeCreateDatabase(value);
+
+            if (command
+                    instanceof CreateDatabaseCommand value) {
+
+                return executeCreateDatabase(
+                        value
+                );
             }
 
-            if (command instanceof UseDatabaseCommand value) {
-                return executeUseDatabase(value);
+            if (command
+                    instanceof UseDatabaseCommand value) {
+
+                return executeUseDatabase(
+                        value
+                );
             }
 
-            if (command instanceof DropDatabaseCommand value) {
-                return executeDropDatabase(value);
+            if (command
+                    instanceof DropDatabaseCommand value) {
+
+                return executeDropDatabase(
+                        value
+                );
             }
 
-            if (command instanceof CreateTableCommand value) {
-                return executeCreateTable(value);
+            if (command
+                    instanceof CreateTableCommand value) {
+
+                return executeCreateTable(
+                        value
+                );
             }
 
-            if (command instanceof DropTableCommand value) {
-                return executeDropTable(value);
+            if (command
+                    instanceof DropTableCommand value) {
+
+                return executeDropTable(
+                        value
+                );
             }
 
-            if (command instanceof InsertCommand value) {
-                return executeInsert(value);
+            if (command
+                    instanceof InsertCommand value) {
+
+                return executeInsert(
+                        value
+                );
             }
 
-            if (command instanceof UpdateCommand value) {
-                return executeUpdate(value);
+            if (command
+                    instanceof UpdateCommand value) {
+
+                return executeUpdate(
+                        value
+                );
             }
 
-            if (command instanceof SelectCommand value) {
-                return executeSelect(value);
+            if (command
+                    instanceof SelectCommand value) {
+
+                return executeSelect(
+                        value
+                );
             }
 
-            if (command instanceof DeleteCommand value) {
-                return executeDelete(value);
+            if (command
+                    instanceof DeleteCommand value) {
+
+                return executeDelete(
+                        value
+                );
             }
 
             throw new QueryExecutionException(
                     "Unsupported command type: "
-                            + command.getClass().getSimpleName()
+                            + command
+                            .getClass()
+                            .getSimpleName()
             );
 
-        } catch (QueryExecutionException exception) {
+        } catch (
+                QueryExecutionException exception
+        ) {
+
             throw exception;
 
-        } catch (RuntimeException exception) {
-            throw new QueryExecutionException(
-                    "Query execution failed for command: "
-                            + command.getClass().getSimpleName(),
+        } catch (
+                RuntimeException exception
+        ) {
+
+            throw createExecutionException(
+                    command,
                     exception
             );
         }
     }
 
+
+
     /**
-     * CREATE DATABASE komutunu çalıştırır.
+     * Alt execution katmanından gelen RuntimeException mesajını
+     * kaybetmeden QueryExecutionException'a dönüştürür.
+     */
+    private QueryExecutionException createExecutionException(
+            Command command,
+            RuntimeException exception
+    ) {
+
+        String message =
+                resolveExecutionErrorMessage(
+                        command,
+                        exception
+                );
+
+        return new QueryExecutionException(
+                message,
+                exception
+        );
+    }
+
+    /**
+     * Execution hatası için kullanıcıya gösterilecek
+     * en anlamlı mesajı belirler.
+     */
+    private String resolveExecutionErrorMessage(
+            Command command,
+            RuntimeException exception
+    ) {
+
+        String exceptionMessage =
+                exception.getMessage();
+
+        /*
+         * Alt katman anlamlı bir hata mesajı üretmişse
+         * bunu olduğu gibi koruruz.
+         */
+        if (exceptionMessage != null
+                && !exceptionMessage.isBlank()) {
+
+            return exceptionMessage.trim();
+        }
+
+        /*
+         * Mesajı olmayan beklenmeyen durumlarda
+         * Java command sınıf adı yerine SQL operasyonunu
+         * kullanıcıya gösteririz.
+         */
+        return resolveOperationName(
+                command
+        ) + " execution failed.";
+    }
+
+    /**
+     * Command modelini kullanıcı dostu SQL
+     * operation adına dönüştürür.
+     */
+    private String resolveOperationName(
+            Command command
+    ) {
+
+        if (command instanceof SelectCommand) {
+            return "SELECT";
+        }
+
+        if (command instanceof InsertCommand) {
+            return "INSERT";
+        }
+
+        if (command instanceof UpdateCommand) {
+            return "UPDATE";
+        }
+
+        if (command instanceof DeleteCommand) {
+            return "DELETE";
+        }
+
+        if (command instanceof CreateTableCommand) {
+            return "CREATE TABLE";
+        }
+
+        if (command instanceof DropTableCommand) {
+            return "DROP TABLE";
+        }
+
+        if (command instanceof CreateDatabaseCommand) {
+            return "CREATE DATABASE";
+        }
+
+        if (command instanceof DropDatabaseCommand) {
+            return "DROP DATABASE";
+        }
+
+        if (command instanceof UseDatabaseCommand) {
+            return "USE DATABASE";
+        }
+
+        return "Query";
+    }
+
+    /**
+     * CREATE DATABASE.
      */
     private ExecuteResult executeCreateDatabase(
             CreateDatabaseCommand command
     ) {
-        Database database = databaseManager.createDatabase(
-                command.getDatabaseName()
-        );
+
+        Database database =
+                databaseManager.createDatabase(
+                        command.getDatabaseName()
+                );
 
         return ExecuteResult.success(
                 "Database created successfully: "
@@ -505,18 +611,21 @@ public final class QueryExecutor implements AutoCloseable {
     }
 
     /**
-     * USE DATABASE komutunu çalıştırır.
+     * USE DATABASE.
      */
     private ExecuteResult executeUseDatabase(
             UseDatabaseCommand command
     ) {
-        Database database = databaseManager.useDatabase(
-                command.getDatabaseName()
-        );
 
-        tableManager = new TableManager(
-                database.getDatabasePath()
-        );
+        Database database =
+                databaseManager.useDatabase(
+                        command.getDatabaseName()
+                );
+
+        tableManager =
+                new TableManager(
+                        database.getDatabasePath()
+                );
 
         return ExecuteResult.success(
                 "Database selected successfully: "
@@ -525,13 +634,15 @@ public final class QueryExecutor implements AutoCloseable {
     }
 
     /**
-     * DROP DATABASE komutunu çalıştırır.
+     * DROP DATABASE.
      */
     private ExecuteResult executeDropDatabase(
             DropDatabaseCommand command
     ) {
+
         Database currentDatabase =
-                databaseManager.getCurrentDatabase();
+                databaseManager
+                        .getCurrentDatabase();
 
         boolean droppingCurrentDatabase =
                 currentDatabase != null
@@ -546,6 +657,7 @@ public final class QueryExecutor implements AutoCloseable {
         );
 
         if (droppingCurrentDatabase) {
+
             tableManager = null;
         }
 
@@ -556,11 +668,12 @@ public final class QueryExecutor implements AutoCloseable {
     }
 
     /**
-     * CREATE TABLE komutunu çalıştırır.
+     * CREATE TABLE.
      */
     private ExecuteResult executeCreateTable(
             CreateTableCommand command
     ) {
+
         TableManager activeTableManager =
                 requireTableManager();
 
@@ -577,11 +690,12 @@ public final class QueryExecutor implements AutoCloseable {
     }
 
     /**
-     * DROP TABLE komutunu çalıştırır.
+     * DROP TABLE.
      */
     private ExecuteResult executeDropTable(
             DropTableCommand command
     ) {
+
         TableManager activeTableManager =
                 requireTableManager();
 
@@ -596,129 +710,93 @@ public final class QueryExecutor implements AutoCloseable {
     }
 
     /**
-     * INSERT komutunu çalıştırır.
+     * INSERT.
      *
-     * .tbl dosyası tablo şemasını tuttuğu için fiziksel kayıtlar
-     * tablo adına ait ayrı bir .data dosyasında saklanır.
+     * Fiziksel storage yaşam döngüsü
+     * TableMutationExecutionSupport tarafından yönetilir.
      */
     private ExecuteResult executeInsert(
             InsertCommand command
     ) {
-        return mutationExecutionSupport.executeInsert(
-                requireTableManager(),
-                command
-        );
+
+        return mutationExecutionSupport
+                .executeInsert(
+                        requireTableManager(),
+                        command
+                );
     }
 
     /**
-     * UPDATE komutunu fiziksel storage katmanında çalıştırır.
-     *
-     * .tbl dosyası tablo şemasını tuttuğu için fiziksel kayıtlar
-     * tablo adına ait ayrı .data dosyasından okunur ve güncellenir.
+     * UPDATE.
      */
     private ExecuteResult executeUpdate(
             UpdateCommand command
     ) {
-        return mutationExecutionSupport.executeUpdate(
-                requireTableManager(),
-                command
-        );
+
+        return mutationExecutionSupport
+                .executeUpdate(
+                        requireTableManager(),
+                        command
+                );
     }
 
     /**
-     * DELETE komutunu fiziksel storage katmanında çalıştırır.
-     *
-     * .tbl dosyası tablo şemasını tuttuğu için fiziksel kayıtlar
-     * tablo adına ait ayrı .data dosyasından okunur.
-     *
-     * Silme işlemi RecordManager.delete(recordId) üzerinden
-     * logical delete olarak gerçekleştirilir.
+     * DELETE.
      */
     private ExecuteResult executeDelete(
             DeleteCommand command
     ) {
-        return mutationExecutionSupport.executeDelete(
-                requireTableManager(),
-                command
-        );
+
+        return mutationExecutionSupport
+                .executeDelete(
+                        requireTableManager(),
+                        command
+                );
     }
 
     /**
-     * SELECT komutunu çalıştırır.
-     *
-     * Sprint 00-16 SELECT + JOIN pipeline:
+     * SELECT.
      *
      * SQL
-     *   ->
-     * SqlParser
-     *   ->
-     * SelectStatement
-     *   ->
-     * StatementCommandMapper
-     *   ->
+     *   ↓
      * SelectCommand
-     *   ->
-     * SelectExecutor.executeStatement(...)
-     *
-     * Execution (JOIN yoksa):
-     *
-     * WHERE
-     *   ->
-     * GROUP BY
-     *   ->
-     * Aggregate
-     *   ->
-     * HAVING
-     *   ->
-     * ORDER BY
-     *   ->
-     * LIMIT / FETCH
-     *   ->
+     *   ↓
+     * SelectCommandExecutionSupport
+     *   ↓
+     * QueryDataSource
+     *   ↓
+     * SelectExecutor
+     *   ↓
      * QueryResult
+     *   ↓
+     * ExecuteResult
+     *
+     * Phase 7-C kapsamında QueryResult içerisindeki
+     * sütun bilgileri de ExecuteResult'a aktarılacaktır.
      */
     private ExecuteResult executeSelect(
             SelectCommand command
     ) {
-        return selectExecutionSupport.execute(
-                command,
-                requireQueryDataSource()
-        );
+
+        return selectExecutionSupport
+                .execute(
+                        command,
+                        requireQueryDataSource()
+                );
     }
 
     /**
-     * SQL metnini uygun Command nesnesine dönüştürür.
+     * Management SQL komutunu ayrıştırır.
      */
-    private Command parseSqlCommand(String sql) {
-        return managementCommandParser.parse(sql);
+    private Command parseSqlCommand(
+            String sql
+    ) {
+
+        return managementCommandParser
+                .parse(
+                        sql
+                );
     }
-
-    /**
-     * CREATE TABLE SQL metnini CreateTableCommand nesnesine dönüştürür.
-     *
-     * Örnek:
-     *
-     * CREATE TABLE users (
-     *     id INT,
-     *     name STRING,
-     *     age INT
-     * )
-     */
-
-
-    /**
-     * CREATE TABLE içindeki sütun tanımlarını ayrıştırır.
-     */
-
-
-    /**
-     * SQL veri tipini YEKDB DataType değerine dönüştürür.
-     */
-
-
-    /**
-     * Belirtilen SQL anahtar kelimesinden sonraki değeri döndürür.
-     */
-
 
     /**
      * SQL sonundaki noktalı virgülleri kaldırır.
@@ -726,16 +804,21 @@ public final class QueryExecutor implements AutoCloseable {
     private String removeTrailingSemicolon(
             String sql
     ) {
-        String result = sql.trim();
+
+        String result =
+                sql.trim();
 
         while (result.endsWith(";")) {
-            result = result.substring(
-                    0,
-                    result.length() - 1
-            ).trim();
+
+            result =
+                    result.substring(
+                            0,
+                            result.length() - 1
+                    ).trim();
         }
 
         if (result.isBlank()) {
+
             throw new QueryExecutionException(
                     "SQL statement cannot be empty."
             );
@@ -745,38 +828,42 @@ public final class QueryExecutor implements AutoCloseable {
     }
 
     /**
-     * Henüz yürütme katmanına bağlanmamış kayıt işlemleri
-     * için açıklayıcı hata üretir.
-     */
-
-
-    /**
-     * QueryExecutor oluşturulurken aktif bir veritabanı
-     * bulunuyorsa TableManager bağlantısını hazırlar.
+     * QueryExecutor oluşturulurken aktif bir
+     * veritabanı bulunuyorsa TableManager
+     * bağlantısını hazırlar.
      */
     private void initializeTableManager() {
+
         Database currentDatabase =
-                databaseManager.getCurrentDatabase();
+                databaseManager
+                        .getCurrentDatabase();
 
         if (currentDatabase == null) {
+
             tableManager = null;
+
             return;
         }
 
-        tableManager = new TableManager(
-                currentDatabase.getDatabasePath()
-        );
+        tableManager =
+                new TableManager(
+                        currentDatabase
+                                .getDatabasePath()
+                );
     }
 
     /**
-     * Tablo işlemlerinden önce aktif veritabanı
-     * bulunmasını zorunlu kılar.
+     * Tablo işlemlerinden önce aktif
+     * veritabanı bulunmasını zorunlu kılar.
      */
     private TableManager requireTableManager() {
+
         Database currentDatabase =
-                databaseManager.getCurrentDatabase();
+                databaseManager
+                        .getCurrentDatabase();
 
         if (currentDatabase == null) {
+
             throw new QueryExecutionException(
                     "No database selected. "
                             + "Execute USE DATABASE first."
@@ -784,9 +871,12 @@ public final class QueryExecutor implements AutoCloseable {
         }
 
         if (tableManager == null) {
-            tableManager = new TableManager(
-                    currentDatabase.getDatabasePath()
-            );
+
+            tableManager =
+                    new TableManager(
+                            currentDatabase
+                                    .getDatabasePath()
+                    );
         }
 
         return tableManager;
@@ -797,7 +887,9 @@ public final class QueryExecutor implements AutoCloseable {
      * bulunmasını zorunlu kılar.
      */
     private QueryDataSource requireQueryDataSource() {
+
         if (queryDataSource == null) {
+
             throw new QueryExecutionException(
                     "SELECT execution requires a QueryDataSource."
             );
@@ -812,6 +904,7 @@ public final class QueryExecutor implements AutoCloseable {
      */
     @Override
     public void close() {
+
         tableManager = null;
     }
 }
