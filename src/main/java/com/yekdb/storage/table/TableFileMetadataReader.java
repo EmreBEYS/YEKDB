@@ -1,5 +1,6 @@
 package com.yekdb.storage.table;
 
+import com.yekdb.constraint.Constraint;
 import com.yekdb.storage.exception.CorruptedTableFileException;
 import com.yekdb.storage.exception.CorruptedTableHeaderException;
 import com.yekdb.storage.table.header.TableHeader;
@@ -95,6 +96,12 @@ public class TableFileMetadataReader {
                         tableFile
                 );
 
+        List<Constraint> constraints =
+                ConstraintSchemaCodec.deserialize(
+                        lines,
+                        tableFile
+                );
+
         validateColumnCount(
                 columnCount,
                 columns,
@@ -117,6 +124,7 @@ public class TableFileMetadataReader {
                 createTable(
                         tableName,
                         columns,
+                        constraints,
                         tableFile
                 );
 
@@ -465,8 +473,18 @@ public class TableFileMetadataReader {
         List<Column> columns =
                 new ArrayList<>();
 
+        int constraintsHeaderIndex =
+                ConstraintSchemaCodec.findConstraintsHeader(
+                        lines
+                );
+
+        int columnSectionEnd =
+                constraintsHeaderIndex >= 0
+                        ? constraintsHeaderIndex
+                        : lines.size();
+
         for (int index = 6;
-             index < lines.size();
+             index < columnSectionEnd;
              index++) {
 
             String line =
@@ -611,6 +629,7 @@ public class TableFileMetadataReader {
     private Table createTable(
             String tableName,
             List<Column> columns,
+            List<Constraint> constraints,
             Path tableFile
     ) {
 
@@ -618,7 +637,8 @@ public class TableFileMetadataReader {
 
             return new Table(
                     tableName,
-                    columns
+                    columns,
+                    constraints
             );
 
         } catch (RuntimeException exception) {

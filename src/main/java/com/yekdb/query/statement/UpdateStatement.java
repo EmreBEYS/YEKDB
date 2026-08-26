@@ -1,5 +1,6 @@
 package com.yekdb.query.statement;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -68,9 +69,16 @@ public final class UpdateStatement implements Statement {
             );
         }
 
+        /*
+         * Sprint 00-24:
+         * UPDATE ... SET column = NULL desteği için Map.copyOf(...)
+         * kullanılamaz; Map.copyOf null value kabul etmez.
+         * LinkedHashMap kopyası null değerleri korurken dışarıya
+         * değiştirilemez bir görünüm sunar.
+         */
         this.updatedValues =
-                Map.copyOf(
-                        normalizedValues
+                Collections.unmodifiableMap(
+                        new LinkedHashMap<>(normalizedValues)
                 );
 
         if (whereClause != null

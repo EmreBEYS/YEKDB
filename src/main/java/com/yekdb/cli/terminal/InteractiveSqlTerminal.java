@@ -8,6 +8,8 @@ import com.yekdb.cli.metadata.TerminalMetadataService;
 import com.yekdb.cli.output.QueryResultFormatter;
 import com.yekdb.cli.output.TerminalErrorHandler;
 import com.yekdb.cli.output.TerminalOutput;
+import com.yekdb.constraint.Constraint;
+import com.yekdb.constraint.ConstraintType;
 import com.yekdb.query.executor.ExecuteResult;
 import com.yekdb.storage.table.Column;
 import com.yekdb.storage.table.Table;
@@ -15,6 +17,7 @@ import com.yekdb.storage.table.Table;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.Reader;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -624,7 +627,23 @@ public final class InteractiveSqlTerminal {
         int typeWidth =
                 "Type".length();
 
+        int constraintWidth =
+                "Constraints".length();
+
+        List<String> constraintDescriptions =
+                new ArrayList<>(columns.size());
+
         for (Column column : columns) {
+
+            String description =
+                    formatColumnConstraints(
+                            table,
+                            column.getName()
+                    );
+
+            constraintDescriptions.add(
+                    description
+            );
 
             columnNameWidth =
                     Math.max(
@@ -639,6 +658,12 @@ public final class InteractiveSqlTerminal {
                                     .name()
                                     .length()
                     );
+
+            constraintWidth =
+                    Math.max(
+                            constraintWidth,
+                            description.length()
+                    );
         }
 
         String border =
@@ -646,6 +671,8 @@ public final class InteractiveSqlTerminal {
                         + "-".repeat(columnNameWidth)
                         + "-+-"
                         + "-".repeat(typeWidth)
+                        + "-+-"
+                        + "-".repeat(constraintWidth)
                         + "-+";
 
         String rowFormat =
@@ -653,6 +680,8 @@ public final class InteractiveSqlTerminal {
                         + columnNameWidth
                         + "s | %-"
                         + typeWidth
+                        + "s | %-"
+                        + constraintWidth
                         + "s |";
 
         output.println(
@@ -665,19 +694,25 @@ public final class InteractiveSqlTerminal {
                 String.format(
                         rowFormat,
                         "Column",
-                        "Type"
+                        "Type",
+                        "Constraints"
                 )
         );
         output.println(border);
 
-        for (Column column : columns) {
+        for (int index = 0;
+             index < columns.size();
+             index++) {
+
+            Column column =
+                    columns.get(index);
 
             output.println(
                     String.format(
                             rowFormat,
                             column.getName(),
-                            column.getDataType()
-                                    .name()
+                            column.getDataType().name(),
+                            constraintDescriptions.get(index)
                     )
             );
         }
@@ -690,6 +725,88 @@ public final class InteractiveSqlTerminal {
                         "columns"
                 )
         );
+    }
+
+    /**
+     * Sprint 00-24 Phase 7:
+     * Bir kolonun dahil olduğu constraint'leri terminalde
+     * okunabilir biçime dönüştürür.
+     */
+    private String formatColumnConstraints(
+            Table table,
+            String columnName
+    ) {
+
+        List<String> descriptions =
+                new ArrayList<>();
+
+        for (Constraint constraint :
+                table.getConstraints()) {
+
+            boolean containsColumn =
+                    constraint.columns()
+                            .stream()
+                            .anyMatch(value ->
+                                    value.equalsIgnoreCase(
+                                            columnName
+                                    )
+                            );
+
+            if (!containsColumn) {
+                continue;
+            }
+
+            descriptions.add(
+                    formatConstraint(
+                            constraint
+                    )
+            );
+        }
+
+        if (descriptions.isEmpty()) {
+            return "-";
+        }
+
+        return String.join(
+                ", ",
+                descriptions
+        );
+    }
+
+    private String formatConstraint(
+            Constraint constraint
+    ) {
+
+        ConstraintType type =
+                constraint.type();
+
+        if (type == ConstraintType.NOT_NULL) {
+            return "NOT NULL";
+        }
+
+        if (constraint.columns().size() == 1) {
+
+            return switch (type) {
+                case UNIQUE -> "UNIQUE";
+                case PRIMARY_KEY -> "PRIMARY KEY";
+                case NOT_NULL -> "NOT NULL";
+            };
+        }
+
+        String columns =
+                String.join(
+                        ",",
+                        constraint.columns()
+                );
+
+        return switch (type) {
+            case PRIMARY_KEY ->
+                    "PRIMARY KEY(" + columns + ")";
+            case UNIQUE ->
+                    "UNIQUE(" + columns + ")";
+            case NOT_NULL ->
+                    "NOT NULL";
+        };
     }
 
     private void printUnknownCommand() {

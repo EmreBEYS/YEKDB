@@ -19,14 +19,21 @@ import java.util.List;
  * [Type: 1 byte]
  * [Value: N byte]
  *
+ * NULL değeri:
+ *
+ * [Type: 1 byte]
+ *
  * STRING değerleri için:
  *
  * [Type: 1 byte]
  * [String Length: 4 byte]
  * [UTF-8 String Data: N byte]
+ *
+ * Sprint 00-24 kapsamında NULL binary tipi eklenmiştir.
  */
 public final class RowSerializer {
 
+    private static final byte TYPE_NULL = 0;
     private static final byte TYPE_INTEGER = 1;
     private static final byte TYPE_LONG = 2;
     private static final byte TYPE_DOUBLE = 3;
@@ -48,6 +55,7 @@ public final class RowSerializer {
      * @return Row verisinin binary karşılığı
      */
     public static byte[] serialize(Row row) {
+
         if (row == null) {
             throw new IllegalArgumentException(
                     "Serialize edilecek Row null olamaz."
@@ -57,10 +65,16 @@ public final class RowSerializer {
         ByteArrayOutputStream outputStream =
                 new ByteArrayOutputStream();
 
-        writeInt(outputStream, row.size());
+        writeInt(
+                outputStream,
+                row.size()
+        );
 
         for (Object value : row.getValues()) {
-            writeValue(outputStream, value);
+            writeValue(
+                    outputStream,
+                    value
+            );
         }
 
         return outputStream.toByteArray();
@@ -73,6 +87,7 @@ public final class RowSerializer {
      * @return Oluşturulan Row nesnesi
      */
     public static Row deserialize(byte[] bytes) {
+
         if (bytes == null) {
             throw new IllegalArgumentException(
                     "Deserialize edilecek byte dizisi null olamaz."
@@ -85,9 +100,11 @@ public final class RowSerializer {
             );
         }
 
-        ByteBuffer buffer = ByteBuffer.wrap(bytes);
+        ByteBuffer buffer =
+                ByteBuffer.wrap(bytes);
 
-        int valueCount = buffer.getInt();
+        int valueCount =
+                buffer.getInt();
 
         if (valueCount < 0) {
             throw new IllegalArgumentException(
@@ -95,10 +112,19 @@ public final class RowSerializer {
             );
         }
 
-        List<Object> values = new ArrayList<>(valueCount);
+        List<Object> values =
+                new ArrayList<>(valueCount);
 
-        for (int index = 0; index < valueCount; index++) {
-            values.add(readValue(buffer, index));
+        for (int index = 0;
+             index < valueCount;
+             index++) {
+
+            values.add(
+                    readValue(
+                            buffer,
+                            index
+                    )
+            );
         }
 
         if (buffer.hasRemaining()) {
@@ -120,56 +146,108 @@ public final class RowSerializer {
      * @return Serialized Row boyutu
      */
     public static int calculateSerializedSize(Row row) {
+
         if (row == null) {
             throw new IllegalArgumentException(
                     "Row null olamaz."
             );
         }
 
-        int totalSize = VALUE_COUNT_SIZE;
+        int totalSize =
+                VALUE_COUNT_SIZE;
 
-        for (Object value : row.getValues()) {
-            totalSize += calculateValueSize(value);
+        for (Object value :
+                row.getValues()) {
+
+            totalSize +=
+                    calculateValueSize(value);
         }
 
         return totalSize;
     }
 
+    /**
+     * Tek bir Row değerini binary formata yazar.
+     *
+     * NULL değeri yalnızca TYPE_NULL byte'ı ile temsil edilir.
+     */
     private static void writeValue(
             ByteArrayOutputStream outputStream,
             Object value
     ) {
+
+        if (value == null) {
+            outputStream.write(TYPE_NULL);
+            return;
+        }
+
         if (value instanceof Integer integerValue) {
+
             outputStream.write(TYPE_INTEGER);
-            writeInt(outputStream, integerValue);
+
+            writeInt(
+                    outputStream,
+                    integerValue
+            );
+
             return;
         }
 
         if (value instanceof Long longValue) {
+
             outputStream.write(TYPE_LONG);
-            writeLong(outputStream, longValue);
+
+            writeLong(
+                    outputStream,
+                    longValue
+            );
+
             return;
         }
 
         if (value instanceof Double doubleValue) {
+
             outputStream.write(TYPE_DOUBLE);
-            writeDouble(outputStream, doubleValue);
+
+            writeDouble(
+                    outputStream,
+                    doubleValue
+            );
+
             return;
         }
 
         if (value instanceof Boolean booleanValue) {
+
             outputStream.write(TYPE_BOOLEAN);
-            outputStream.write(booleanValue ? 1 : 0);
+
+            outputStream.write(
+                    booleanValue
+                            ? 1
+                            : 0
+            );
+
             return;
         }
 
         if (value instanceof String stringValue) {
+
             byte[] stringBytes =
-                    stringValue.getBytes(StandardCharsets.UTF_8);
+                    stringValue.getBytes(
+                            StandardCharsets.UTF_8
+                    );
 
             outputStream.write(TYPE_STRING);
-            writeInt(outputStream, stringBytes.length);
-            outputStream.writeBytes(stringBytes);
+
+            writeInt(
+                    outputStream,
+                    stringBytes.length
+            );
+
+            outputStream.writeBytes(
+                    stringBytes
+            );
+
             return;
         }
 
@@ -179,10 +257,14 @@ public final class RowSerializer {
         );
     }
 
+    /**
+     * Binary formattaki tek bir Row değerini okur.
+     */
     private static Object readValue(
             ByteBuffer buffer,
             int columnIndex
     ) {
+
         requireRemaining(
                 buffer,
                 TYPE_SIZE,
@@ -190,19 +272,51 @@ public final class RowSerializer {
                 columnIndex
         );
 
-        byte type = buffer.get();
+        byte type =
+                buffer.get();
 
         return switch (type) {
-            case TYPE_INTEGER -> readInteger(buffer, columnIndex);
-            case TYPE_LONG -> readLong(buffer, columnIndex);
-            case TYPE_DOUBLE -> readDouble(buffer, columnIndex);
-            case TYPE_BOOLEAN -> readBoolean(buffer, columnIndex);
-            case TYPE_STRING -> readString(buffer, columnIndex);
 
-            default -> throw new IllegalArgumentException(
-                    "Geçersiz Row veri tipi kodu: " + type +
-                            ". Sütun indeksi: " + columnIndex
-            );
+            case TYPE_NULL ->
+                    null;
+
+            case TYPE_INTEGER ->
+                    readInteger(
+                            buffer,
+                            columnIndex
+                    );
+
+            case TYPE_LONG ->
+                    readLong(
+                            buffer,
+                            columnIndex
+                    );
+
+            case TYPE_DOUBLE ->
+                    readDouble(
+                            buffer,
+                            columnIndex
+                    );
+
+            case TYPE_BOOLEAN ->
+                    readBoolean(
+                            buffer,
+                            columnIndex
+                    );
+
+            case TYPE_STRING ->
+                    readString(
+                            buffer,
+                            columnIndex
+                    );
+
+            default ->
+                    throw new IllegalArgumentException(
+                            "Geçersiz Row veri tipi kodu: "
+                                    + type
+                                    + ". Sütun indeksi: "
+                                    + columnIndex
+                    );
         };
     }
 
@@ -210,6 +324,7 @@ public final class RowSerializer {
             ByteBuffer buffer,
             int columnIndex
     ) {
+
         requireRemaining(
                 buffer,
                 Integer.BYTES,
@@ -224,6 +339,7 @@ public final class RowSerializer {
             ByteBuffer buffer,
             int columnIndex
     ) {
+
         requireRemaining(
                 buffer,
                 Long.BYTES,
@@ -238,6 +354,7 @@ public final class RowSerializer {
             ByteBuffer buffer,
             int columnIndex
     ) {
+
         requireRemaining(
                 buffer,
                 Double.BYTES,
@@ -252,6 +369,7 @@ public final class RowSerializer {
             ByteBuffer buffer,
             int columnIndex
     ) {
+
         requireRemaining(
                 buffer,
                 Byte.BYTES,
@@ -259,7 +377,8 @@ public final class RowSerializer {
                 columnIndex
         );
 
-        byte booleanValue = buffer.get();
+        byte booleanValue =
+                buffer.get();
 
         if (booleanValue == 0) {
             return false;
@@ -270,8 +389,10 @@ public final class RowSerializer {
         }
 
         throw new IllegalArgumentException(
-                "Geçersiz boolean değeri: " + booleanValue +
-                        ". Sütun indeksi: " + columnIndex
+                "Geçersiz boolean değeri: "
+                        + booleanValue
+                        + ". Sütun indeksi: "
+                        + columnIndex
         );
     }
 
@@ -279,6 +400,7 @@ public final class RowSerializer {
             ByteBuffer buffer,
             int columnIndex
     ) {
+
         requireRemaining(
                 buffer,
                 STRING_LENGTH_SIZE,
@@ -286,12 +408,14 @@ public final class RowSerializer {
                 columnIndex
         );
 
-        int stringLength = buffer.getInt();
+        int stringLength =
+                buffer.getInt();
 
         if (stringLength < 0) {
             throw new IllegalArgumentException(
                     "String uzunluğu negatif olamaz. " +
-                            "Sütun indeksi: " + columnIndex
+                            "Sütun indeksi: " +
+                            columnIndex
             );
         }
 
@@ -302,8 +426,12 @@ public final class RowSerializer {
                 columnIndex
         );
 
-        byte[] stringBytes = new byte[stringLength];
-        buffer.get(stringBytes);
+        byte[] stringBytes =
+                new byte[stringLength];
+
+        buffer.get(
+                stringBytes
+        );
 
         return new String(
                 stringBytes,
@@ -311,32 +439,50 @@ public final class RowSerializer {
         );
     }
 
-    private static int calculateValueSize(Object value) {
+    /**
+     * Tek bir değerin binary formatta kaplayacağı
+     * byte miktarını hesaplar.
+     */
+    private static int calculateValueSize(
+            Object value
+    ) {
+
         if (value == null) {
-            throw new IllegalArgumentException(
-                    "Row değeri null olamaz."
-            );
+            return TYPE_SIZE;
         }
 
         if (value instanceof Integer) {
-            return TYPE_SIZE + Integer.BYTES;
+
+            return TYPE_SIZE +
+                    Integer.BYTES;
         }
 
         if (value instanceof Long) {
-            return TYPE_SIZE + Long.BYTES;
+
+            return TYPE_SIZE +
+                    Long.BYTES;
         }
 
         if (value instanceof Double) {
-            return TYPE_SIZE + Double.BYTES;
+
+            return TYPE_SIZE +
+                    Double.BYTES;
         }
 
         if (value instanceof Boolean) {
-            return TYPE_SIZE + Byte.BYTES;
+
+            return TYPE_SIZE +
+                    Byte.BYTES;
         }
 
         if (value instanceof String stringValue) {
+
             int stringByteLength =
-                    stringValue.getBytes(StandardCharsets.UTF_8).length;
+                    stringValue
+                            .getBytes(
+                                    StandardCharsets.UTF_8
+                            )
+                            .length;
 
             return TYPE_SIZE +
                     STRING_LENGTH_SIZE +
@@ -349,19 +495,29 @@ public final class RowSerializer {
         );
     }
 
+    /**
+     * Buffer içerisinde belirtilen miktarda byte
+     * kaldığını doğrular.
+     */
     private static void requireRemaining(
             ByteBuffer buffer,
             int requiredBytes,
             String fieldName,
             int columnIndex
     ) {
-        if (buffer.remaining() < requiredBytes) {
+
+        if (buffer.remaining() <
+                requiredBytes) {
+
             throw new IllegalArgumentException(
                     fieldName +
                             " için yeterli byte bulunamadı. " +
-                            "Sütun indeksi: " + columnIndex +
-                            ", gerekli: " + requiredBytes +
-                            ", kalan: " + buffer.remaining()
+                            "Sütun indeksi: " +
+                            columnIndex +
+                            ", gerekli: " +
+                            requiredBytes +
+                            ", kalan: " +
+                            buffer.remaining()
             );
         }
     }
@@ -370,8 +526,11 @@ public final class RowSerializer {
             ByteArrayOutputStream outputStream,
             int value
     ) {
+
         outputStream.writeBytes(
-                ByteBuffer.allocate(Integer.BYTES)
+                ByteBuffer.allocate(
+                                Integer.BYTES
+                        )
                         .putInt(value)
                         .array()
         );
@@ -381,8 +540,11 @@ public final class RowSerializer {
             ByteArrayOutputStream outputStream,
             long value
     ) {
+
         outputStream.writeBytes(
-                ByteBuffer.allocate(Long.BYTES)
+                ByteBuffer.allocate(
+                                Long.BYTES
+                        )
                         .putLong(value)
                         .array()
         );
@@ -392,8 +554,11 @@ public final class RowSerializer {
             ByteArrayOutputStream outputStream,
             double value
     ) {
+
         outputStream.writeBytes(
-                ByteBuffer.allocate(Double.BYTES)
+                ByteBuffer.allocate(
+                                Double.BYTES
+                        )
                         .putDouble(value)
                         .array()
         );

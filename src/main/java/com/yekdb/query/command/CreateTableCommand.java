@@ -1,5 +1,6 @@
 package com.yekdb.query.command;
 
+import com.yekdb.constraint.Constraint;
 import com.yekdb.storage.table.Column;
 
 import java.util.List;
@@ -7,28 +8,34 @@ import java.util.Objects;
 
 /**
  * CREATE TABLE SQL komutunu temsil eder.
+ *
+ * Sprint 00-24 Phase 5 kapsamında CREATE TABLE constraint
+ * tanımlarını da taşımaktadır.
  */
 public final class CreateTableCommand implements Command {
 
-    /**
-     * Oluşturulacak tablonun adı.
-     */
     private final String tableName;
-
-    /**
-     * Tablo sütunları.
-     */
     private final List<Column> columns;
+    private final List<Constraint> constraints;
 
     /**
-     * Yeni CREATE TABLE komutu oluşturur.
-     *
-     * @param tableName tablo adı
-     * @param columns tablo sütunları
+     * Constraint içermeyen eski CREATE TABLE kullanımları için
+     * backward-compatible constructor.
      */
     public CreateTableCommand(
             String tableName,
             List<Column> columns
+    ) {
+        this(tableName, columns, List.of());
+    }
+
+    /**
+     * Constraint tanımlarıyla birlikte CREATE TABLE komutu oluşturur.
+     */
+    public CreateTableCommand(
+            String tableName,
+            List<Column> columns,
+            List<Constraint> constraints
     ) {
 
         this.tableName = Objects.requireNonNull(
@@ -53,28 +60,49 @@ public final class CreateTableCommand implements Command {
             );
         }
 
+        Objects.requireNonNull(
+                constraints,
+                "Constraint list cannot be null."
+        );
+
+        if (columns.stream().anyMatch(Objects::isNull)) {
+            throw new IllegalArgumentException(
+                    "Column list cannot contain null values."
+            );
+        }
+
+        if (constraints.stream().anyMatch(Objects::isNull)) {
+            throw new IllegalArgumentException(
+                    "Constraint list cannot contain null values."
+            );
+        }
+
         this.columns = List.copyOf(columns);
+        this.constraints = List.copyOf(constraints);
     }
 
-    /**
-     * Tablo adını döndürür.
-     */
     public String getTableName() {
         return tableName;
     }
 
-    /**
-     * Tablo sütunlarını döndürür.
-     */
     public List<Column> getColumns() {
         return columns;
     }
 
-    /**
-     * Sütun sayısını döndürür.
-     */
+    public List<Constraint> getConstraints() {
+        return constraints;
+    }
+
     public int getColumnCount() {
         return columns.size();
+    }
+
+    public int getConstraintCount() {
+        return constraints.size();
+    }
+
+    public boolean hasConstraints() {
+        return !constraints.isEmpty();
     }
 
     @Override
@@ -82,6 +110,7 @@ public final class CreateTableCommand implements Command {
         return "CreateTableCommand{" +
                 "tableName='" + tableName + '\'' +
                 ", columnCount=" + columns.size() +
+                ", constraintCount=" + constraints.size() +
                 '}';
     }
 }

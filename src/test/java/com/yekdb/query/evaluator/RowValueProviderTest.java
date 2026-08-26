@@ -9,6 +9,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -239,22 +241,15 @@ class RowValueProviderTest {
     }
 
     @Test
-    void row_shouldRejectNullStoredValue() {
-        IllegalArgumentException exception =
-                assertThrows(
-                        IllegalArgumentException.class,
-                        () -> new Row(
-                                java.util.Arrays.asList(
-                                        1,
-                                        "Yunus Emre",
-                                        null,
-                                        "Malatya",
-                                        true
-                                )
-                        )
-                );
+    void row_shouldSupportNullStoredValue() {
 
-        assertMessageExists(exception);
+        Row row = new Row(
+                java.util.Collections.singletonList(null)
+        );
+
+        Object value = row.getValue(0);
+
+        assertNull(value);
     }
 
     /**

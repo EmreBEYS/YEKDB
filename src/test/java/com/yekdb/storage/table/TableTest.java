@@ -1,5 +1,8 @@
 package com.yekdb.storage.table;
 
+import com.yekdb.constraint.ConstraintType;
+import com.yekdb.constraint.NotNullConstraint;
+import com.yekdb.constraint.PrimaryKeyConstraint;
 import com.yekdb.storage.table.Column;
 import com.yekdb.storage.table.DataType;
 import com.yekdb.storage.table.Table;
@@ -208,5 +211,86 @@ class TableTest {
 
         assertTrue(result.contains("users"));
         assertTrue(result.contains("id"));
+    }
+    @Test
+    void shouldCreateTableWithNotNullConstraint() {
+
+        Table table = new Table(
+                "users",
+                List.of(
+                        new Column("id", DataType.INT),
+                        new Column("email", DataType.STRING)
+                ),
+                List.of(
+                        new NotNullConstraint("email")
+                )
+        );
+
+        assertEquals(
+                1,
+                table.getConstraints().size()
+        );
+
+        assertTrue(
+                table.hasConstraint(
+                        ConstraintType.NOT_NULL
+                )
+        );
+    }
+    @Test
+    void shouldSupportCompositePrimaryKeyConstraint() {
+
+        Table table = new Table(
+                "student_course",
+                List.of(
+                        new Column(
+                                "student_id",
+                                DataType.INT
+                        ),
+                        new Column(
+                                "course_id",
+                                DataType.INT
+                        )
+                ),
+                List.of(
+                        new PrimaryKeyConstraint(
+                                List.of(
+                                        "student_id",
+                                        "course_id"
+                                )
+                        )
+                )
+        );
+
+        assertEquals(
+                List.of(
+                        "student_id",
+                        "course_id"
+                ),
+                table.getConstraints()
+                        .get(0)
+                        .columns()
+        );
+    }
+    @Test
+    void shouldRejectConstraintReferencingUnknownColumn() {
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new Table(
+                        "users",
+                        List.of(
+                                new Column(
+                                        "id",
+                                        DataType.INT
+                                )
+                        ),
+                        List.of(
+                                new NotNullConstraint(
+                                        "email"
+                                )
+                        )
+                )
+        );
     }
 }

@@ -1,5 +1,7 @@
 package com.yekdb.query.command;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -58,7 +60,10 @@ public final class InsertCommand implements Command {
                 .map(InsertCommand::validateColumnName)
                 .toList();
 
-        this.values = List.copyOf(values);
+        this.values =
+                java.util.Collections.unmodifiableList(
+                        new java.util.ArrayList<>(values)
+                );
     }
 
     public String getTableName() {
@@ -70,7 +75,9 @@ public final class InsertCommand implements Command {
     }
 
     public List<Object> getValues() {
-        return values;
+        return Collections.unmodifiableList(
+                new ArrayList<>(values)
+        );
     }
 
     private static String validateTableName(String tableName) {

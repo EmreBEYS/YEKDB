@@ -1,5 +1,7 @@
 package com.yekdb.query.statement;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -69,7 +71,16 @@ public final class InsertStatement implements Statement {
                 .map(this::validateColumnName)
                 .toList();
 
-        this.values = List.copyOf(values);
+        /*
+         * Sprint 00-24:
+         * SQL NULL literal parser tarafında Java null değerine
+         * dönüştürülür. List.copyOf(...) null eleman kabul etmediği
+         * için defensive copy null-safe şekilde oluşturulur.
+         */
+        this.values =
+                Collections.unmodifiableList(
+                        new ArrayList<>(values)
+                );
     }
 
     @Override

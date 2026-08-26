@@ -1,5 +1,7 @@
 package com.yekdb.query.executor;
 
+import com.yekdb.constraint.ConstraintValidator;
+import com.yekdb.constraint.ValidationContext;
 import com.yekdb.query.command.UpdateCommand;
 import com.yekdb.query.evaluator.WhereEvaluator;
 import com.yekdb.storage.record.Record;
@@ -19,6 +21,13 @@ import java.util.Objects;
  *
  * Sprint 00-13 kapsamında gelişmiş WHERE Expression Engine
  * ile entegre edilmiştir.
+ *
+ * Sprint 00-24 kapsamında:
+ *
+ * - NULL storage desteği
+ * - Constraint validation desteği
+ *
+ * eklenmiştir.
  *
  * Desteklenen WHERE yapıları:
  *
@@ -43,6 +52,8 @@ import java.util.Objects;
  *      ↓
  * SET değerlerini Row üzerine uygula
  *      ↓
+ * ConstraintValidator
+ *      ↓
  * RecordManager.update(...)
  */
 public final class UpdateExecutor {
@@ -50,8 +61,8 @@ public final class UpdateExecutor {
     /**
      * UPDATE komutunu çalıştırır.
      *
-     * @param table         güncellenecek tablo
-     * @param command       UPDATE komutu
+     * @param table güncellenecek tablo
+     * @param command UPDATE komutu
      * @param recordManager fiziksel kayıt yöneticisi
      * @return güncellenen satır sayısı
      */
@@ -91,7 +102,8 @@ public final class UpdateExecutor {
 
         int updatedRowCount = 0;
 
-        for (Record record : activeRecords) {
+        for (Record record :
+                activeRecords) {
 
             long recordId =
                     record.getRecordId();
@@ -104,7 +116,7 @@ public final class UpdateExecutor {
             /*
              * Sprint 00-13:
              *
-             * WHERE expression artık doğrudan
+             * WHERE expression doğrudan
              * WhereEvaluator üzerinden merkezi
              * ExpressionEvaluator motoruna gönderilir.
              */
@@ -123,6 +135,26 @@ public final class UpdateExecutor {
                             currentRow,
                             command.getUpdatedValues()
                     );
+
+            /*
+             * Sprint 00-24:
+             *
+             * Güncellenmiş Row fiziksel kayda uygulanmadan
+             * önce constraint validation çalıştırılır.
+             *
+             * Böylece UPDATE işlemi bir NOT NULL kolonunu
+             * NULL yapmaya çalışırsa fiziksel kayıt
+             * değiştirilmeden işlem reddedilir.
+             */
+            ConstraintValidator.validate(
+                    new ValidationContext(
+                            table,
+                            updatedRow,
+                            recordManager,
+                            recordId
+                    ),
+                    table.getConstraints()
+            );
 
             recordManager.update(
                     recordId,
@@ -150,11 +182,11 @@ public final class UpdateExecutor {
                 )) {
 
             throw new IllegalArgumentException(
-                    "UPDATE target table mismatch. Expected '"
-                            + table.getTableName()
-                            + "' but received '"
-                            + command.getTableName()
-                            + "'."
+                    "UPDATE target table mismatch. Expected '" +
+                            table.getTableName() +
+                            "' but received '" +
+                            command.getTableName() +
+                            "'."
             );
         }
     }
@@ -180,10 +212,10 @@ public final class UpdateExecutor {
             )) {
 
                 throw new IllegalArgumentException(
-                        "Column not found in table '"
-                                + table.getTableName()
-                                + "': "
-                                + columnName
+                        "Column not found in table '" +
+                                table.getTableName() +
+                                "': " +
+                                columnName
                 );
             }
 
@@ -204,7 +236,7 @@ public final class UpdateExecutor {
      *
      * WHERE yoksa tüm aktif satırlar eşleşir.
      *
-     * WHERE varsa yeni Sprint 00-13
+     * WHERE varsa Sprint 00-13
      * Expression Engine kullanılır.
      */
     private boolean matchesWhere(
@@ -214,7 +246,6 @@ public final class UpdateExecutor {
     ) {
 
         if (!command.hasWhereExpression()) {
-
             return true;
         }
 
@@ -289,8 +320,8 @@ public final class UpdateExecutor {
         }
 
         throw new IllegalArgumentException(
-                "Column index could not be resolved: "
-                        + columnName
+                "Column index could not be resolved: " +
+                        columnName
         );
     }
 
@@ -298,8 +329,9 @@ public final class UpdateExecutor {
      * UPDATE ile verilen yeni değerin kolon tipiyle
      * uyumlu olup olmadığını kontrol eder.
      *
-     * NULL desteği henüz storage katmanında bulunmadığı
-     * için null değerler şimdilik reddedilir.
+     * NULL değer burada geçerli kabul edilir.
+     * NOT NULL kontrolü ConstraintValidator
+     * katmanında gerçekleştirilir.
      */
     private void validateValueType(
             Column column,
@@ -307,11 +339,7 @@ public final class UpdateExecutor {
     ) {
 
         if (value == null) {
-
-            throw new IllegalArgumentException(
-                    "NULL values are not supported yet for column: "
-                            + column.getName()
-            );
+            return;
         }
 
         DataType dataType =
@@ -339,14 +367,14 @@ public final class UpdateExecutor {
         if (!valid) {
 
             throw new IllegalArgumentException(
-                    "Invalid value type for column '"
-                            + column.getName()
-                            + "'. Expected "
-                            + dataType
-                            + " but received "
-                            + value.getClass()
-                            .getSimpleName()
-                            + "."
+                    "Invalid value type for column '" +
+                            column.getName() +
+                            "'. Expected " +
+                            dataType +
+                            " but received " +
+                            value.getClass()
+                                    .getSimpleName() +
+                            "."
             );
         }
     }

@@ -216,14 +216,14 @@ class RowTest {
     }
 
     @Test
-    void shouldRejectNullColumnValue() {
+    void shouldAllowNullColumnValue() {
 
-        Row row = new Row();
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> row.addValue(null)
+        Row row = new Row(
+                java.util.Collections.singletonList(null)
         );
+
+        assertEquals(1, row.size());
+        assertNull(row.getValue(0));
     }
 
     @Test

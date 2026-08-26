@@ -400,6 +400,71 @@ class RecordSerializerTest {
                 )
         );
     }
+    @Test
+    void shouldSerializeAndDeserializeNullValue() {
+
+        Row row = new Row(
+                java.util.Arrays.asList(
+                        1,
+                        null,
+                        "Emre"
+                )
+        );
+
+        byte[] bytes =
+                RowSerializer.serialize(row);
+
+        Row restored =
+                RowSerializer.deserialize(bytes);
+
+        assertEquals(
+                3,
+                restored.size()
+        );
+
+        assertEquals(
+                1,
+                restored.getValue(0)
+        );
+
+        assertNull(
+                restored.getValue(1)
+        );
+
+        assertEquals(
+                "Emre",
+                restored.getValue(2)
+        );
+    }
+    @Test
+    void shouldSupportRowContainingOnlyNull() {
+
+        Row row = new Row(
+                java.util.Collections.singletonList(null)
+        );
+
+        byte[] bytes =
+                RowSerializer.serialize(row);
+
+        Row restored =
+                RowSerializer.deserialize(bytes);
+
+        assertEquals(1, restored.size());
+        assertNull(restored.getValue(0));
+    }
+
+    @Test
+    void shouldCalculateNullSerializedSize() {
+
+        Row row = new Row(
+                java.util.Collections.singletonList(null)
+        );
+
+        assertEquals(
+                Integer.BYTES + Byte.BYTES,
+                RowSerializer.calculateSerializedSize(row)
+        );
+    }
 
     private Record roundTrip(Record record) {
 

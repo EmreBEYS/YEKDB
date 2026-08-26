@@ -1,5 +1,6 @@
 package com.yekdb.cli.output;
 
+import com.yekdb.constraint.exception.ConstraintViolationException;
 import com.yekdb.query.executor.QueryExecutionException;
 import com.yekdb.storage.exception.TableNotFoundException;
 
@@ -51,6 +52,28 @@ public final class TerminalErrorHandler {
                 resolveMessage(
                         exception
                 );
+
+        /*
+         * Sprint 00-24 Phase 7:
+         *
+         * Constraint katmanından terminale doğrudan ulaşan
+         * violation exception'ları kullanıcıya normal SQL
+         * hatası olarak gösterilir. QueryExecutor üzerinden
+         * gelen constraint hataları ise QueryExecutionException
+         * içerisinde aynı mesajı korur.
+         */
+        if (exception instanceof ConstraintViolationException) {
+
+            output.error(
+                    "ERROR: " + message
+            );
+
+            printDebug(
+                    exception
+            );
+
+            return;
+        }
 
         /*
          * QueryExecutionException kullanıcıya

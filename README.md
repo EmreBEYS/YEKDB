@@ -7,8 +7,8 @@
 ![Maven](https://img.shields.io/badge/Maven-3.x-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-green)
 ![Status](https://img.shields.io/badge/Status-Active%20Development-yellow)
-![Tests](https://img.shields.io/badge/JUnit-1168%20Tests%20Passed-brightgreen)
-![Sprint](https://img.shields.io/badge/Sprint-00--23-blueviolet)
+![Tests](https://img.shields.io/badge/JUnit-1231%20Tests%20Passed-brightgreen)
+![Sprint](https://img.shields.io/badge/Sprint-00--24-blueviolet)
 
 ---
 
@@ -63,12 +63,65 @@ The long-term goal is a complete page-oriented database engine with durable stor
 - Persistent storage-backed `SELECT`
 - Projection and alias preservation in terminal result output
 - DDL and DML execution through the interactive terminal
+- `NOT NULL` constraint enforcement
+- `UNIQUE` constraint enforcement
+- `PRIMARY KEY` constraint enforcement
+- Composite `UNIQUE` constraints
+- Composite `PRIMARY KEY` constraints
+- Constraint-aware `CREATE TABLE` parsing
+- Constraint persistence and recovery through table metadata
 
 ---
 
-## Interactive SQL Terminal — Sprint 00-23
+## Constraints — Sprint 00-24
 
-Sprint 00-23 introduces a real interactive SQL terminal connected directly to the YEKDB query and storage layers.
+Sprint 00-24 introduces persistent relational constraint support across the SQL, query, metadata, storage, and terminal layers.
+
+Implemented constraint types:
+
+- `NOT NULL`
+- `UNIQUE`
+- `PRIMARY KEY`
+- Composite `UNIQUE`
+- Composite `PRIMARY KEY`
+
+The constraint pipeline provides:
+
+- `NULL` values throughout the statement / command / row / serialization pipeline
+- centralized validation through `ConstraintValidator`
+- INSERT enforcement before physical writes
+- UPDATE enforcement before physical mutation
+- self-record exclusion during UPDATE duplicate checks
+- SQL parsing for inline and table-level constraint declarations
+- persistent constraint metadata and recovery
+- terminal-visible constraint errors
+- constraint information in table descriptions
+
+Example:
+
+```sql
+CREATE TABLE users (
+    id INT PRIMARY KEY,
+    username STRING UNIQUE,
+    email STRING NOT NULL
+);
+
+INSERT INTO users (id, username, email)
+VALUES (1, 'emre', 'emre@example.com');
+```
+
+Composite key example:
+
+```sql
+CREATE TABLE enrollments (
+    student_id INT,
+    course_id INT,
+    grade INT,
+    PRIMARY KEY (student_id, course_id)
+);
+```
+
+The interactive terminal from Sprint 00-23 remains fully integrated with the query and storage layers.
 
 The terminal provides:
 
@@ -100,9 +153,9 @@ yekdb> USE DATABASE demo;
 Database selected successfully: demo
 
 yekdb[demo]> CREATE TABLE users (
-...> id INT,
-...> name STRING,
-...> age INT
+...> id INT PRIMARY KEY,
+...> name STRING UNIQUE,
+...> age INT NOT NULL
 ...> );
 Table created successfully: users
 
@@ -145,9 +198,9 @@ Tables in database 'demo':
 yekdb[demo]> \describe users
 Table: users
 Columns:
-1  id    INT
-2  name  STRING
-3  age   INT
+1  id    INT     PRIMARY KEY
+2  name  STRING  UNIQUE
+3  age   INT     NOT NULL
 ```
 
 Invalid metadata operations are reported without terminating the terminal:
@@ -207,6 +260,8 @@ src/
 │   │   ├── metadata/
 │   │   ├── output/
 │   │   └── terminal/
+│   ├── constraint/
+│   │   └── exception/
 │   ├── core/
 │   ├── database/
 │   ├── index/
@@ -283,9 +338,9 @@ CREATE DATABASE demo;
 USE DATABASE demo;
 
 CREATE TABLE users (
-    id INT,
-    name STRING,
-    age INT
+    id INT PRIMARY KEY,
+    name STRING UNIQUE,
+    age INT NOT NULL
 );
 
 INSERT INTO users (id, name, age)
@@ -331,6 +386,9 @@ Expected user-facing errors are reported in a concise form:
 ERROR: Table not found: users
 ERROR: Column not found: age
 ERROR: SQL parsing failed: ...
+ERROR: NOT NULL constraint violated for column: email
+ERROR: UNIQUE constraint violated for column(s): username
+ERROR: PRIMARY KEY constraint violated for column(s): id
 ```
 
 A failed SQL statement does not terminate the REPL. The user can immediately execute another statement or meta-command.
@@ -401,39 +459,38 @@ The `\history` command itself is intentionally not added to history.
 
 YEKDB uses JUnit 5 with regression testing after every development phase.
 
-Current project status after Sprint 00-23:
+Current project status after Sprint 00-24:
 
 ```text
 Compile: SUCCESS
-Tests:   1168 / 1168 PASSED
+Tests:   1231 / 1231 PASSED
 ```
 
-Sprint 00-23 includes coverage for:
+Sprint 00-24 includes the complete terminal regression coverage from Sprint 00-23 plus:
 
-- terminal REPL lifecycle
-- terminal configuration and session state
-- meta-command parsing and aliases
-- SQL statement buffering
-- multi-line SQL handling
-- SQL executor integration
-- SELECT result formatting
-- projection formatting
-- DDL / DML output
-- command history
-- terminal error handling
-- table-not-found propagation
-- metadata service behavior
-- `\tables`
-- `\describe` / `\d`
-- database-aware prompt behavior
-- unknown command recovery
-- EOF handling
-- query-error recovery
-- persistent storage-backed terminal execution
-- end-to-end database / table / INSERT / SELECT flow
-- persistent projection
-- UPDATE / DELETE integration
-- metadata integration against the real catalog
+- constraint domain model validation
+- `NULL` row support
+- `NULL` binary serialization
+- `NOT NULL` INSERT enforcement
+- `NOT NULL` UPDATE enforcement
+- single-column `UNIQUE`
+- composite `UNIQUE`
+- multiple `NULL` values under nullable `UNIQUE`
+- UPDATE self-record exclusion for `UNIQUE`
+- single-column `PRIMARY KEY`
+- composite `PRIMARY KEY`
+- `PRIMARY KEY` NULL rejection
+- duplicate `PRIMARY KEY` rejection
+- UPDATE self-record exclusion for `PRIMARY KEY`
+- constraint-aware `CREATE TABLE` parsing
+- inline constraint syntax
+- table-level composite constraint syntax
+- constraint metadata persistence
+- constraint metadata recovery
+- backward-compatible recovery for legacy table metadata
+- terminal constraint error surfacing
+- terminal table description with constraint information
+- end-to-end SQL constraint regression
 
 The complete legacy regression suite remains green.
 
@@ -463,38 +520,48 @@ Recent completed sprints:
 - **00-21** — RecordManager Refactor / Physical Record-Page Integration
 - **00-22** — CLI Infrastructure / Command Layer
 - **00-23** — Interactive SQL Terminal
+- **00-24** — Primary Key / Unique / Not Null Constraints
 
 ---
 
-## Sprint 00-23 Summary
+## Sprint 00-24 Summary
 
-Sprint 00-23 transformed the CLI foundation from Sprint 00-22 into an interactive database shell.
+Sprint 00-24 added the first full relational constraint subsystem to YEKDB.
 
 Implemented areas:
 
-1. Terminal package and runtime structure
-2. REPL loop
-3. Meta-command parser
-4. Multi-line SQL statement buffering
-5. QueryExecutor integration
-6. Result output standardization
-7. Persistent SELECT datasource integration
-8. SELECT table formatting and projection correctness
-9. DDL / DML terminal output
-10. Session history
-11. Centralized error handling
-12. Metadata commands
-13. Terminal UX improvements
-14. Unit-test hardening
-15. End-to-end integration testing
-16. Final manual regression
+1. Constraint domain model
+2. `ConstraintType`
+3. `NotNullConstraint`
+4. `UniqueConstraint`
+5. `PrimaryKeyConstraint`
+6. Centralized `ConstraintValidator`
+7. Constraint-specific exception hierarchy
+8. `NULL` support in `Row`
+9. `NULL` support in binary row serialization
+10. `NULL` propagation through statements and commands
+11. `NOT NULL` INSERT / UPDATE enforcement
+12. Single-column `UNIQUE`
+13. Composite `UNIQUE`
+14. SQL-compatible nullable `UNIQUE` behavior
+15. UPDATE self-record exclusion during duplicate checks
+16. Single-column `PRIMARY KEY`
+17. Composite `PRIMARY KEY`
+18. Primary-key NULL rejection
+19. Constraint-aware `CREATE TABLE` parsing
+20. Persistent constraint metadata
+21. Constraint recovery after database restart
+22. Backward compatibility for legacy table metadata
+23. Interactive terminal constraint error handling
+24. Constraint-aware table description
+25. Full unit / integration / regression verification
 
 Final verification:
 
 ```text
-1168 / 1168 tests passed
+1231 / 1231 tests passed
 Compile successful
-Manual terminal regression successful
+Constraint terminal regression successful
 ```
 
 ---
@@ -518,6 +585,11 @@ Manual terminal regression successful
 - Persistent query execution through the terminal
 - Terminal metadata inspection
 - Terminal unit and integration regression coverage
+- `NOT NULL` constraints
+- `UNIQUE` constraints
+- `PRIMARY KEY` constraints
+- Composite key / uniqueness constraints
+- Constraint metadata persistence and recovery
 
 ### Upcoming
 
@@ -559,7 +631,7 @@ Development is documented sprint-by-sprint with technical developer notes coveri
 
 Latest documentation:
 
-**Developer Notes — Sprint 00-23: Interactive SQL Terminal**
+**Developer Notes — Sprint 00-24: Primary Key / Unique / Not Null Constraints**
 
 ---
 

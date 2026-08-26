@@ -680,7 +680,8 @@ public final class QueryExecutor implements AutoCloseable {
         TableMetadata metadata =
                 activeTableManager.createTable(
                         command.getTableName(),
-                        command.getColumns()
+                        command.getColumns(),
+                        command.getConstraints()
                 );
 
         return ExecuteResult.success(

@@ -1,5 +1,7 @@
 package com.yekdb.query.executor;
 
+import com.yekdb.constraint.ConstraintValidator;
+import com.yekdb.constraint.ValidationContext;
 import com.yekdb.query.command.InsertCommand;
 import com.yekdb.storage.record.Record;
 import com.yekdb.storage.record.RecordManager;
@@ -21,18 +23,22 @@ import java.util.Objects;
  * - INSERT komutundaki sütunları doğrular.
  * - Değerleri tablo sütun sırasına göre düzenler.
  * - Değer tiplerini tablo şemasına göre kontrol eder.
+ * - NULL değerlerin nullable kolon akışında taşınmasına izin verir.
  * - Row nesnesi oluşturur.
+ * - Constraint validation uygular.
  * - RecordManager üzerinden fiziksel kaydı gerçekleştirir.
  *
  * Sprint 00-12 kapsamında eklenmiştir.
+ * Sprint 00-24 kapsamında NULL ve constraint desteği
+ * genişletilmiştir.
  */
 public final class InsertExecutor {
 
     /**
      * INSERT komutunu çalıştırır.
      *
-     * @param table         hedef tablo şeması
-     * @param command       çalıştırılacak INSERT komutu
+     * @param table hedef tablo şeması
+     * @param command çalıştırılacak INSERT komutu
      * @param recordManager fiziksel kayıt yöneticisi
      * @return oluşturulan fiziksel Record
      * @throws IOException fiziksel yazma hatası oluşursa
@@ -68,12 +74,40 @@ public final class InsertExecutor {
                 command
         );
 
-        Row row = createRow(
-                table,
-                command
-        );
+        Row row =
+                createRow(
+                        table,
+                        command
+                );
 
-        return recordManager.insert(row);
+        /*
+         * Sprint 00-24:
+         *
+         * Row fiziksel olarak yazılmadan önce tabloya ait
+         * bütün constraint'ler doğrulanır.
+         *
+         * Şu anda aktif enforcement:
+         *
+         * - NOT NULL
+         *
+         * İlerleyen phase'lerde:
+         *
+         * - UNIQUE
+         * - PRIMARY KEY
+         *
+         * aynı merkezi validator üzerinden çalışacaktır.
+         */
+        ConstraintValidator.validate(
+                new ValidationContext(
+                        table,
+                        row,
+                        recordManager
+                ),
+                table.getConstraints()
+        );
+        return recordManager.insert(
+                row
+        );
     }
 
     /**
@@ -85,14 +119,17 @@ public final class InsertExecutor {
             InsertCommand command
     ) {
 
-        if (!table.getTableName().equalsIgnoreCase(
-                command.getTableName()
-        )) {
+        if (!table.getTableName()
+                .equalsIgnoreCase(
+                        command.getTableName()
+                )) {
 
             throw new IllegalArgumentException(
                     "INSERT target table does not match supplied table. " +
-                            "Expected: " + table.getTableName() +
-                            ", actual: " + command.getTableName()
+                            "Expected: " +
+                            table.getTableName() +
+                            ", actual: " +
+                            command.getTableName()
             );
         }
     }
@@ -109,9 +146,13 @@ public final class InsertExecutor {
         List<String> columns =
                 command.getColumns();
 
-        for (String columnName : columns) {
+        for (String columnName :
+                columns) {
 
-            if (!table.hasColumn(columnName)) {
+            if (!table.hasColumn(
+                    columnName
+            )) {
+
                 throw new IllegalArgumentException(
                         "Column not found in table '" +
                                 table.getTableName() +
@@ -127,21 +168,24 @@ public final class InsertExecutor {
                         .distinct()
                         .count();
 
-        if (distinctColumnCount != columns.size()) {
+        if (distinctColumnCount !=
+                columns.size()) {
+
             throw new IllegalArgumentException(
                     "INSERT command contains duplicate columns."
             );
         }
 
         /*
-         * Sprint 00-12'nin mevcut Row modeli tüm tablo
-         * sütunları için bir değer beklediğinden eksik
-         * sütunlu INSERT şimdilik desteklenmez.
+         * Mevcut Row modeli halen tüm tablo sütunları
+         * için bir değer beklemektedir.
          *
-         * DEFAULT ve NULL desteği ilerleyen sprintlerde
-         * eklenebilir.
+         * NULL desteklenmektedir ancak eksik sütun,
+         * DEFAULT vb. davranışlar henüz desteklenmez.
          */
-        if (columns.size() != table.getColumnCount()) {
+        if (columns.size() !=
+                table.getColumnCount()) {
+
             throw new IllegalArgumentException(
                     "INSERT command must provide a value for every " +
                             "table column. Expected: " +
@@ -176,6 +220,7 @@ public final class InsertExecutor {
                     );
 
             if (commandColumnIndex < 0) {
+
                 throw new IllegalArgumentException(
                         "Missing value for column: " +
                                 tableColumn.getName()
@@ -183,19 +228,24 @@ public final class InsertExecutor {
             }
 
             Object value =
-                    command.getValues().get(
-                            commandColumnIndex
-                    );
+                    command.getValues()
+                            .get(
+                                    commandColumnIndex
+                            );
 
             validateValueType(
                     tableColumn,
                     value
             );
 
-            orderedValues.add(value);
+            orderedValues.add(
+                    value
+            );
         }
 
-        return new Row(orderedValues);
+        return new Row(
+                orderedValues
+        );
     }
 
     /**
@@ -212,7 +262,9 @@ public final class InsertExecutor {
              index++) {
 
             if (columns.get(index)
-                    .equalsIgnoreCase(targetColumn)) {
+                    .equalsIgnoreCase(
+                            targetColumn
+                    )) {
 
                 return index;
             }
@@ -224,6 +276,10 @@ public final class InsertExecutor {
     /**
      * Bir değerin tablo şemasındaki sütun tipiyle
      * uyumlu olup olmadığını kontrol eder.
+     *
+     * NULL değer burada tip kontrolünden geçirilmez.
+     * NOT NULL constraint kontrolü ConstraintValidator
+     * katmanında gerçekleştirilir.
      */
     private void validateValueType(
             Column column,
@@ -231,41 +287,41 @@ public final class InsertExecutor {
     ) {
 
         if (value == null) {
-            throw new IllegalArgumentException(
-                    "NULL values are not supported yet. Column: " +
-                            column.getName()
-            );
+            return;
         }
 
         DataType dataType =
                 column.getDataType();
 
-        boolean valid = switch (dataType) {
+        boolean valid =
+                switch (dataType) {
 
-            case INT ->
-                    value instanceof Integer;
+                    case INT ->
+                            value instanceof Integer;
 
-            case LONG ->
-                    value instanceof Long;
+                    case LONG ->
+                            value instanceof Long;
 
-            case DOUBLE ->
-                    value instanceof Double;
+                    case DOUBLE ->
+                            value instanceof Double;
 
-            case BOOLEAN ->
-                    value instanceof Boolean;
+                    case BOOLEAN ->
+                            value instanceof Boolean;
 
-            case STRING ->
-                    value instanceof String;
-        };
+                    case STRING ->
+                            value instanceof String;
+                };
 
         if (!valid) {
+
             throw new IllegalArgumentException(
                     "Invalid value type for column '" +
                             column.getName() +
                             "'. Expected: " +
                             dataType +
                             ", actual: " +
-                            value.getClass().getSimpleName()
+                            value.getClass()
+                                    .getSimpleName()
             );
         }
     }

@@ -1,5 +1,7 @@
 package com.yekdb.storage.table;
 
+import com.yekdb.constraint.Constraint;
+
 import com.yekdb.storage.exception.TableAlreadyExistsException;
 import com.yekdb.storage.exception.TableNotFoundException;
 import com.yekdb.storage.table.header.TableHeader;
@@ -269,6 +271,32 @@ public class TableManager {
                 new Table(
                         tableName,
                         columns
+                )
+        );
+    }
+
+    /**
+     * Tablo adı, sütunları ve constraint listesiyle yeni tablo oluşturur.
+     *
+     * Sprint 00-24 Phase 5 CREATE TABLE parser entegrasyonu için
+     * eklenmiştir.
+     *
+     * @param tableName tablo adı
+     * @param columns sütun listesi
+     * @param constraints constraint listesi
+     * @return metadata
+     */
+    public TableMetadata createTable(
+            String tableName,
+            List<Column> columns,
+            List<Constraint> constraints
+    ) {
+
+        return createTable(
+                new Table(
+                        tableName,
+                        columns,
+                        constraints
                 )
         );
     }
@@ -770,6 +798,24 @@ public class TableManager {
             builder.append(column.getName())
                     .append(":")
                     .append(column.getDataType())
+                    .append(System.lineSeparator());
+        }
+
+        /*
+         * Sprint 00-24 Phase 6:
+         *
+         * Constraint metadata fiziksel tablo şemasının sonuna
+         * ayrı bir section olarak yazılır.
+         *
+         * Eski constraint-free tabloların recovery desteği
+         * TableFileMetadataReader tarafında korunmaktadır.
+         */
+        for (String constraintLine :
+                ConstraintSchemaCodec.serialize(
+                        table.getConstraints()
+                )) {
+
+            builder.append(constraintLine)
                     .append(System.lineSeparator());
         }
 

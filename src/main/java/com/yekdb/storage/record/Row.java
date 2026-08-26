@@ -1,6 +1,7 @@
 package com.yekdb.storage.record;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -19,6 +20,8 @@ import java.util.Objects;
  * ));
  *
  * Değerlerin sırası, tablo sütunlarının sırasıyla aynı olmalıdır.
+ *
+ * Sprint 00-24 kapsamında NULL değer desteği eklenmiştir.
  */
 public class Row {
 
@@ -37,6 +40,7 @@ public class Row {
      * @param values Satır içerisinde saklanacak değerler
      */
     public Row(List<?> values) {
+
         if (values == null) {
             throw new IllegalArgumentException(
                     "Row değer listesi null olamaz."
@@ -57,7 +61,9 @@ public class Row {
      * @param value Eklenecek sütun değeri
      */
     public void addValue(Object value) {
+
         validateValue(value);
+
         values.add(value);
     }
 
@@ -68,7 +74,9 @@ public class Row {
      * @return Sütun değeri
      */
     public Object getValue(int index) {
+
         validateIndex(index);
+
         return values.get(index);
     }
 
@@ -80,25 +88,45 @@ public class Row {
      * int id = row.getValue(0, Integer.class);
      * String name = row.getValue(1, String.class);
      *
+     * NULL değer mevcutsa null döndürülür.
+     *
      * @param index Sütun indeksi
      * @param type Beklenen Java tipi
-     * @return Tip dönüşümü yapılmış sütun değeri
      * @param <T> Beklenen değer tipi
+     * @return Tip dönüşümü yapılmış sütun değeri
      */
-    public <T> T getValue(int index, Class<T> type) {
+    public <T> T getValue(
+            int index,
+            Class<T> type
+    ) {
+
         if (type == null) {
             throw new IllegalArgumentException(
                     "Beklenen değer tipi null olamaz."
             );
         }
 
-        Object value = getValue(index);
+        Object value =
+                getValue(index);
+
+        /*
+         * Sprint 00-24:
+         *
+         * NULL artık geçerli bir Row değeridir.
+         *
+         * Null değer için tip kontrolü uygulanmaz.
+         */
+        if (value == null) {
+            return null;
+        }
 
         if (!type.isInstance(value)) {
             throw new IllegalStateException(
                     "Sütun değeri beklenen tipte değil. " +
-                            "Beklenen: " + type.getSimpleName() +
-                            ", mevcut: " + value.getClass().getSimpleName()
+                            "Beklenen: " +
+                            type.getSimpleName() +
+                            ", mevcut: " +
+                            value.getClass().getSimpleName()
             );
         }
 
@@ -111,11 +139,19 @@ public class Row {
      * @param index Güncellenecek sütun indeksi
      * @param newValue Yeni sütun değeri
      */
-    public void setValue(int index, Object newValue) {
+    public void setValue(
+            int index,
+            Object newValue
+    ) {
+
         validateIndex(index);
+
         validateValue(newValue);
 
-        values.set(index, newValue);
+        values.set(
+                index,
+                newValue
+        );
     }
 
     /**
@@ -123,10 +159,16 @@ public class Row {
      *
      * Dışarıdan alınan liste üzerinden Row içeriği değiştirilemez.
      *
+     * List.copyOf kullanılmaz çünkü List.copyOf NULL eleman
+     * kabul etmez.
+     *
      * @return Değiştirilemez değer listesi
      */
     public List<Object> getValues() {
-        return List.copyOf(values);
+
+        return Collections.unmodifiableList(
+                new ArrayList<>(values)
+        );
     }
 
     /**
@@ -135,6 +177,7 @@ public class Row {
      * @return Sütun sayısı
      */
     public int size() {
+
         return values.size();
     }
 
@@ -144,16 +187,20 @@ public class Row {
      * @return Satır boşsa true
      */
     public boolean isEmpty() {
+
         return values.isEmpty();
     }
 
     /**
      * Row içerisinde belirli bir değerin bulunup bulunmadığını kontrol eder.
      *
+     * NULL dahil olmak üzere tüm değerler aranabilir.
+     *
      * @param value Aranacak değer
      * @return Değer bulunuyorsa true
      */
     public boolean contains(Object value) {
+
         return values.contains(value);
     }
 
@@ -161,6 +208,7 @@ public class Row {
      * Row içerisindeki tüm değerleri temizler.
      */
     public void clear() {
+
         values.clear();
     }
 
@@ -170,9 +218,13 @@ public class Row {
      * @param index Kontrol edilecek indeks
      */
     private void validateIndex(int index) {
-        if (index < 0 || index >= values.size()) {
+
+        if (index < 0 ||
+                index >= values.size()) {
+
             throw new IndexOutOfBoundsException(
-                    "Geçersiz sütun indeksi: " + index +
+                    "Geçersiz sütun indeksi: " +
+                            index +
                             ". Geçerli aralık: 0-" +
                             (values.size() - 1)
             );
@@ -183,8 +235,9 @@ public class Row {
      * Row içerisine eklenecek değerin desteklenen bir tipte
      * olup olmadığını kontrol eder.
      *
-     * Sprint 00-08 kapsamında desteklenen tipler:
+     * Desteklenen tipler:
      *
+     * - NULL
      * - Integer
      * - Long
      * - Double
@@ -194,10 +247,20 @@ public class Row {
      * @param value Kontrol edilecek değer
      */
     private void validateValue(Object value) {
+
+        /*
+         * Sprint 00-24:
+         *
+         * NULL artık Row seviyesinde geçerli bir değerdir.
+         *
+         * Bir kolonun NULL kabul edip etmemesi Row'un görevi
+         * değildir.
+         *
+         * Bu kontrol NOT NULL constraint validation
+         * katmanında yapılacaktır.
+         */
         if (value == null) {
-            throw new IllegalArgumentException(
-                    "Row sütun değeri null olamaz."
-            );
+            return;
         }
 
         if (!(value instanceof Integer)
@@ -215,6 +278,7 @@ public class Row {
 
     @Override
     public boolean equals(Object object) {
+
         if (this == object) {
             return true;
         }
@@ -223,18 +287,24 @@ public class Row {
             return false;
         }
 
-        return Objects.equals(values, row.values);
+        return Objects.equals(
+                values,
+                row.values
+        );
     }
 
     @Override
     public int hashCode() {
+
         return Objects.hash(values);
     }
 
     @Override
     public String toString() {
+
         return "Row{" +
-                "values=" + values +
+                "values=" +
+                values +
                 '}';
     }
 }
