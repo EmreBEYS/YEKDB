@@ -1,5 +1,7 @@
 package com.yekdb.query.executor;
 
+import com.yekdb.constraint.Constraint;
+import com.yekdb.constraint.ConstraintType;
 import com.yekdb.constraint.ConstraintValidator;
 import com.yekdb.constraint.ValidationContext;
 import com.yekdb.query.command.UpdateCommand;
@@ -10,6 +12,7 @@ import com.yekdb.storage.record.Row;
 import com.yekdb.storage.table.Column;
 import com.yekdb.storage.table.DataType;
 import com.yekdb.storage.table.Table;
+import com.yekdb.storage.table.TableManager;
 
 import java.io.IOException;
 import java.util.List;
@@ -70,6 +73,44 @@ public final class UpdateExecutor {
             Table table,
             UpdateCommand command,
             RecordManager recordManager
+    ) throws IOException {
+
+        return executeInternal(
+                table,
+                command,
+                recordManager,
+                null
+        );
+    }
+
+    /**
+     * Sprint 00-25 Phase 5:
+     * FOREIGN KEY alanı güncelleniyorsa referenced table doğrulaması için
+     * aktif TableManager bilgisini taşıyan UPDATE overload'udur.
+     */
+    public int execute(
+            Table table,
+            UpdateCommand command,
+            RecordManager recordManager,
+            TableManager tableManager
+    ) throws IOException {
+
+        return executeInternal(
+                table,
+                command,
+                recordManager,
+                Objects.requireNonNull(
+                        tableManager,
+                        "TableManager cannot be null."
+                )
+        );
+    }
+
+    private int executeInternal(
+            Table table,
+            UpdateCommand command,
+            RecordManager recordManager,
+            TableManager tableManager
     ) throws IOException {
 
         Objects.requireNonNull(
@@ -156,6 +197,29 @@ public final class UpdateExecutor {
                     table.getConstraints()
             );
 
+            /*
+             * Sprint 00-25 Phase 5:
+             * UPDATE bir FOREIGN KEY local kolonunu değiştiriyorsa yeni
+             * candidate row referenced table üzerinde doğrulanır.
+             */
+            if (updatesForeignKeyColumn(
+                    table,
+                    command.getUpdatedValues()
+            )) {
+
+                if (tableManager == null) {
+                    throw new IllegalStateException(
+                            "FOREIGN KEY UPDATE validation requires TableManager."
+                    );
+                }
+
+                ForeignKeyInsertValidator.validate(
+                        tableManager,
+                        table,
+                        updatedRow
+                );
+            }
+
             recordManager.update(
                     recordId,
                     updatedRow
@@ -229,6 +293,40 @@ public final class UpdateExecutor {
                     entry.getValue()
             );
         }
+    }
+
+    /**
+     * UPDATE SET listesinin herhangi bir FOREIGN KEY local kolonuna
+     * dokunup dokunmadığını belirler. İlgisiz kolon güncellemelerinde
+     * TableManager zorunluluğu oluşturulmaz.
+     */
+    private boolean updatesForeignKeyColumn(
+            Table table,
+            Map<String, Object> updatedValues
+    ) {
+
+        for (Constraint constraint : table.getConstraints()) {
+            if (constraint.type() != ConstraintType.FOREIGN_KEY) {
+                continue;
+            }
+
+            for (String foreignKeyColumn : constraint.columns()) {
+                boolean updated =
+                        updatedValues.keySet()
+                                .stream()
+                                .anyMatch(columnName ->
+                                        columnName.equalsIgnoreCase(
+                                                foreignKeyColumn
+                                        )
+                                );
+
+                if (updated) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**

@@ -790,6 +790,7 @@ public final class InteractiveSqlTerminal {
                 case UNIQUE -> "UNIQUE";
                 case PRIMARY_KEY -> "PRIMARY KEY";
                 case NOT_NULL -> "NOT NULL";
+                case FOREIGN_KEY -> "FOREIGN KEY";
             };
         }
 
@@ -806,6 +807,8 @@ public final class InteractiveSqlTerminal {
                     "UNIQUE(" + columns + ")";
             case NOT_NULL ->
                     "NOT NULL";
+            case FOREIGN_KEY ->
+                    "FOREIGN KEY(" + columns + ")";
         };
     }
 

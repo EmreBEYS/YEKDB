@@ -2,6 +2,7 @@ package com.yekdb.storage.table;
 
 import com.yekdb.constraint.Constraint;
 import com.yekdb.constraint.ConstraintType;
+import com.yekdb.constraint.ForeignKeyConstraint;
 import com.yekdb.constraint.NotNullConstraint;
 import com.yekdb.constraint.PrimaryKeyConstraint;
 import com.yekdb.constraint.UniqueConstraint;
@@ -27,6 +28,8 @@ import java.util.stream.Collectors;
  * PRIMARY_KEY:id
  * UNIQUE:first_name,last_name
  * PRIMARY_KEY:student_id,course_id
+ * FOREIGN_KEY:user_id->users:id
+ * FOREIGN_KEY:country_code,city_code->cities:country_code,city_code
  *
  * Constraint section eski tablo dosyalarında bulunmayabilir.
  * Bu durumda boş constraint listesi döndürülür ve backward
@@ -67,6 +70,34 @@ final class ConstraintSchemaCodec {
                             .collect(
                                     Collectors.joining(",")
                             );
+
+            if (constraint.type() == ConstraintType.FOREIGN_KEY) {
+
+                if (!(constraint instanceof ForeignKeyConstraint foreignKey)) {
+                    throw new IllegalArgumentException(
+                            "FOREIGN_KEY constraint must be an instance of ForeignKeyConstraint"
+                    );
+                }
+
+                String referencedColumns =
+                        foreignKey.referencedColumnNames()
+                                .stream()
+                                .collect(
+                                        Collectors.joining(",")
+                                );
+
+                lines.add(
+                        ConstraintType.FOREIGN_KEY.name()
+                                + ":"
+                                + columns
+                                + "->"
+                                + foreignKey.referencedTableName()
+                                + ":"
+                                + referencedColumns
+                );
+
+                continue;
+            }
 
             lines.add(
                     constraint.type().name()
@@ -164,17 +195,10 @@ final class ConstraintSchemaCodec {
                         separatorIndex
                 ).trim();
 
-        String columnsPart =
+        String definitionPart =
                 line.substring(
                         separatorIndex + 1
                 ).trim();
-
-        List<String> columns =
-                parseColumns(
-                        columnsPart,
-                        line,
-                        tableFile
-                );
 
         try {
 
@@ -186,6 +210,13 @@ final class ConstraintSchemaCodec {
             return switch (type) {
 
                 case NOT_NULL -> {
+
+                    List<String> columns =
+                            parseColumns(
+                                    definitionPart,
+                                    line,
+                                    tableFile
+                            );
 
                     if (columns.size() != 1) {
                         throw corrupted(
@@ -203,12 +234,27 @@ final class ConstraintSchemaCodec {
 
                 case UNIQUE ->
                         new UniqueConstraint(
-                                columns
+                                parseColumns(
+                                        definitionPart,
+                                        line,
+                                        tableFile
+                                )
                         );
 
                 case PRIMARY_KEY ->
                         new PrimaryKeyConstraint(
-                                columns
+                                parseColumns(
+                                        definitionPart,
+                                        line,
+                                        tableFile
+                                )
+                        );
+
+                case FOREIGN_KEY ->
+                        parseForeignKeyConstraint(
+                                definitionPart,
+                                line,
+                                tableFile
                         );
             };
 
@@ -224,6 +270,103 @@ final class ConstraintSchemaCodec {
                     exception
             );
         }
+    }
+
+    private static ForeignKeyConstraint parseForeignKeyConstraint(
+            String definitionPart,
+            String sourceLine,
+            Path tableFile
+    ) {
+
+        int arrowIndex =
+                definitionPart.indexOf("->");
+
+        if (arrowIndex <= 0
+                || arrowIndex == definitionPart.length() - 2
+                || definitionPart.indexOf("->", arrowIndex + 2) >= 0) {
+
+            throw corrupted(
+                    "Invalid FOREIGN KEY definition: "
+                            + sourceLine,
+                    tableFile,
+                    null
+            );
+        }
+
+        String localColumnsPart =
+                definitionPart.substring(
+                        0,
+                        arrowIndex
+                ).trim();
+
+        String referencePart =
+                definitionPart.substring(
+                        arrowIndex + 2
+                ).trim();
+
+        int referenceSeparatorIndex =
+                referencePart.indexOf(':');
+
+        if (referenceSeparatorIndex <= 0
+                || referenceSeparatorIndex
+                == referencePart.length() - 1) {
+
+            throw corrupted(
+                    "Invalid FOREIGN KEY reference definition: "
+                            + sourceLine,
+                    tableFile,
+                    null
+            );
+        }
+
+        String referencedTableName =
+                referencePart.substring(
+                        0,
+                        referenceSeparatorIndex
+                ).trim();
+
+        String referencedColumnsPart =
+                referencePart.substring(
+                        referenceSeparatorIndex + 1
+                ).trim();
+
+        if (referencedTableName.isBlank()) {
+            throw corrupted(
+                    "FOREIGN KEY referenced table name cannot be empty: "
+                            + sourceLine,
+                    tableFile,
+                    null
+            );
+        }
+
+        List<String> localColumns =
+                parseColumns(
+                        localColumnsPart,
+                        sourceLine,
+                        tableFile
+                );
+
+        List<String> referencedColumns =
+                parseColumns(
+                        referencedColumnsPart,
+                        sourceLine,
+                        tableFile
+                );
+
+        if (localColumns.size() != referencedColumns.size()) {
+            throw corrupted(
+                    "FOREIGN KEY local/referenced column count mismatch: "
+                            + sourceLine,
+                    tableFile,
+                    null
+            );
+        }
+
+        return new ForeignKeyConstraint(
+                localColumns,
+                referencedTableName,
+                referencedColumns
+        );
     }
 
     private static List<String> parseColumns(

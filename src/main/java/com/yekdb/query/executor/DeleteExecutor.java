@@ -6,6 +6,7 @@ import com.yekdb.storage.record.Record;
 import com.yekdb.storage.record.RecordManager;
 import com.yekdb.storage.record.Row;
 import com.yekdb.storage.table.Table;
+import com.yekdb.storage.table.TableManager;
 
 import java.io.IOException;
 import java.util.List;
@@ -46,6 +47,44 @@ public final class DeleteExecutor {
             RecordManager recordManager
     ) throws IOException {
 
+        return executeInternal(
+                table,
+                command,
+                recordManager,
+                null
+        );
+    }
+
+    /**
+     * Sprint 00-25 Phase 6:
+     * Parent row FOREIGN KEY ile referanslanıyorsa DELETE RESTRICT kontrolü
+     * için aktif TableManager bilgisini taşıyan overload.
+     */
+    public int execute(
+            Table table,
+            DeleteCommand command,
+            RecordManager recordManager,
+            TableManager tableManager
+    ) throws IOException {
+
+        return executeInternal(
+                table,
+                command,
+                recordManager,
+                Objects.requireNonNull(
+                        tableManager,
+                        "TableManager cannot be null."
+                )
+        );
+    }
+
+    private int executeInternal(
+            Table table,
+            DeleteCommand command,
+            RecordManager recordManager,
+            TableManager tableManager
+    ) throws IOException {
+
         Objects.requireNonNull(
                 table,
                 "Table cannot be null."
@@ -69,17 +108,13 @@ public final class DeleteExecutor {
         List<Record> activeRecords =
                 recordManager.getActiveRecords();
 
-        int deletedRowCount = 0;
+        List<ForeignKeyDeleteRestrictValidator.DeleteCandidate> candidates =
+                new java.util.ArrayList<>();
 
         for (Record record : activeRecords) {
 
-            long recordId =
-                    record.getRecordId();
-
-            Row row =
-                    recordManager.getRow(
-                            recordId
-                    );
+            long recordId = record.getRecordId();
+            Row row = recordManager.getRow(recordId);
 
             if (!matchesWhere(
                     table,
@@ -89,14 +124,33 @@ public final class DeleteExecutor {
                 continue;
             }
 
-            recordManager.delete(
-                    recordId
+            candidates.add(
+                    new ForeignKeyDeleteRestrictValidator.DeleteCandidate(
+                            recordId,
+                            row
+                    )
             );
-
-            deletedRowCount++;
         }
 
-        return deletedRowCount;
+        /*
+         * Validation tüm fiziksel delete işlemlerinden önce yapılır.
+         * Böylece çok satırlı DELETE sırasında bir satır FK tarafından
+         * referanslanıyorsa statement kısmi silme yapmadan reddedilir.
+         */
+        if (tableManager != null) {
+            ForeignKeyDeleteRestrictValidator.validate(
+                    tableManager,
+                    table,
+                    candidates
+            );
+        }
+
+        for (ForeignKeyDeleteRestrictValidator.DeleteCandidate candidate
+                : candidates) {
+            recordManager.delete(candidate.recordId());
+        }
+
+        return candidates.size();
     }
 
     /**

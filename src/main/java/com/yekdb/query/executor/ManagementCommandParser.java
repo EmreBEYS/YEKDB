@@ -1,6 +1,7 @@
 package com.yekdb.query.executor;
 
 import com.yekdb.constraint.Constraint;
+import com.yekdb.constraint.ForeignKeyConstraint;
 import com.yekdb.constraint.NotNullConstraint;
 import com.yekdb.constraint.PrimaryKeyConstraint;
 import com.yekdb.constraint.UniqueConstraint;
@@ -29,6 +30,7 @@ import java.util.Locale;
  * email STRING NOT NULL
  * PRIMARY KEY (student_id, course_id)
  * UNIQUE (first_name, last_name)
+ * FOREIGN KEY (user_id) REFERENCES users(id)
  */
 final class ManagementCommandParser {
 
@@ -225,6 +227,13 @@ final class ManagementCommandParser {
                 continue;
             }
 
+            if (upper.startsWith("FOREIGN KEY")) {
+                constraints.add(
+                        parseForeignKeyConstraint(definition)
+                );
+                continue;
+            }
+
             parseColumnDefinition(
                     definition,
                     columns,
@@ -319,6 +328,142 @@ final class ManagementCommandParser {
         }
     }
 
+
+    private ForeignKeyConstraint parseForeignKeyConstraint(
+            String definition
+    ) {
+        String remaining = definition.substring(
+                "FOREIGN KEY".length()
+        ).trim();
+
+        if (!remaining.startsWith("(")) {
+            throw new QueryExecutionException(
+                    "FOREIGN KEY constraint must start with a local column list: "
+                            + definition
+            );
+        }
+
+        int localCloseIndex = remaining.indexOf(')');
+
+        if (localCloseIndex <= 1) {
+            throw new QueryExecutionException(
+                    "FOREIGN KEY constraint must contain at least one local column: "
+                            + definition
+            );
+        }
+
+        String localColumnsPart = remaining.substring(
+                1,
+                localCloseIndex
+        ).trim();
+
+        List<String> localColumns = parseColumnNames(
+                localColumnsPart,
+                "FOREIGN KEY"
+        );
+
+        String referenceSection = remaining.substring(
+                localCloseIndex + 1
+        ).trim();
+
+        String referenceUpper = referenceSection.toUpperCase(Locale.ROOT);
+
+        if (!referenceUpper.startsWith("REFERENCES")) {
+            throw new QueryExecutionException(
+                    "FOREIGN KEY constraint must contain REFERENCES: "
+                            + definition
+            );
+        }
+
+        String referenceTarget = referenceSection.substring(
+                "REFERENCES".length()
+        ).trim();
+
+        int referenceOpenIndex = referenceTarget.indexOf('(');
+        int referenceCloseIndex = referenceTarget.lastIndexOf(')');
+
+        if (referenceOpenIndex <= 0
+                || referenceCloseIndex <= referenceOpenIndex
+                || referenceCloseIndex != referenceTarget.length() - 1) {
+            throw new QueryExecutionException(
+                    "REFERENCES must use 'table(column, ...)' syntax: "
+                            + definition
+            );
+        }
+
+        String referencedTableName = referenceTarget.substring(
+                0,
+                referenceOpenIndex
+        ).trim();
+
+        if (referencedTableName.isBlank()
+                || referencedTableName.chars().anyMatch(Character::isWhitespace)) {
+            throw new QueryExecutionException(
+                    "FOREIGN KEY must reference a valid table name: "
+                            + definition
+            );
+        }
+
+        String referencedColumnsPart = referenceTarget.substring(
+                referenceOpenIndex + 1,
+                referenceCloseIndex
+        ).trim();
+
+        List<String> referencedColumns = parseColumnNames(
+                referencedColumnsPart,
+                "FOREIGN KEY REFERENCES"
+        );
+
+        if (localColumns.size() != referencedColumns.size()) {
+            throw new QueryExecutionException(
+                    "FOREIGN KEY local and referenced column counts must match: "
+                            + definition
+            );
+        }
+
+        try {
+            return new ForeignKeyConstraint(
+                    localColumns,
+                    referencedTableName,
+                    referencedColumns
+            );
+        } catch (IllegalArgumentException exception) {
+            throw new QueryExecutionException(
+                    "Invalid FOREIGN KEY constraint: " + definition,
+                    exception
+            );
+        }
+    }
+
+    private List<String> parseColumnNames(
+            String content,
+            String constraintName
+    ) {
+        if (content.isBlank()) {
+            throw new QueryExecutionException(
+                    constraintName + " constraint must contain at least one column."
+            );
+        }
+
+        List<String> columns = new ArrayList<>();
+
+        for (String part : content.split(",", -1)) {
+            String columnName = part.trim();
+
+            if (columnName.isBlank()) {
+                throw new QueryExecutionException(
+                        "Invalid empty column in "
+                                + constraintName
+                                + " constraint."
+                );
+            }
+
+            columns.add(columnName);
+        }
+
+        return List.copyOf(columns);
+    }
+
     private List<String> parseConstraintColumnList(
             String definition,
             String keyword
@@ -345,21 +490,10 @@ final class ManagementCommandParser {
             );
         }
 
-        List<String> columns = new ArrayList<>();
-
-        for (String part : content.split(",")) {
-            String columnName = part.trim();
-
-            if (columnName.isBlank()) {
-                throw new QueryExecutionException(
-                        "Invalid empty column in " + keyword + " constraint."
-                );
-            }
-
-            columns.add(columnName);
-        }
-
-        return List.copyOf(columns);
+        return parseColumnNames(
+                content,
+                keyword
+        );
     }
 
     private DataType parseDataType(String value) {

@@ -71,7 +71,8 @@ final class TableMutationExecutionSupport {
             Record insertedRecord = insertExecutor.execute(
                     table,
                     command,
-                    recordManager
+                    recordManager,
+                    tableManager
             );
 
             return ExecuteResult.success(
@@ -106,7 +107,8 @@ final class TableMutationExecutionSupport {
             int updatedRowCount = updateExecutor.execute(
                     table,
                     command,
-                    recordManager
+                    recordManager,
+                    tableManager
             );
 
             return ExecuteResult.success(
@@ -141,7 +143,8 @@ final class TableMutationExecutionSupport {
             int deletedRowCount = deleteExecutor.execute(
                     table,
                     command,
-                    recordManager
+                    recordManager,
+                    tableManager
             );
 
             return ExecuteResult.success(

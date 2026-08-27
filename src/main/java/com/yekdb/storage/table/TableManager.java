@@ -211,6 +211,11 @@ public class TableManager {
             );
         }
 
+        ForeignKeySchemaValidator.validate(
+                table,
+                tableCatalog
+        );
+
         ensureDatabaseDirectoryExists();
 
         TableMetadata metadata =

@@ -9,6 +9,7 @@ import com.yekdb.storage.record.Row;
 import com.yekdb.storage.table.Column;
 import com.yekdb.storage.table.DataType;
 import com.yekdb.storage.table.Table;
+import com.yekdb.storage.table.TableManager;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -49,6 +50,45 @@ public final class InsertExecutor {
             RecordManager recordManager
     ) throws IOException {
 
+        return executeInternal(
+                table,
+                command,
+                recordManager,
+                null
+        );
+    }
+
+    /**
+     * Sprint 00-25 Phase 4:
+     * FOREIGN KEY doğrulaması için aktif TableManager bilgisini de
+     * taşıyan INSERT overload'udur. Query execution pipeline bu
+     * overload'u kullanır.
+     */
+    public Record execute(
+            Table table,
+            InsertCommand command,
+            RecordManager recordManager,
+            TableManager tableManager
+    ) throws IOException {
+
+        return executeInternal(
+                table,
+                command,
+                recordManager,
+                Objects.requireNonNull(
+                        tableManager,
+                        "TableManager cannot be null."
+                )
+        );
+    }
+
+    private Record executeInternal(
+            Table table,
+            InsertCommand command,
+            RecordManager recordManager,
+            TableManager tableManager
+    ) throws IOException {
+
         Objects.requireNonNull(
                 table,
                 "Table cannot be null."
@@ -81,21 +121,7 @@ public final class InsertExecutor {
                 );
 
         /*
-         * Sprint 00-24:
-         *
-         * Row fiziksel olarak yazılmadan önce tabloya ait
-         * bütün constraint'ler doğrulanır.
-         *
-         * Şu anda aktif enforcement:
-         *
-         * - NOT NULL
-         *
-         * İlerleyen phase'lerde:
-         *
-         * - UNIQUE
-         * - PRIMARY KEY
-         *
-         * aynı merkezi validator üzerinden çalışacaktır.
+         * 00-24 row-level constraint enforcement.
          */
         ConstraintValidator.validate(
                 new ValidationContext(
@@ -105,6 +131,29 @@ public final class InsertExecutor {
                 ),
                 table.getConstraints()
         );
+
+        /*
+         * 00-25 Phase 4:
+         * FOREIGN KEY, hedef tablonun kendi RecordManager'ı ile
+         * doğrulanamaz; referenced table storage'ına erişmek gerekir.
+         * Bu nedenle TableManager query execution pipeline tarafından
+         * ayrıca sağlanır.
+         */
+        if (ForeignKeyInsertValidator.requiresValidation(table)) {
+
+            if (tableManager == null) {
+                throw new IllegalStateException(
+                        "FOREIGN KEY INSERT validation requires TableManager."
+                );
+            }
+
+            ForeignKeyInsertValidator.validate(
+                    tableManager,
+                    table,
+                    row
+            );
+        }
+
         return recordManager.insert(
                 row
         );
