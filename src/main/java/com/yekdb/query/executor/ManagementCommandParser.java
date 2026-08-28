@@ -5,12 +5,7 @@ import com.yekdb.constraint.ForeignKeyConstraint;
 import com.yekdb.constraint.NotNullConstraint;
 import com.yekdb.constraint.PrimaryKeyConstraint;
 import com.yekdb.constraint.UniqueConstraint;
-import com.yekdb.query.command.Command;
-import com.yekdb.query.command.CreateDatabaseCommand;
-import com.yekdb.query.command.CreateTableCommand;
-import com.yekdb.query.command.DropDatabaseCommand;
-import com.yekdb.query.command.DropTableCommand;
-import com.yekdb.query.command.UseDatabaseCommand;
+import com.yekdb.query.command.*;
 import com.yekdb.storage.table.Column;
 import com.yekdb.storage.table.DataType;
 
@@ -71,9 +66,196 @@ final class ManagementCommandParser {
             );
         }
 
+        if (upperSql.startsWith("ALTER TABLE ")) {
+            return parseAlterTableCommand(sql);
+        }
+
         throw new QueryExecutionException(
                 "Unsupported SQL statement: " + sql
         );
+    }
+
+
+    private AlterTableCommand parseAlterTableCommand(String sql) {
+        String remaining = sql.substring("ALTER TABLE".length()).trim();
+
+        int firstSpace = remaining.indexOf(' ');
+        if (firstSpace <= 0) {
+            throw new QueryExecutionException(
+                    "ALTER TABLE statement must contain a table name and action."
+            );
+        }
+
+        String tableName = remaining.substring(0, firstSpace).trim();
+        String actionText = remaining.substring(firstSpace + 1).trim();
+
+        if (tableName.isBlank() || actionText.isBlank()) {
+            throw new QueryExecutionException(
+                    "ALTER TABLE statement must contain a table name and action."
+            );
+        }
+
+        String upperAction = actionText.toUpperCase(Locale.ROOT);
+
+        if (upperAction.startsWith("ADD COLUMN ")) {
+            String definition = actionText.substring("ADD COLUMN".length()).trim();
+            String[] parts = definition.split("\\s+");
+            if (parts.length != 2) {
+                throw new QueryExecutionException(
+                        "ADD COLUMN must use 'ADD COLUMN name type' syntax."
+                );
+            }
+            parseDataType(parts[1]);
+            return new AlterTableCommand(
+                    tableName,
+                    new AddColumnAlterAction(parts[0], parts[1])
+            );
+        }
+
+        if (upperAction.startsWith("DROP COLUMN ")) {
+            String columnName = extractSingleAlterValue(actionText, "DROP COLUMN");
+            return new AlterTableCommand(
+                    tableName,
+                    new DropColumnAlterAction(columnName)
+            );
+        }
+
+        if (upperAction.startsWith("RENAME COLUMN ")) {
+            String rename = actionText.substring("RENAME COLUMN".length()).trim();
+            String[] parts = rename.split("(?i)\\s+TO\\s+", -1);
+            if (parts.length != 2 || parts[0].isBlank() || parts[1].isBlank()
+                    || parts[0].trim().contains(" ") || parts[1].trim().contains(" ")) {
+                throw new QueryExecutionException(
+                        "RENAME COLUMN must use 'RENAME COLUMN old_name TO new_name' syntax."
+                );
+            }
+            return new AlterTableCommand(
+                    tableName,
+                    new RenameColumnAlterAction(parts[0].trim(), parts[1].trim())
+            );
+        }
+
+        if (upperAction.startsWith("RENAME TO ")) {
+            String newTableName = extractSingleAlterValue(actionText, "RENAME TO");
+            return new AlterTableCommand(
+                    tableName,
+                    new RenameTableAlterAction(newTableName)
+            );
+        }
+
+        if (upperAction.startsWith("ALTER COLUMN ")) {
+            String alter = actionText.substring("ALTER COLUMN".length()).trim();
+            String[] parts = alter.split("\\s+", 2);
+            if (parts.length != 2 || parts[0].isBlank()) {
+                throw new QueryExecutionException(
+                        "ALTER COLUMN requires a column name and operation."
+                );
+            }
+
+            String operation = parts[1].trim().toUpperCase(Locale.ROOT);
+            if (operation.equals("SET NOT NULL")) {
+                return new AlterTableCommand(
+                        tableName,
+                        new AlterColumnSetNotNullAction(parts[0])
+                );
+            }
+            if (operation.equals("DROP NOT NULL")) {
+                return new AlterTableCommand(
+                        tableName,
+                        new AlterColumnDropNotNullAction(parts[0])
+                );
+            }
+
+            throw new QueryExecutionException(
+                    "Unsupported ALTER COLUMN operation: " + parts[1].trim()
+            );
+        }
+
+        if (upperAction.startsWith("ADD ")) {
+            String constraintDefinition = actionText.substring("ADD".length()).trim();
+            String constraintName = null;
+            String upperConstraint = constraintDefinition.toUpperCase(Locale.ROOT);
+
+            if (upperConstraint.startsWith("CONSTRAINT ")) {
+                String namedDefinition =
+                        constraintDefinition.substring("CONSTRAINT".length()).trim();
+
+                int nameEnd = namedDefinition.indexOf(' ');
+
+                if (nameEnd <= 0 || nameEnd == namedDefinition.length() - 1) {
+                    throw new QueryExecutionException(
+                            "ADD CONSTRAINT requires a constraint name and definition."
+                    );
+                }
+
+                constraintName = namedDefinition.substring(0, nameEnd).trim();
+                constraintDefinition = namedDefinition.substring(nameEnd + 1).trim();
+                upperConstraint = constraintDefinition.toUpperCase(Locale.ROOT);
+            }
+
+            Constraint constraint;
+
+            try {
+                if (upperConstraint.startsWith("PRIMARY KEY")) {
+                    constraint = new PrimaryKeyConstraint(
+                            constraintName,
+                            parseConstraintColumnList(constraintDefinition, "PRIMARY KEY")
+                    );
+                } else if (upperConstraint.startsWith("UNIQUE")) {
+                    constraint = new UniqueConstraint(
+                            constraintName,
+                            parseConstraintColumnList(constraintDefinition, "UNIQUE")
+                    );
+                } else if (upperConstraint.startsWith("FOREIGN KEY")) {
+                    constraint = parseForeignKeyConstraint(
+                            constraintDefinition,
+                            constraintName
+                    );
+                } else {
+                    throw new QueryExecutionException(
+                            "Unsupported ALTER TABLE ADD operation: " + constraintDefinition
+                    );
+                }
+            } catch (IllegalArgumentException exception) {
+                throw new QueryExecutionException(
+                        "Invalid ALTER TABLE constraint: "
+                                + constraintDefinition,
+                        exception
+                );
+            }
+
+            return new AlterTableCommand(
+                    tableName,
+                    new AddConstraintAlterAction(constraint)
+            );
+        }
+
+        if (upperAction.startsWith("DROP CONSTRAINT ")) {
+            String constraintName = extractSingleAlterValue(actionText, "DROP CONSTRAINT");
+            return new AlterTableCommand(
+                    tableName,
+                    new DropConstraintAlterAction(constraintName)
+            );
+        }
+
+        throw new QueryExecutionException(
+                "Unsupported ALTER TABLE action: " + actionText
+        );
+    }
+
+    private String extractSingleAlterValue(
+            String actionText,
+            String keyword
+    ) {
+        String value = actionText.substring(keyword.length()).trim();
+
+        if (value.isBlank() || value.chars().anyMatch(Character::isWhitespace)) {
+            throw new QueryExecutionException(
+                    keyword + " requires exactly one name."
+            );
+        }
+
+        return value;
     }
 
     private CreateTableCommand parseCreateTableCommand(String sql) {
@@ -332,6 +514,13 @@ final class ManagementCommandParser {
     private ForeignKeyConstraint parseForeignKeyConstraint(
             String definition
     ) {
+        return parseForeignKeyConstraint(definition, null);
+    }
+
+    private ForeignKeyConstraint parseForeignKeyConstraint(
+            String definition,
+            String constraintName
+    ) {
         String remaining = definition.substring(
                 "FOREIGN KEY".length()
         ).trim();
@@ -423,6 +612,7 @@ final class ManagementCommandParser {
 
         try {
             return new ForeignKeyConstraint(
+                    constraintName,
                     localColumns,
                     referencedTableName,
                     referencedColumns

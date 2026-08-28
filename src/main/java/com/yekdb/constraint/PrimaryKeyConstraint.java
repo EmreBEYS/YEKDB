@@ -5,14 +5,23 @@ import java.util.Objects;
 
 public final class PrimaryKeyConstraint implements Constraint {
 
+    private final String name;
     private final List<String> columns;
 
     public PrimaryKeyConstraint(List<String> columns) {
-        this.columns = validateColumns(columns);
+        this(null, columns);
     }
 
     public PrimaryKeyConstraint(String column) {
-        this(List.of(column));
+        this(null, List.of(column));
+    }
+
+    public PrimaryKeyConstraint(
+            String name,
+            List<String> columns
+    ) {
+        this.name = ConstraintName.normalizeNullable(name);
+        this.columns = validateColumns(columns);
     }
 
     @Override
@@ -23,6 +32,11 @@ public final class PrimaryKeyConstraint implements Constraint {
     @Override
     public List<String> columns() {
         return columns;
+    }
+
+    @Override
+    public String name() {
+        return name;
     }
 
     private static List<String> validateColumns(List<String> columns) {
@@ -65,7 +79,8 @@ public final class PrimaryKeyConstraint implements Constraint {
     @Override
     public String toString() {
         return "PrimaryKeyConstraint{" +
-                "columns=" + columns +
+                "name='" + name + '\'' +
+                ", columns=" + columns +
                 '}';
     }
 }

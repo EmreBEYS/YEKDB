@@ -3,6 +3,7 @@ package com.yekdb.query.executor;
 import com.yekdb.database.Database;
 import com.yekdb.database.DatabaseManager;
 import com.yekdb.query.command.Command;
+import com.yekdb.query.command.AlterTableCommand;
 import com.yekdb.query.command.CreateDatabaseCommand;
 import com.yekdb.query.command.CreateTableCommand;
 import com.yekdb.query.command.DeleteCommand;
@@ -96,6 +97,11 @@ public final class QueryExecutor implements AutoCloseable {
      */
     private final ManagementCommandParser
             managementCommandParser;
+
+    /**
+     * ALTER TABLE komutlarını fiziksel şema katmanına yönlendirir.
+     */
+    private final AlterTableExecutor alterTableExecutor;
 
     /**
      * Aktif veritabanına bağlı tablo yöneticisidir.
@@ -258,6 +264,9 @@ public final class QueryExecutor implements AutoCloseable {
 
         this.managementCommandParser =
                 new ManagementCommandParser();
+
+        this.alterTableExecutor =
+                new AlterTableExecutor();
 
         initializeTableManager();
     }
@@ -435,6 +444,14 @@ public final class QueryExecutor implements AutoCloseable {
             }
 
             if (command
+                    instanceof AlterTableCommand value) {
+
+                return executeAlterTable(
+                        value
+                );
+            }
+
+            if (command
                     instanceof InsertCommand value) {
 
                 return executeInsert(
@@ -577,6 +594,10 @@ public final class QueryExecutor implements AutoCloseable {
             return "DROP TABLE";
         }
 
+        if (command instanceof AlterTableCommand) {
+            return "ALTER TABLE";
+        }
+
         if (command instanceof CreateDatabaseCommand) {
             return "CREATE DATABASE";
         }
@@ -707,6 +728,19 @@ public final class QueryExecutor implements AutoCloseable {
         return ExecuteResult.success(
                 "Table dropped successfully: "
                         + command.getTableName()
+        );
+    }
+
+    /**
+     * ALTER TABLE.
+     */
+    private ExecuteResult executeAlterTable(
+            AlterTableCommand command
+    ) {
+
+        return alterTableExecutor.execute(
+                requireTableManager(),
+                command
         );
     }
 

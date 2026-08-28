@@ -5,14 +5,23 @@ import java.util.Objects;
 
 public final class UniqueConstraint implements Constraint {
 
+    private final String name;
     private final List<String> columns;
 
     public UniqueConstraint(List<String> columns) {
-        this.columns = validateColumns(columns);
+        this(null, columns);
     }
 
     public UniqueConstraint(String column) {
-        this(List.of(column));
+        this(null, List.of(column));
+    }
+
+    public UniqueConstraint(
+            String name,
+            List<String> columns
+    ) {
+        this.name = ConstraintName.normalizeNullable(name);
+        this.columns = validateColumns(columns);
     }
 
     @Override
@@ -23,6 +32,11 @@ public final class UniqueConstraint implements Constraint {
     @Override
     public List<String> columns() {
         return columns;
+    }
+
+    @Override
+    public String name() {
+        return name;
     }
 
     private static List<String> validateColumns(List<String> columns) {
@@ -65,7 +79,8 @@ public final class UniqueConstraint implements Constraint {
     @Override
     public String toString() {
         return "UniqueConstraint{" +
-                "columns=" + columns +
+                "name='" + name + '\'' +
+                ", columns=" + columns +
                 '}';
     }
 }

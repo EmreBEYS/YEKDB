@@ -5,9 +5,18 @@ import java.util.Objects;
 
 public final class NotNullConstraint implements Constraint {
 
+    private final String name;
     private final String column;
 
     public NotNullConstraint(String column) {
+        this(null, column);
+    }
+
+    public NotNullConstraint(
+            String name,
+            String column
+    ) {
+        this.name = ConstraintName.normalizeNullable(name);
         this.column = requireColumn(column);
     }
 
@@ -25,6 +34,11 @@ public final class NotNullConstraint implements Constraint {
         return List.of(column);
     }
 
+    @Override
+    public String name() {
+        return name;
+    }
+
     private static String requireColumn(String column) {
         Objects.requireNonNull(column, "column cannot be null");
 
@@ -40,7 +54,8 @@ public final class NotNullConstraint implements Constraint {
     @Override
     public String toString() {
         return "NotNullConstraint{" +
-                "column='" + column + '\'' +
+                "name='" + name + '\'' +
+                ", column='" + column + '\'' +
                 '}';
     }
 }

@@ -71,6 +71,12 @@ final class ConstraintSchemaCodec {
                                     Collectors.joining(",")
                             );
 
+            String typeToken = constraint.type().name();
+
+            if (constraint.name() != null) {
+                typeToken = typeToken + "@" + constraint.name();
+            }
+
             if (constraint.type() == ConstraintType.FOREIGN_KEY) {
 
                 if (!(constraint instanceof ForeignKeyConstraint foreignKey)) {
@@ -87,7 +93,7 @@ final class ConstraintSchemaCodec {
                                 );
 
                 lines.add(
-                        ConstraintType.FOREIGN_KEY.name()
+                        typeToken
                                 + ":"
                                 + columns
                                 + "->"
@@ -100,7 +106,7 @@ final class ConstraintSchemaCodec {
             }
 
             lines.add(
-                    constraint.type().name()
+                    typeToken
                             + ":"
                             + columns
             );
@@ -189,11 +195,31 @@ final class ConstraintSchemaCodec {
             );
         }
 
-        String typeName =
+        String typeToken =
                 line.substring(
                         0,
                         separatorIndex
                 ).trim();
+
+        String typeName = typeToken;
+        String constraintName = null;
+
+        int nameSeparatorIndex = typeToken.indexOf('@');
+
+        if (nameSeparatorIndex >= 0) {
+            if (nameSeparatorIndex == 0
+                    || nameSeparatorIndex == typeToken.length() - 1
+                    || typeToken.indexOf('@', nameSeparatorIndex + 1) >= 0) {
+                throw corrupted(
+                        "Invalid named constraint definition: " + line,
+                        tableFile,
+                        null
+                );
+            }
+
+            typeName = typeToken.substring(0, nameSeparatorIndex).trim();
+            constraintName = typeToken.substring(nameSeparatorIndex + 1).trim();
+        }
 
         String definitionPart =
                 line.substring(
@@ -228,12 +254,14 @@ final class ConstraintSchemaCodec {
                     }
 
                     yield new NotNullConstraint(
+                            constraintName,
                             columns.getFirst()
                     );
                 }
 
                 case UNIQUE ->
                         new UniqueConstraint(
+                                constraintName,
                                 parseColumns(
                                         definitionPart,
                                         line,
@@ -243,6 +271,7 @@ final class ConstraintSchemaCodec {
 
                 case PRIMARY_KEY ->
                         new PrimaryKeyConstraint(
+                                constraintName,
                                 parseColumns(
                                         definitionPart,
                                         line,
@@ -252,6 +281,7 @@ final class ConstraintSchemaCodec {
 
                 case FOREIGN_KEY ->
                         parseForeignKeyConstraint(
+                                constraintName,
                                 definitionPart,
                                 line,
                                 tableFile
@@ -273,6 +303,7 @@ final class ConstraintSchemaCodec {
     }
 
     private static ForeignKeyConstraint parseForeignKeyConstraint(
+            String constraintName,
             String definitionPart,
             String sourceLine,
             Path tableFile
@@ -363,6 +394,7 @@ final class ConstraintSchemaCodec {
         }
 
         return new ForeignKeyConstraint(
+                constraintName,
                 localColumns,
                 referencedTableName,
                 referencedColumns

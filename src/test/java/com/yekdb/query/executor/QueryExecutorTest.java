@@ -578,7 +578,7 @@ class QueryExecutorTest {
                     assertThrows(
                             QueryExecutionException.class,
                             () -> queryExecutor.execute(
-                                    "ALTER TABLE users ADD COLUMN city STRING;"
+                                    "TRUNCATE TABLE users;"
                             )
                     );
 

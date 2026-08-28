@@ -5,11 +5,39 @@ import java.util.Objects;
 
 public final class ForeignKeyConstraint implements Constraint {
 
+    private final String name;
     private final List<String> columns;
     private final String referencedTableName;
     private final List<String> referencedColumnNames;
 
     public ForeignKeyConstraint(
+            List<String> columns,
+            String referencedTableName,
+            List<String> referencedColumnNames
+    ) {
+        this(
+                null,
+                columns,
+                referencedTableName,
+                referencedColumnNames
+        );
+    }
+
+    public ForeignKeyConstraint(
+            String column,
+            String referencedTableName,
+            String referencedColumn
+    ) {
+        this(
+                null,
+                List.of(column),
+                referencedTableName,
+                List.of(referencedColumn)
+        );
+    }
+
+    public ForeignKeyConstraint(
+            String name,
             List<String> columns,
             String referencedTableName,
             List<String> referencedColumnNames
@@ -41,6 +69,8 @@ public final class ForeignKeyConstraint implements Constraint {
             );
         }
 
+        this.name = ConstraintName.normalizeNullable(name);
+
         this.columns = columns.stream()
                 .map(column -> requireText(column, "Column name"))
                 .toList();
@@ -52,18 +82,6 @@ public final class ForeignKeyConstraint implements Constraint {
                 .toList();
     }
 
-    public ForeignKeyConstraint(
-            String column,
-            String referencedTableName,
-            String referencedColumn
-    ) {
-        this(
-                List.of(column),
-                referencedTableName,
-                List.of(referencedColumn)
-        );
-    }
-
     @Override
     public ConstraintType type() {
         return ConstraintType.FOREIGN_KEY;
@@ -72,6 +90,11 @@ public final class ForeignKeyConstraint implements Constraint {
     @Override
     public List<String> columns() {
         return columns;
+    }
+
+    @Override
+    public String name() {
+        return name;
     }
 
     public String referencedTableName() {
@@ -112,7 +135,8 @@ public final class ForeignKeyConstraint implements Constraint {
     @Override
     public String toString() {
         return "ForeignKeyConstraint{" +
-                "columns=" + columns +
+                "name='" + name + '\'' +
+                ", columns=" + columns +
                 ", referencedTableName='" + referencedTableName + '\'' +
                 ", referencedColumnNames=" + referencedColumnNames +
                 '}';

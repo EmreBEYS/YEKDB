@@ -192,9 +192,22 @@ public class Table {
         }
 
         int primaryKeyCount = 0;
+        Set<String> constraintNames = new HashSet<>();
 
         for (Constraint constraint :
                 constraints) {
+
+            if (constraint.name() != null) {
+                String normalizedConstraintName =
+                        constraint.name().toLowerCase();
+
+                if (!constraintNames.add(normalizedConstraintName)) {
+                    throw new IllegalArgumentException(
+                            "Duplicate constraint names are not allowed: "
+                                    + constraint.name()
+                    );
+                }
+            }
 
             validateConstraintColumns(
                     columns,

@@ -7,8 +7,8 @@
 ![Maven](https://img.shields.io/badge/Maven-3.x-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-green)
 ![Status](https://img.shields.io/badge/Status-Active%20Development-yellow)
-![Tests](https://img.shields.io/badge/JUnit-1274%20Tests%20Passed-brightgreen)
-![Sprint](https://img.shields.io/badge/Sprint-00--25-blueviolet)
+![Tests](https://img.shields.io/badge/JUnit-1301%20Tests%20Passed-brightgreen)
+![Sprint](https://img.shields.io/badge/Sprint-00--26-blueviolet)
 
 ---
 
@@ -76,6 +76,14 @@ The long-term goal is a complete page-oriented database engine with durable stor
 - Foreign key enforcement during `UPDATE`
 - Parent-row protection with `DELETE RESTRICT`
 - Foreign key metadata persistence and recovery
+- `ALTER TABLE` parsing and execution
+- `ADD COLUMN` / `DROP COLUMN` for empty tables
+- `RENAME COLUMN` and `RENAME TO` with data preservation
+- `ALTER COLUMN ... SET/DROP NOT NULL`
+- Named `PRIMARY KEY`, `UNIQUE`, and `FOREIGN KEY` constraints through `ALTER TABLE`
+- `DROP CONSTRAINT` for named constraints
+- Backward-compatible named constraint metadata persistence
+- Constraint dependency protection during destructive schema changes
 
 ---
 
@@ -219,6 +227,55 @@ Foreign key schema persistence uses entries such as:
 FOREIGN_KEY:user_id->users:id
 FOREIGN_KEY:country_code,city_code->cities:country_code,city_code
 ```
+
+---
+
+## ALTER TABLE — Sprint 00-26
+
+Sprint 00-26 introduces schema evolution through `ALTER TABLE`, extending YEKDB beyond table creation into controlled post-creation schema changes.
+
+Implemented capabilities:
+
+- `ALTER TABLE ... ADD COLUMN ...`
+- `ALTER TABLE ... DROP COLUMN ...`
+- `ALTER TABLE ... RENAME COLUMN ... TO ...`
+- `ALTER TABLE ... RENAME TO ...`
+- `ALTER TABLE ... ALTER COLUMN ... SET NOT NULL`
+- `ALTER TABLE ... ALTER COLUMN ... DROP NOT NULL`
+- `ALTER TABLE ... ADD PRIMARY KEY (...)`
+- `ALTER TABLE ... ADD UNIQUE (...)`
+- `ALTER TABLE ... ADD FOREIGN KEY (...) REFERENCES ...(...)`
+- Named constraint syntax with `ADD CONSTRAINT <name> ...`
+- `DROP CONSTRAINT <name>`
+- Existing-row validation before adding `PRIMARY KEY`, `UNIQUE`, or `FOREIGN KEY` constraints
+- Backward-compatible persistence for legacy unnamed constraint metadata
+- Dependency checks that prevent referenced key constraints from being dropped while foreign keys depend on them
+- Interactive terminal integration and end-to-end regression coverage
+- Data preservation during table and column rename operations
+
+Examples:
+
+```sql
+ALTER TABLE users RENAME COLUMN username TO display_name;
+
+ALTER TABLE users ADD CONSTRAINT uq_users_email UNIQUE (email);
+
+ALTER TABLE orders ADD CONSTRAINT fk_orders_user
+FOREIGN KEY (user_id) REFERENCES users(id);
+
+ALTER TABLE users DROP CONSTRAINT uq_users_email;
+
+ALTER TABLE users RENAME TO customers;
+```
+
+Current physical-schema limitation:
+
+- `ADD COLUMN` and `DROP COLUMN` require an empty table because physical row rewrite is not implemented yet.
+- `SET NOT NULL` on a non-empty table is conservatively rejected until safe existing-row validation/rewrite support is completed.
+- These operations fail explicitly instead of risking existing record loss.
+- `RENAME COLUMN`, constraint operations, and `RENAME TO` preserve existing row data.
+
+Sprint 00-26 also added regression protection for a data-preservation issue discovered through live terminal testing: table rename now moves the associated `.data` file together with table metadata, and schema-change emptiness checks inspect real persisted table data rather than relying on stale header row counts.
 
 ---
 
@@ -561,36 +618,36 @@ The `\history` command itself is intentionally not added to history.
 
 YEKDB uses JUnit 5 with regression testing after every development phase.
 
-Current project status after Sprint 00-25:
+Current project status after Sprint 00-26:
 
 ```text
 Compile: SUCCESS
-Tests:   1274 / 1274 PASSED
+Tests:   1301 / 1301 PASSED
 ```
 
-Sprint 00-25 keeps the complete Sprint 00-24 regression suite green and adds foreign key coverage for:
+Sprint 00-26 keeps the complete Sprint 00-25 regression suite green and adds ALTER TABLE coverage for:
 
-- foreign key domain model validation
-- `CREATE TABLE` foreign key parsing
-- single-column foreign key metadata
-- composite foreign key metadata
-- referenced table validation
-- referenced column validation
-- local / referenced type compatibility
-- referenced `PRIMARY KEY` / `UNIQUE` validation
-- foreign key schema persistence
-- foreign key schema recovery
-- valid `INSERT` references
-- invalid `INSERT` reference rejection
-- nullable foreign key `INSERT`
-- valid `UPDATE` references
-- invalid `UPDATE` reference rejection
-- nullable foreign key `UPDATE`
-- `DELETE RESTRICT` parent protection
-- child-first / parent-second delete workflow
-- composite foreign key runtime checks
-- terminal-visible foreign key violations
-- backward compatibility with Sprint 00-24 constraints
+- ALTER TABLE command/action domain models
+- management SQL parser integration
+- `ADD COLUMN` / `DROP COLUMN` execution guards
+- `RENAME COLUMN` execution and persistence
+- table rename execution and physical `.data` file preservation
+- `SET NOT NULL` / `DROP NOT NULL` execution
+- adding `PRIMARY KEY` through ALTER TABLE
+- adding `UNIQUE` through ALTER TABLE
+- adding `FOREIGN KEY` through ALTER TABLE
+- existing-row validation before adding constraints
+- named constraint parsing and persistence
+- `DROP CONSTRAINT` execution
+- dependency protection for referenced constraints
+- backward compatibility with legacy unnamed constraint metadata
+- interactive terminal ALTER TABLE integration
+- duplicate rejection after adding UNIQUE
+- successful insert after dropping UNIQUE
+- foreign key enforcement after adding FK through ALTER TABLE
+- data-preservation regression tests for schema rename operations
+- rejection of unsafe ADD/DROP COLUMN operations on non-empty tables
+- final end-to-end terminal-style ALTER TABLE regression flow
 
 The complete legacy regression suite remains green.
 
@@ -622,6 +679,7 @@ Recent completed sprints:
 - **00-23** — Interactive SQL Terminal
 - **00-24** — Primary Key / Unique / Not Null Constraints
 - **00-25** — Foreign Key Constraints
+- **00-26** — ALTER TABLE / Schema Evolution
 
 ---
 
@@ -736,6 +794,77 @@ The final statement was correctly rejected because `users.id = 999` did not exis
 
 ---
 
+## Sprint 00-26 Summary
+
+Sprint 00-26 introduced ALTER TABLE support and the first schema-evolution workflow in YEKDB.
+
+Implemented areas:
+
+1. `AlterTableCommand` and ALTER action model
+2. Management command parser integration
+3. `ADD COLUMN` execution for empty tables
+4. `DROP COLUMN` execution for empty tables
+5. `RENAME COLUMN`
+6. `RENAME TABLE`
+7. `ALTER COLUMN ... SET NOT NULL`
+8. `ALTER COLUMN ... DROP NOT NULL`
+9. `ADD PRIMARY KEY (...)`
+10. `ADD UNIQUE (...)`
+11. `ADD FOREIGN KEY (...) REFERENCES ...(...)`
+12. Existing-row validation for newly added constraints
+13. Named constraint metadata
+14. `ADD CONSTRAINT <name> ...` parsing
+15. Named constraint persistence and recovery
+16. `DROP CONSTRAINT <name>`
+17. Foreign-key dependency protection while dropping referenced constraints
+18. Backward compatibility with Sprint 00-24 / 00-25 constraint metadata
+19. Interactive SQL Terminal integration
+20. Terminal-visible ALTER TABLE results and validation failures
+21. Real persisted-data emptiness checks for schema-changing operations
+22. `.data` file preservation during table rename
+23. Data-preservation regression coverage
+24. End-to-end terminal-style ALTER TABLE regression test
+25. Full unit / integration / regression verification
+
+Final verification:
+
+```text
+1301 / 1301 tests passed
+Compile successful
+ALTER TABLE terminal live test successful
+Data-preservation regression successful
+```
+
+Live terminal verification covered:
+
+```sql
+CREATE TABLE users (
+    id INT PRIMARY KEY,
+    username STRING,
+    email STRING
+);
+
+INSERT INTO users (id, username, email)
+VALUES (1, 'emre', 'emre@example.com');
+
+INSERT INTO users (id, username, email)
+VALUES (2, 'ahmet', 'ahmet@example.com');
+
+ALTER TABLE users RENAME COLUMN username TO display_name;
+
+ALTER TABLE users ADD CONSTRAINT uq_users_email UNIQUE (email);
+
+ALTER TABLE users DROP CONSTRAINT uq_users_email;
+
+ALTER TABLE users RENAME TO customers;
+
+SELECT * FROM customers;
+```
+
+The final query preserved all existing rows across rename operations. The live session also verified UNIQUE enforcement before `DROP CONSTRAINT` and successful insertion after the constraint was removed.
+
+---
+
 ## Roadmap
 
 ### Completed / Established
@@ -764,9 +893,15 @@ The final statement was correctly rejected because `users.id = 999` did not exis
 - Foreign key schema validation
 - Foreign key INSERT / UPDATE enforcement
 - `DELETE RESTRICT` parent-row protection
+- `ALTER TABLE` schema evolution foundation
+- Named constraints and `DROP CONSTRAINT`
+- ALTER TABLE terminal integration
+- Schema rename data-preservation safeguards
 
 ### Upcoming
 
+- Physical row rewrite for `ADD COLUMN` / `DROP COLUMN` on non-empty tables
+- Extended `ALTER COLUMN` operations such as type/default changes
 - `ON DELETE CASCADE` / `ON DELETE SET NULL`
 - `ON UPDATE CASCADE`
 - Further physical storage and free-space management
@@ -807,7 +942,7 @@ Development is documented sprint-by-sprint with technical developer notes coveri
 
 Latest documentation:
 
-**Developer Notes — Sprint 00-25: Foreign Key Constraints**
+**Developer Notes — Sprint 00-26: ALTER TABLE / Schema Evolution**
 
 ---
 
