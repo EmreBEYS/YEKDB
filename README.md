@@ -7,8 +7,8 @@
 ![Maven](https://img.shields.io/badge/Maven-3.x-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-green)
 ![Status](https://img.shields.io/badge/Status-Active%20Development-yellow)
-![Tests](https://img.shields.io/badge/JUnit-1301%20Tests%20Passed-brightgreen)
-![Sprint](https://img.shields.io/badge/Sprint-00--26-blueviolet)
+![Tests](https://img.shields.io/badge/JUnit-1340%20Tests%20Passed-brightgreen)
+![Sprint](https://img.shields.io/badge/Sprint-00--27-blueviolet)
 
 ---
 
@@ -75,6 +75,11 @@ The long-term goal is a complete page-oriented database engine with durable stor
 - Foreign key enforcement during `INSERT`
 - Foreign key enforcement during `UPDATE`
 - Parent-row protection with `DELETE RESTRICT`
+- Referential actions: `ON DELETE RESTRICT / CASCADE / SET NULL`
+- Referential actions: `ON UPDATE RESTRICT / CASCADE / SET NULL`
+- Recursive and self-referencing cascade handling
+- Composite foreign key referential actions
+- Pre-mutation validation for mixed referential actions
 - Foreign key metadata persistence and recovery
 - `ALTER TABLE` parsing and execution
 - `ADD COLUMN` / `DROP COLUMN` for empty tables
@@ -278,6 +283,99 @@ Current physical-schema limitation:
 Sprint 00-26 also added regression protection for a data-preservation issue discovered through live terminal testing: table rename now moves the associated `.data` file together with table metadata, and schema-change emptiness checks inspect real persisted table data rather than relying on stale header row counts.
 
 ---
+
+
+## Referential Actions — Sprint 00-27
+
+Sprint 00-27 extends YEKDB foreign keys with configurable referential actions for parent-row deletion and referenced-key updates.
+
+Implemented actions:
+
+- `ON DELETE RESTRICT`
+- `ON DELETE CASCADE`
+- `ON DELETE SET NULL`
+- `ON UPDATE RESTRICT`
+- `ON UPDATE CASCADE`
+- `ON UPDATE SET NULL`
+
+Foreign keys without an explicit referential action remain backward compatible and default to `RESTRICT`.
+
+Example:
+
+```sql
+CREATE TABLE users (
+    id INT PRIMARY KEY,
+    name STRING NOT NULL
+);
+
+CREATE TABLE orders (
+    id INT PRIMARY KEY,
+    user_id INT,
+    FOREIGN KEY (user_id)
+        REFERENCES users(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+);
+```
+
+Deleting a referenced parent row now follows the configured action:
+
+```sql
+DELETE FROM users
+WHERE id = 1;
+```
+
+With `ON DELETE CASCADE`, dependent child rows are automatically removed. Cascades can continue recursively through multiple relationship levels.
+
+`SET NULL` preserves the child row while clearing the foreign key:
+
+```sql
+FOREIGN KEY (user_id)
+    REFERENCES users(id)
+    ON DELETE SET NULL
+```
+
+If the target foreign-key column is `NOT NULL`, the operation is rejected before any mutation occurs.
+
+Referenced-key updates also support referential actions:
+
+```sql
+UPDATE users
+SET id = 2
+WHERE id = 1;
+```
+
+With `ON UPDATE CASCADE`, matching child foreign-key values are moved from the old referenced key to the new key. With `ON UPDATE SET NULL`, matching child keys become `NULL`. With `ON UPDATE RESTRICT`, the parent-key update is rejected while dependent rows exist.
+
+Sprint 00-27 also adds:
+
+- `ReferentialAction` metadata for foreign keys
+- Parser support for `ON DELETE` and `ON UPDATE`
+- Explicit and default referential action handling
+- Composite foreign key action support
+- Recursive delete cascade planning
+- Recursive update cascade planning
+- Mixed `CASCADE`, `SET NULL`, and `RESTRICT` handling
+- Pre-mutation validation to prevent partial statement effects
+- Self-referencing foreign key support
+- Cycle-safe cascade traversal
+- `NOT NULL` protection for `SET NULL`
+- Terminal-visible `DELETE RESTRICT` and `UPDATE RESTRICT` failures
+- Final unit, integration, regression, and live terminal verification
+
+Live terminal validation confirmed all six action families:
+
+```text
+ON DELETE RESTRICT   PASS
+ON DELETE CASCADE    PASS
+ON DELETE SET NULL   PASS
+ON UPDATE RESTRICT   PASS
+ON UPDATE CASCADE    PASS
+ON UPDATE SET NULL   PASS
+```
+
+---
+
 
 The interactive terminal from Sprint 00-23 remains fully integrated with the query and storage layers.
 
@@ -618,36 +716,40 @@ The `\history` command itself is intentionally not added to history.
 
 YEKDB uses JUnit 5 with regression testing after every development phase.
 
-Current project status after Sprint 00-26:
+Current project status after Sprint 00-27:
 
 ```text
 Compile: SUCCESS
-Tests:   1301 / 1301 PASSED
+Tests:   1340 / 1340 PASSED
+Terminal referential action smoke tests: 6 / 6 PASSED
 ```
 
-Sprint 00-26 keeps the complete Sprint 00-25 regression suite green and adds ALTER TABLE coverage for:
+Sprint 00-27 keeps the complete Sprint 00-26 regression suite green and adds coverage for:
 
-- ALTER TABLE command/action domain models
-- management SQL parser integration
-- `ADD COLUMN` / `DROP COLUMN` execution guards
-- `RENAME COLUMN` execution and persistence
-- table rename execution and physical `.data` file preservation
-- `SET NOT NULL` / `DROP NOT NULL` execution
-- adding `PRIMARY KEY` through ALTER TABLE
-- adding `UNIQUE` through ALTER TABLE
-- adding `FOREIGN KEY` through ALTER TABLE
-- existing-row validation before adding constraints
-- named constraint parsing and persistence
-- `DROP CONSTRAINT` execution
-- dependency protection for referenced constraints
-- backward compatibility with legacy unnamed constraint metadata
-- interactive terminal ALTER TABLE integration
-- duplicate rejection after adding UNIQUE
-- successful insert after dropping UNIQUE
-- foreign key enforcement after adding FK through ALTER TABLE
-- data-preservation regression tests for schema rename operations
-- rejection of unsafe ADD/DROP COLUMN operations on non-empty tables
-- final end-to-end terminal-style ALTER TABLE regression flow
+- `ReferentialAction` defaults and explicit values
+- `ON DELETE` / `ON UPDATE` SQL parsing
+- `RESTRICT`, `CASCADE`, and `SET NULL` parsing
+- duplicate / malformed referential action rejection
+- explicit `ON DELETE RESTRICT`
+- recursive `ON DELETE CASCADE`
+- multiple-child delete cascades
+- composite foreign key delete cascades
+- `ON DELETE SET NULL`
+- composite foreign key `SET NULL`
+- `NOT NULL + SET NULL` rejection before mutation
+- mixed `CASCADE + SET NULL`
+- mixed `CASCADE + SET NULL + RESTRICT`
+- `ON UPDATE RESTRICT`
+- `ON UPDATE CASCADE`
+- recursive update cascades
+- `ON UPDATE SET NULL`
+- composite foreign key update cascades
+- referenced-key unchanged regression behavior
+- self-referencing foreign keys
+- self-referencing delete cascades
+- self-referencing update cascades
+- cycle-safe cascade planning
+- final live terminal verification for all six referential actions
 
 The complete legacy regression suite remains green.
 
@@ -680,6 +782,7 @@ Recent completed sprints:
 - **00-24** — Primary Key / Unique / Not Null Constraints
 - **00-25** — Foreign Key Constraints
 - **00-26** — ALTER TABLE / Schema Evolution
+- **00-27** — Foreign Key Referential Actions: CASCADE / RESTRICT / SET NULL
 
 ---
 
@@ -865,6 +968,86 @@ The final query preserved all existing rows across rename operations. The live s
 
 ---
 
+## Sprint 00-27 Summary
+
+Sprint 00-27 completed configurable foreign key referential actions across parsing, validation, execution, recursive mutation planning, and terminal workflows.
+
+Implemented areas:
+
+1. `ReferentialAction`
+2. Default `RESTRICT` behavior for backward compatibility
+3. Foreign key `onDelete` metadata
+4. Foreign key `onUpdate` metadata
+5. `ON DELETE RESTRICT` parsing
+6. `ON DELETE CASCADE` parsing
+7. `ON DELETE SET NULL` parsing
+8. `ON UPDATE RESTRICT` parsing
+9. `ON UPDATE CASCADE` parsing
+10. `ON UPDATE SET NULL` parsing
+11. Invalid / duplicate referential action rejection
+12. Runtime `ON DELETE RESTRICT`
+13. Recursive `ON DELETE CASCADE`
+14. Multiple-child cascade planning
+15. `ON DELETE SET NULL`
+16. Composite foreign key `SET NULL`
+17. `NOT NULL + SET NULL` protection
+18. Mixed delete referential actions
+19. Pre-mutation delete validation
+20. Dedicated `ON UPDATE RESTRICT` handling
+21. Runtime `ON UPDATE CASCADE`
+22. Recursive update cascades
+23. Runtime `ON UPDATE SET NULL`
+24. Composite foreign key update actions
+25. Mixed update referential actions
+26. Self-referencing foreign key schema validation
+27. Self-referencing delete cascades
+28. Self-referencing update cascades
+29. Cycle-safe recursive traversal
+30. Final edge-case and regression suite
+31. Interactive terminal live verification
+32. Full unit / integration / regression verification
+
+Final verification:
+
+```text
+1340 / 1340 tests passed
+Compile successful
+Referential action terminal live tests: 6 / 6 passed
+```
+
+Live terminal verification covered:
+
+```sql
+FOREIGN KEY (user_id)
+    REFERENCES users(id)
+    ON DELETE RESTRICT;
+
+FOREIGN KEY (user_id)
+    REFERENCES users(id)
+    ON DELETE CASCADE;
+
+FOREIGN KEY (user_id)
+    REFERENCES users(id)
+    ON DELETE SET NULL;
+
+FOREIGN KEY (user_id)
+    REFERENCES users(id)
+    ON UPDATE RESTRICT;
+
+FOREIGN KEY (user_id)
+    REFERENCES users(id)
+    ON UPDATE CASCADE;
+
+FOREIGN KEY (user_id)
+    REFERENCES users(id)
+    ON UPDATE SET NULL;
+```
+
+Observed terminal behavior matched the configured action in all six cases. `RESTRICT` preserved both parent and child rows, `CASCADE` propagated delete/update operations to dependent rows, and `SET NULL` preserved child rows while clearing their foreign key values.
+
+
+---
+
 ## Roadmap
 
 ### Completed / Established
@@ -897,13 +1080,14 @@ The final query preserved all existing rows across rename operations. The live s
 - Named constraints and `DROP CONSTRAINT`
 - ALTER TABLE terminal integration
 - Schema rename data-preservation safeguards
+- Foreign key `ON DELETE RESTRICT / CASCADE / SET NULL`
+- Foreign key `ON UPDATE RESTRICT / CASCADE / SET NULL`
+- Recursive / self-referencing referential action handling
 
 ### Upcoming
 
 - Physical row rewrite for `ADD COLUMN` / `DROP COLUMN` on non-empty tables
 - Extended `ALTER COLUMN` operations such as type/default changes
-- `ON DELETE CASCADE` / `ON DELETE SET NULL`
-- `ON UPDATE CASCADE`
 - Further physical storage and free-space management
 - Persistent index recovery
 - B+ Tree persistence improvements
@@ -942,7 +1126,7 @@ Development is documented sprint-by-sprint with technical developer notes coveri
 
 Latest documentation:
 
-**Developer Notes — Sprint 00-26: ALTER TABLE / Schema Evolution**
+**Developer Notes — Sprint 00-27: Foreign Key Referential Actions — CASCADE / RESTRICT / SET NULL**
 
 ---
 

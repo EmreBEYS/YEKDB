@@ -78,7 +78,12 @@ final class ForeignKeySchemaValidator {
         String referencedTableName =
                 foreignKey.referencedTableName();
 
-        if (!tableCatalog.containsTable(
+        boolean selfReference =
+                childTable.getTableName()
+                        .equalsIgnoreCase(referencedTableName);
+
+        if (!selfReference
+                && !tableCatalog.containsTable(
                 referencedTableName
         )) {
 
@@ -89,9 +94,11 @@ final class ForeignKeySchemaValidator {
         }
 
         Table referencedTable =
-                tableCatalog.getTable(
-                        referencedTableName
-                );
+                selfReference
+                        ? childTable
+                        : tableCatalog.getTable(
+                                referencedTableName
+                        );
 
         List<String> localColumnNames =
                 foreignKey.columns();

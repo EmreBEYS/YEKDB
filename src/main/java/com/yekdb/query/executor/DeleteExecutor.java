@@ -141,7 +141,8 @@ public final class DeleteExecutor {
             ForeignKeyDeleteRestrictValidator.validate(
                     tableManager,
                     table,
-                    candidates
+                    candidates,
+                    recordManager
             );
         }
 

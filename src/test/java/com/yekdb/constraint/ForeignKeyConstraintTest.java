@@ -172,4 +172,91 @@ class ForeignKeyConstraintTest {
                 constraint::referencedColumnName
         );
     }
+
+
+    @Test
+    void shouldDefaultReferentialActionsToRestrict() {
+        ForeignKeyConstraint constraint =
+                new ForeignKeyConstraint(
+                        "user_id",
+                        "users",
+                        "id"
+                );
+
+        assertEquals(
+                ReferentialAction.RESTRICT,
+                constraint.onDelete()
+        );
+
+        assertEquals(
+                ReferentialAction.RESTRICT,
+                constraint.onUpdate()
+        );
+    }
+
+    @Test
+    void shouldStoreExplicitReferentialActions() {
+        ForeignKeyConstraint constraint =
+                new ForeignKeyConstraint(
+                        "user_id",
+                        "users",
+                        "id",
+                        ReferentialAction.CASCADE,
+                        ReferentialAction.SET_NULL
+                );
+
+        assertEquals(
+                ReferentialAction.CASCADE,
+                constraint.onDelete()
+        );
+
+        assertEquals(
+                ReferentialAction.SET_NULL,
+                constraint.onUpdate()
+        );
+    }
+
+    @Test
+    void shouldStoreExplicitReferentialActionsForCompositeForeignKey() {
+        ForeignKeyConstraint constraint =
+                new ForeignKeyConstraint(
+                        List.of("country_code", "city_code"),
+                        "cities",
+                        List.of("country_code", "city_code"),
+                        ReferentialAction.SET_NULL,
+                        ReferentialAction.CASCADE
+                );
+
+        assertEquals(
+                ReferentialAction.SET_NULL,
+                constraint.onDelete()
+        );
+
+        assertEquals(
+                ReferentialAction.CASCADE,
+                constraint.onUpdate()
+        );
+    }
+
+    @Test
+    void shouldFallbackNullReferentialActionsToRestrict() {
+        ForeignKeyConstraint constraint =
+                new ForeignKeyConstraint(
+                        "user_id",
+                        "users",
+                        "id",
+                        null,
+                        null
+                );
+
+        assertEquals(
+                ReferentialAction.RESTRICT,
+                constraint.onDelete()
+        );
+
+        assertEquals(
+                ReferentialAction.RESTRICT,
+                constraint.onUpdate()
+        );
+    }
 }

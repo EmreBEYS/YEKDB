@@ -141,52 +141,35 @@ public final class UpdateExecutor {
         List<Record> activeRecords =
                 recordManager.getActiveRecords();
 
-        int updatedRowCount = 0;
+        List<ForeignKeyUpdateReferentialActionValidator.UpdateCandidate> candidates =
+                new java.util.ArrayList<>();
 
-        for (Record record :
-                activeRecords) {
+        /*
+         * Sprint 00-27 Phase 6:
+         * Root UPDATE rows are collected and validated before any physical
+         * mutation. This allows incoming FK actions to be planned against the
+         * statement's old/new key values without leaving a partially updated
+         * parent when RESTRICT or SET NULL validation fails.
+         */
+        for (Record record : activeRecords) {
 
-            long recordId =
-                    record.getRecordId();
+            long recordId = record.getRecordId();
+            Row currentRow = recordManager.getRow(recordId);
 
-            Row currentRow =
-                    recordManager.getRow(
-                            recordId
-                    );
-
-            /*
-             * Sprint 00-13:
-             *
-             * WHERE expression doğrudan
-             * WhereEvaluator üzerinden merkezi
-             * ExpressionEvaluator motoruna gönderilir.
-             */
             if (!matchesWhere(
                     table,
                     currentRow,
                     command
             )) {
-
                 continue;
             }
 
-            Row updatedRow =
-                    createUpdatedRow(
-                            table,
-                            currentRow,
-                            command.getUpdatedValues()
-                    );
+            Row updatedRow = createUpdatedRow(
+                    table,
+                    currentRow,
+                    command.getUpdatedValues()
+            );
 
-            /*
-             * Sprint 00-24:
-             *
-             * Güncellenmiş Row fiziksel kayda uygulanmadan
-             * önce constraint validation çalıştırılır.
-             *
-             * Böylece UPDATE işlemi bir NOT NULL kolonunu
-             * NULL yapmaya çalışırsa fiziksel kayıt
-             * değiştirilmeden işlem reddedilir.
-             */
             ConstraintValidator.validate(
                     new ValidationContext(
                             table,
@@ -199,8 +182,8 @@ public final class UpdateExecutor {
 
             /*
              * Sprint 00-25 Phase 5:
-             * UPDATE bir FOREIGN KEY local kolonunu değiştiriyorsa yeni
-             * candidate row referenced table üzerinde doğrulanır.
+             * Local FOREIGN KEY changes still validate that the newly
+             * referenced parent exists.
              */
             if (updatesForeignKeyColumn(
                     table,
@@ -220,15 +203,48 @@ public final class UpdateExecutor {
                 );
             }
 
-            recordManager.update(
-                    recordId,
-                    updatedRow
+            candidates.add(
+                    new ForeignKeyUpdateReferentialActionValidator.UpdateCandidate(
+                            recordId,
+                            currentRow,
+                            updatedRow
+                    )
             );
-
-            updatedRowCount++;
         }
 
-        return updatedRowCount;
+        ForeignKeyUpdateReferentialActionValidator.UpdatePlan updatePlan = null;
+
+        if (tableManager != null && !candidates.isEmpty()) {
+            updatePlan = ForeignKeyUpdateReferentialActionValidator.plan(
+                    tableManager,
+                    table,
+                    candidates,
+                    recordManager
+            );
+        }
+
+        /*
+         * Parent/root rows are changed only after all referential-action
+         * planning and generated child-row constraint validation succeeded.
+         */
+        for (ForeignKeyUpdateReferentialActionValidator.UpdateCandidate candidate
+                : candidates) {
+            recordManager.update(
+                    candidate.recordId(),
+                    candidate.updatedRow()
+            );
+        }
+
+        if (updatePlan != null) {
+            ForeignKeyUpdateReferentialActionValidator.applyGeneratedMutations(
+                    tableManager,
+                    table,
+                    recordManager,
+                    updatePlan
+            );
+        }
+
+        return candidates.size();
     }
 
     /**

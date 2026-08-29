@@ -5,10 +5,15 @@ import java.util.Objects;
 
 public final class ForeignKeyConstraint implements Constraint {
 
+    private static final ReferentialAction DEFAULT_REFERENTIAL_ACTION =
+            ReferentialAction.RESTRICT;
+
     private final String name;
     private final List<String> columns;
     private final String referencedTableName;
     private final List<String> referencedColumnNames;
+    private final ReferentialAction onDelete;
+    private final ReferentialAction onUpdate;
 
     public ForeignKeyConstraint(
             List<String> columns,
@@ -19,7 +24,26 @@ public final class ForeignKeyConstraint implements Constraint {
                 null,
                 columns,
                 referencedTableName,
-                referencedColumnNames
+                referencedColumnNames,
+                DEFAULT_REFERENTIAL_ACTION,
+                DEFAULT_REFERENTIAL_ACTION
+        );
+    }
+
+    public ForeignKeyConstraint(
+            List<String> columns,
+            String referencedTableName,
+            List<String> referencedColumnNames,
+            ReferentialAction onDelete,
+            ReferentialAction onUpdate
+    ) {
+        this(
+                null,
+                columns,
+                referencedTableName,
+                referencedColumnNames,
+                onDelete,
+                onUpdate
         );
     }
 
@@ -32,7 +56,26 @@ public final class ForeignKeyConstraint implements Constraint {
                 null,
                 List.of(column),
                 referencedTableName,
-                List.of(referencedColumn)
+                List.of(referencedColumn),
+                DEFAULT_REFERENTIAL_ACTION,
+                DEFAULT_REFERENTIAL_ACTION
+        );
+    }
+
+    public ForeignKeyConstraint(
+            String column,
+            String referencedTableName,
+            String referencedColumn,
+            ReferentialAction onDelete,
+            ReferentialAction onUpdate
+    ) {
+        this(
+                null,
+                List.of(column),
+                referencedTableName,
+                List.of(referencedColumn),
+                onDelete,
+                onUpdate
         );
     }
 
@@ -41,6 +84,24 @@ public final class ForeignKeyConstraint implements Constraint {
             List<String> columns,
             String referencedTableName,
             List<String> referencedColumnNames
+    ) {
+        this(
+                name,
+                columns,
+                referencedTableName,
+                referencedColumnNames,
+                DEFAULT_REFERENTIAL_ACTION,
+                DEFAULT_REFERENTIAL_ACTION
+        );
+    }
+
+    public ForeignKeyConstraint(
+            String name,
+            List<String> columns,
+            String referencedTableName,
+            List<String> referencedColumnNames,
+            ReferentialAction onDelete,
+            ReferentialAction onUpdate
     ) {
         Objects.requireNonNull(columns, "Columns cannot be null");
         Objects.requireNonNull(referencedColumnNames, "Referenced columns cannot be null");
@@ -80,6 +141,9 @@ public final class ForeignKeyConstraint implements Constraint {
         this.referencedColumnNames = referencedColumnNames.stream()
                 .map(column -> requireText(column, "Referenced column name"))
                 .toList();
+
+        this.onDelete = normalizeAction(onDelete);
+        this.onUpdate = normalizeAction(onUpdate);
     }
 
     @Override
@@ -115,8 +179,24 @@ public final class ForeignKeyConstraint implements Constraint {
         return referencedColumnNames.getFirst();
     }
 
+    public ReferentialAction onDelete() {
+        return onDelete;
+    }
+
+    public ReferentialAction onUpdate() {
+        return onUpdate;
+    }
+
     public boolean isComposite() {
         return columns.size() > 1;
+    }
+
+    private static ReferentialAction normalizeAction(
+            ReferentialAction action
+    ) {
+        return action == null
+                ? DEFAULT_REFERENTIAL_ACTION
+                : action;
     }
 
     private static String requireText(
@@ -139,6 +219,8 @@ public final class ForeignKeyConstraint implements Constraint {
                 ", columns=" + columns +
                 ", referencedTableName='" + referencedTableName + '\'' +
                 ", referencedColumnNames=" + referencedColumnNames +
+                ", onDelete=" + onDelete +
+                ", onUpdate=" + onUpdate +
                 '}';
     }
 }

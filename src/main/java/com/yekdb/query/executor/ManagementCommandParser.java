@@ -4,6 +4,7 @@ import com.yekdb.constraint.Constraint;
 import com.yekdb.constraint.ForeignKeyConstraint;
 import com.yekdb.constraint.NotNullConstraint;
 import com.yekdb.constraint.PrimaryKeyConstraint;
+import com.yekdb.constraint.ReferentialAction;
 import com.yekdb.constraint.UniqueConstraint;
 import com.yekdb.query.command.*;
 import com.yekdb.storage.table.Column;
@@ -569,11 +570,12 @@ final class ManagementCommandParser {
         ).trim();
 
         int referenceOpenIndex = referenceTarget.indexOf('(');
-        int referenceCloseIndex = referenceTarget.lastIndexOf(')');
+        int referenceCloseIndex = referenceOpenIndex < 0
+                ? -1
+                : referenceTarget.indexOf(')', referenceOpenIndex + 1);
 
         if (referenceOpenIndex <= 0
-                || referenceCloseIndex <= referenceOpenIndex
-                || referenceCloseIndex != referenceTarget.length() - 1) {
+                || referenceCloseIndex <= referenceOpenIndex) {
             throw new QueryExecutionException(
                     "REFERENCES must use 'table(column, ...)' syntax: "
                             + definition
@@ -610,12 +612,23 @@ final class ManagementCommandParser {
             );
         }
 
+        String referentialActionSection = referenceTarget.substring(
+                referenceCloseIndex + 1
+        ).trim();
+
+        ReferentialActions referentialActions = parseReferentialActions(
+                referentialActionSection,
+                definition
+        );
+
         try {
             return new ForeignKeyConstraint(
                     constraintName,
                     localColumns,
                     referencedTableName,
-                    referencedColumns
+                    referencedColumns,
+                    referentialActions.onDelete(),
+                    referentialActions.onUpdate()
             );
         } catch (IllegalArgumentException exception) {
             throw new QueryExecutionException(
@@ -623,6 +636,103 @@ final class ManagementCommandParser {
                     exception
             );
         }
+    }
+
+    private ReferentialActions parseReferentialActions(
+            String actionSection,
+            String definition
+    ) {
+        ReferentialAction onDelete = ReferentialAction.RESTRICT;
+        ReferentialAction onUpdate = ReferentialAction.RESTRICT;
+
+        if (actionSection == null || actionSection.isBlank()) {
+            return new ReferentialActions(onDelete, onUpdate);
+        }
+
+        String[] tokens = actionSection.trim().split("\\s+");
+        boolean deleteDefined = false;
+        boolean updateDefined = false;
+        int index = 0;
+
+        while (index < tokens.length) {
+            if (!tokens[index].equalsIgnoreCase("ON") || index + 2 >= tokens.length) {
+                throw invalidReferentialActionSyntax(definition);
+            }
+
+            String event = tokens[index + 1].toUpperCase(Locale.ROOT);
+            boolean isDelete = event.equals("DELETE");
+            boolean isUpdate = event.equals("UPDATE");
+
+            if (!isDelete && !isUpdate) {
+                throw invalidReferentialActionSyntax(definition);
+            }
+
+            if (isDelete && deleteDefined) {
+                throw new QueryExecutionException(
+                        "FOREIGN KEY cannot define ON DELETE more than once: "
+                                + definition
+                );
+            }
+
+            if (isUpdate && updateDefined) {
+                throw new QueryExecutionException(
+                        "FOREIGN KEY cannot define ON UPDATE more than once: "
+                                + definition
+                );
+            }
+
+            String actionToken = tokens[index + 2].toUpperCase(Locale.ROOT);
+            ReferentialAction action;
+            int consumed;
+
+            switch (actionToken) {
+                case "CASCADE" -> {
+                    action = ReferentialAction.CASCADE;
+                    consumed = 3;
+                }
+                case "RESTRICT" -> {
+                    action = ReferentialAction.RESTRICT;
+                    consumed = 3;
+                }
+                case "SET" -> {
+                    if (index + 3 >= tokens.length
+                            || !tokens[index + 3].equalsIgnoreCase("NULL")) {
+                        throw invalidReferentialActionSyntax(definition);
+                    }
+                    action = ReferentialAction.SET_NULL;
+                    consumed = 4;
+                }
+                default -> throw invalidReferentialActionSyntax(definition);
+            }
+
+            if (isDelete) {
+                onDelete = action;
+                deleteDefined = true;
+            } else {
+                onUpdate = action;
+                updateDefined = true;
+            }
+
+            index += consumed;
+        }
+
+        return new ReferentialActions(onDelete, onUpdate);
+    }
+
+    private QueryExecutionException invalidReferentialActionSyntax(
+            String definition
+    ) {
+        return new QueryExecutionException(
+                "FOREIGN KEY referential action must use "
+                        + "'ON DELETE|UPDATE CASCADE|RESTRICT|SET NULL' syntax: "
+                        + definition
+        );
+    }
+
+    private record ReferentialActions(
+            ReferentialAction onDelete,
+            ReferentialAction onUpdate
+    ) {
     }
 
     private List<String> parseColumnNames(
