@@ -10,6 +10,7 @@ import com.yekdb.query.command.DropColumnAlterAction;
 import com.yekdb.query.command.DropConstraintAlterAction;
 import com.yekdb.query.command.RenameColumnAlterAction;
 import com.yekdb.query.command.RenameTableAlterAction;
+import com.yekdb.storage.table.ColumnTypeDefinition;
 import com.yekdb.storage.table.DataType;
 import com.yekdb.storage.table.TableManager;
 
@@ -40,11 +41,11 @@ public final class AlterTableExecutor {
         String tableName = command.tableName();
 
         if (action instanceof AddColumnAlterAction value) {
-            DataType dataType = parseDataType(value.dataType());
+            ColumnTypeDefinition typeDefinition = parseColumnType(value.dataType());
             tableManager.addColumn(
                     tableName,
                     value.columnName(),
-                    dataType
+                    typeDefinition
             );
             return ExecuteResult.success(
                     "Column added successfully: " + value.columnName()
@@ -143,10 +144,12 @@ public final class AlterTableExecutor {
     }
 
     private DataType parseDataType(String value) {
+        return parseColumnType(value).dataType();
+    }
+
+    private ColumnTypeDefinition parseColumnType(String value) {
         try {
-            return DataType.valueOf(
-                    value.trim().toUpperCase(Locale.ROOT)
-            );
+            return ColumnTypeDefinition.parse(value);
         } catch (RuntimeException exception) {
             throw new QueryExecutionException(
                     "Unsupported column data type: " + value,

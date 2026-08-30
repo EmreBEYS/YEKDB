@@ -548,17 +548,17 @@ public class TableFileMetadataReader {
 
         try {
 
-            DataType dataType =
-                    DataType.valueOf(
+            ColumnTypeDefinition typeDefinition =
+                    ColumnTypeDefinition.parse(
                             dataTypeName
                     );
 
-            return new Column(
+            return Column.fromTypeDefinition(
                     columnName,
-                    dataType
+                    typeDefinition
             );
 
-        } catch (IllegalArgumentException exception) {
+        } catch (RuntimeException exception) {
 
             throw new CorruptedTableFileException(
                     "Invalid column definition: "

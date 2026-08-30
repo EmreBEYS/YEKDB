@@ -3,12 +3,16 @@ package com.yekdb.query.evaluator;
 import com.yekdb.query.expression.BetweenExpression;
 import com.yekdb.query.expression.ColumnExpression;
 import com.yekdb.query.expression.ComparisonExpression;
+import com.yekdb.query.expression.ComparisonOperator;
 import com.yekdb.query.expression.Expression;
+import com.yekdb.query.expression.FunctionComparisonExpression;
+import com.yekdb.query.expression.FunctionValueResolver;
 import com.yekdb.query.expression.InExpression;
 import com.yekdb.query.expression.LikeExpression;
 import com.yekdb.query.expression.LikeOperator;
 import com.yekdb.query.expression.LogicalExpression;
 import com.yekdb.query.expression.NotExpression;
+import com.yekdb.query.function.BuiltInFunctions;
 
 import java.util.Map;
 import java.util.Objects;
@@ -25,6 +29,7 @@ import static com.yekdb.query.evaluator.ExpressionValueSupport.valuesEqual;
  * Desteklenen expression türleri:
  *
  * - ComparisonExpression
+ * - FunctionComparisonExpression
  * - BetweenExpression
  * - InExpression
  * - LikeExpression
@@ -43,8 +48,30 @@ import static com.yekdb.query.evaluator.ExpressionValueSupport.valuesEqual;
  *
  * Sprint 00-16:
  * Outer JOIN NULL comparison desteği
+ *
+ * Sprint 00-28:
+ * Scalar SQL function comparison desteği
+ *
+ * LOWER(city) = 'malatya'
+ * ABS(balance) > 100
+ * LENGTH(name) >= 5
  */
 public final class ExpressionEvaluator {
+
+    private final FunctionValueResolver functionValueResolver;
+
+    /**
+     * Varsayılan YEKDB built-in function registry ile
+     * evaluator oluşturur.
+     */
+    public ExpressionEvaluator() {
+
+        this.functionValueResolver =
+                new FunctionValueResolver(
+                        BuiltInFunctions
+                                .createDefaultRegistry()
+                );
+    }
 
     /**
      * Expression sonucunu değerlendirir.
@@ -67,6 +94,14 @@ public final class ExpressionEvaluator {
                 rowValues,
                 "Row values cannot be null."
         );
+
+        if (expression instanceof FunctionComparisonExpression functionComparisonExpression) {
+
+            return evaluateFunctionComparison(
+                    functionComparisonExpression,
+                    rowValues
+            );
+        }
 
         if (expression instanceof ComparisonExpression comparisonExpression) {
 
@@ -119,6 +154,59 @@ public final class ExpressionEvaluator {
         throw new IllegalArgumentException(
                 "Unsupported expression type: "
                         + expression.getClass().getName()
+        );
+    }
+
+    // ==================================================
+    // FUNCTION COMPARISON
+    // ==================================================
+
+    /**
+     * SQL scalar function karşılaştırmasını değerlendirir.
+     *
+     * Örnek:
+     *
+     * LOWER(city) = 'malatya'
+     *
+     * ABS(balance) > 100
+     *
+     * LENGTH(name) >= 5
+     *
+     * LENGTH(TRIM(name)) = 5
+     */
+    private boolean evaluateFunctionComparison(
+            FunctionComparisonExpression expression,
+            Map<String, Object> rowValues
+    ) {
+
+        Object actualValue =
+                functionValueResolver.resolve(
+                        expression.getLeftFunction(),
+                        rowValues
+                );
+
+        /*
+         * Sağ operand:
+         *
+         * - literal
+         * - ColumnExpression
+         * - FunctionCallExpression
+         *
+         * olabilir.
+         *
+         * FunctionValueResolver bunların tamamını
+         * çözebilir.
+         */
+        Object expectedValue =
+                functionValueResolver.resolve(
+                        expression.getExpectedValue(),
+                        rowValues
+                );
+
+        return evaluateResolvedComparison(
+                actualValue,
+                expression.getOperator(),
+                expectedValue
         );
     }
 
@@ -178,17 +266,43 @@ public final class ExpressionEvaluator {
                     expression.expectedValue();
         }
 
+        return evaluateResolvedComparison(
+                actualValue,
+                expression.operator(),
+                expectedValue
+        );
+    }
+
+    // ==================================================
+    // RESOLVED COMPARISON
+    // ==================================================
+
+    /**
+     * Çözülmüş iki runtime değerini karşılaştırır.
+     *
+     * Hem klasik ComparisonExpression hem de
+     * FunctionComparisonExpression bu ortak yolu kullanır.
+     *
+     * Böylece eski comparison semantiği function
+     * tarafında da birebir korunur.
+     */
+    private boolean evaluateResolvedComparison(
+            Object actualValue,
+            ComparisonOperator operator,
+            Object expectedValue
+    ) {
+
         /*
-         * Outer JOIN sonucunda eşleşmeyen tarafın
-         * kolon değeri NULL olabilir.
+         * Outer JOIN sonucunda veya SQL function
+         * sonucunda değer NULL olabilir.
          *
-         * Ordering comparison NULL için eşleşme
-         * üretmemelidir.
+         * Mevcut YEKDB comparison davranışını
+         * aynen koruyoruz.
          */
         if (actualValue == null
                 || expectedValue == null) {
 
-            return switch (expression.operator()) {
+            return switch (operator) {
 
                 case EQUALS ->
                         valuesEqual(
@@ -210,7 +324,7 @@ public final class ExpressionEvaluator {
             };
         }
 
-        return switch (expression.operator()) {
+        return switch (operator) {
 
             case EQUALS ->
                     valuesEqual(
@@ -284,6 +398,7 @@ public final class ExpressionEvaluator {
          * null gerçek değer için exception bekler.
          */
         if (actualValue == null) {
+
             throw new IllegalArgumentException(
                     "Ordering comparison cannot be performed with null values."
             );
@@ -371,6 +486,7 @@ public final class ExpressionEvaluator {
          * NULL LIKE pattern eşleşme üretmez.
          */
         if (actualValue == null) {
+
             return false;
         }
 
@@ -478,5 +594,4 @@ public final class ExpressionEvaluator {
                 rowValues
         );
     }
-
 }

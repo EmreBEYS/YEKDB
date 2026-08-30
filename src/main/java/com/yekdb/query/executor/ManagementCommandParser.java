@@ -8,6 +8,7 @@ import com.yekdb.constraint.ReferentialAction;
 import com.yekdb.constraint.UniqueConstraint;
 import com.yekdb.query.command.*;
 import com.yekdb.storage.table.Column;
+import com.yekdb.storage.table.ColumnTypeDefinition;
 import com.yekdb.storage.table.DataType;
 
 import java.util.ArrayList;
@@ -450,12 +451,12 @@ final class ManagementCommandParser {
         }
 
         String columnName = parts[0];
-        DataType dataType = parseDataType(parts[1]);
+        ColumnTypeDefinition typeDefinition = parseColumnType(parts[1]);
 
         columns.add(
-                new Column(
+                Column.fromTypeDefinition(
                         columnName,
-                        dataType
+                        typeDefinition
                 )
         );
 
@@ -797,20 +798,18 @@ final class ManagementCommandParser {
     }
 
     private DataType parseDataType(String value) {
-        String normalizedType = value
-                .trim()
-                .toUpperCase(Locale.ROOT);
+        return parseColumnType(value).dataType();
+    }
 
-        return switch (normalizedType) {
-            case "INT", "INTEGER" -> DataType.INT;
-            case "LONG", "BIGINT" -> DataType.LONG;
-            case "DOUBLE", "FLOAT", "REAL" -> DataType.DOUBLE;
-            case "BOOLEAN", "BOOL" -> DataType.BOOLEAN;
-            case "STRING", "TEXT", "VARCHAR" -> DataType.STRING;
-            default -> throw new QueryExecutionException(
-                    "Unsupported data type: " + value
+    private ColumnTypeDefinition parseColumnType(String value) {
+        try {
+            return ColumnTypeDefinition.parse(value);
+        } catch (RuntimeException exception) {
+            throw new QueryExecutionException(
+                    "Unsupported data type: " + value,
+                    exception
             );
-        };
+        }
     }
 
     private String extractValueAfterKeyword(

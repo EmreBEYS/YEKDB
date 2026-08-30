@@ -7,8 +7,8 @@
 ![Maven](https://img.shields.io/badge/Maven-3.x-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-green)
 ![Status](https://img.shields.io/badge/Status-Active%20Development-yellow)
-![Tests](https://img.shields.io/badge/JUnit-1340%20Tests%20Passed-brightgreen)
-![Sprint](https://img.shields.io/badge/Sprint-00--27-blueviolet)
+![Tests](https://img.shields.io/badge/JUnit-1475%20Tests%20Passed-brightgreen)
+![Sprint](https://img.shields.io/badge/Sprint-00--28-blueviolet)
 
 ---
 
@@ -89,6 +89,19 @@ The long-term goal is a complete page-oriented database engine with durable stor
 - `DROP CONSTRAINT` for named constraints
 - Backward-compatible named constraint metadata persistence
 - Constraint dependency protection during destructive schema changes
+- Scalar SQL functions: `LOWER`, `UPPER`, `LENGTH`, `TRIM`, `ABS`
+- Function calls in `SELECT` projection and `WHERE`
+- Nested scalar function evaluation
+- Function-aware logical predicates
+- Case-insensitive built-in function registry and runtime resolution
+- Character types: `CHAR(n)`, `VARCHAR(n)`, `TEXT`
+- Boolean types: `BOOLEAN`, `BOOL`
+- Numeric types: `INTEGER`, `FLOAT`, `FLOAT(n)`, `REAL`, `DOUBLE`, `NUMERIC`, `DECIMAL(p,s)`
+- Identifier and temporal types: `UUID`, `DATE`, `TIME`, `TIMESTAMP`, `INTERVAL`
+- Structured types: one-dimensional `ARRAY`, `JSON`, `HSTORE`
+- User Defined Type (`UDT`) foundation and registry
+- Centralized extended-type validation for `INSERT` and `UPDATE`
+- Extended type metadata persistence and recovery
 
 ---
 
@@ -375,6 +388,232 @@ ON UPDATE SET NULL   PASS
 ```
 
 ---
+
+## Functions & Extended Data Types — Sprint 00-28
+
+Sprint 00-28 expands YEKDB in two major directions: scalar SQL function execution and a substantially broader SQL data type system.
+
+### Scalar SQL Functions
+
+Implemented built-in scalar functions:
+
+- `LOWER(text)`
+- `UPPER(text)`
+- `LENGTH(text)`
+- `TRIM(text)`
+- `ABS(number)`
+
+The function subsystem includes:
+
+- `SqlFunction` contract
+- `FunctionParameter`
+- `FunctionRegistry`
+- centralized built-in registration
+- case-insensitive function lookup
+- argument-count validation
+- type validation
+- `NULL` propagation
+- nested function evaluation
+- function-aware expression resolution
+- function calls in `SELECT`
+- function calls in `WHERE`
+- function calls inside logical predicates
+- terminal-visible function errors
+- recovery after failed function queries without terminating the REPL
+
+Examples:
+
+```sql
+SELECT
+    LOWER(city),
+    UPPER(name),
+    LENGTH(name),
+    TRIM(name),
+    ABS(balance)
+FROM users;
+```
+
+Function predicates:
+
+```sql
+SELECT id, name
+FROM users
+WHERE LOWER(city) = 'malatya'
+AND ABS(balance) >= 75;
+```
+
+Nested functions:
+
+```sql
+SELECT id, LENGTH(TRIM(name))
+FROM users;
+```
+
+Unknown functions fail cleanly:
+
+```sql
+SELECT UNKNOWN_FUNC(name)
+FROM users;
+```
+
+The terminal remains usable immediately after the error.
+
+### Extended SQL Data Types
+
+Sprint 00-28 also introduces an expanded type system across parsing, schema metadata, validation, persistence, recovery, DML, and terminal execution.
+
+Implemented character and boolean types:
+
+- `CHAR(n)`
+- `VARCHAR(n)`
+- `TEXT`
+- `BOOLEAN`
+- `BOOL`
+
+Implemented numeric types:
+
+- `INTEGER`
+- `FLOAT`
+- `FLOAT(n)`
+- `REAL`
+- `DOUBLE`
+- `NUMERIC`
+- `DECIMAL`
+- `NUMERIC(p)`
+- `NUMERIC(p,s)`
+- `DECIMAL(p,s)`
+
+Implemented identifier and temporal types:
+
+- `UUID`
+- `DATE`
+- `TIME`
+- `TIMESTAMP`
+- `INTERVAL`
+
+Implemented structured and extensible types:
+
+- one-dimensional `ARRAY`
+- `JSON`
+- `HSTORE`
+- `UDT(name)` foundation
+
+Example:
+
+```sql
+CREATE TABLE datatype_demo (
+    id INT PRIMARY KEY,
+    name VARCHAR(20),
+    code CHAR(5),
+    description TEXT,
+    active BOOLEAN,
+    price NUMERIC(8,2),
+    ratio FLOAT(24)
+);
+```
+
+Temporal example:
+
+```sql
+CREATE TABLE temporal_demo (
+    id UUID,
+    event_date DATE,
+    start_time TIME,
+    created_at TIMESTAMP,
+    duration INTERVAL
+);
+```
+
+Structured type example:
+
+```sql
+CREATE TABLE structured_demo (
+    id INT PRIMARY KEY,
+    tags TEXT[],
+    scores INTEGER[],
+    names VARCHAR(10)[],
+    prices NUMERIC(6,2)[],
+    metadata JSON
+);
+```
+
+HSTORE example:
+
+```sql
+CREATE TABLE hstore_demo (
+    id INT PRIMARY KEY,
+    attributes HSTORE
+);
+```
+
+### Validation & Storage
+
+Extended-type validation is centralized so `INSERT` and `UPDATE` share the same rules.
+
+Implemented validation includes:
+
+- `CHAR(n)` / `VARCHAR(n)` length limits
+- `NUMERIC(p,s)` precision and scale validation
+- `FLOAT(n)` precision bounds
+- UUID syntax validation
+- calendar-valid `DATE`
+- valid `TIME`
+- `TIMESTAMP` validation
+- textual and ISO interval validation
+- JSON syntax validation
+- one-dimensional ARRAY element validation
+- nested element type checks for arrays
+- VARCHAR / NUMERIC element constraints inside arrays
+- HSTORE key/value syntax validation
+- duplicate HSTORE key rejection
+- UDT metadata and registry support
+
+Extended type metadata is preserved through:
+
+- `CREATE TABLE`
+- `ALTER TABLE ADD COLUMN`
+- column rename operations
+- table metadata serialization
+- schema recovery
+- projection
+- persistent row serialization / deserialization
+
+### Terminal Validation
+
+Live terminal verification confirmed:
+
+```text
+Scalar SELECT functions                         PASS
+Nested scalar functions                         PASS
+Function predicates in WHERE                    PASS
+Function + logical AND                          PASS
+Unknown function error recovery                 PASS
+ABS(NUMERIC)                                    PASS
+CHAR / VARCHAR / TEXT                           PASS
+BOOLEAN                                         PASS
+NUMERIC / FLOAT                                 PASS
+UUID                                            PASS
+DATE / TIME / TIMESTAMP / INTERVAL              PASS
+ARRAY                                           PASS
+JSON                                            PASS
+HSTORE                                          PASS
+HSTORE duplicate-key rejection                  PASS
+Extended projection metadata preservation       PASS
+```
+
+Two integration issues discovered during live testing were fixed before closing the sprint:
+
+1. `ABS(NUMERIC)` projection type inference now recognizes `NUMERIC` as a valid numeric input.
+2. Projected `VARCHAR(n)` columns preserve their length metadata through SELECT execution and function-aware filtering.
+
+Current V1 limitations:
+
+- `INSERT INTO table VALUES (...)` without an explicit column list is not yet supported.
+- multi-dimensional arrays are not yet supported.
+- `JSON[]` and `HSTORE[]` are not yet supported.
+- SQL JSON operators are not yet implemented.
+- full `CREATE TYPE / ALTER TYPE / DROP TYPE` SQL DDL is not yet implemented.
+- UDT support is currently an infrastructure / registry foundation.
 
 
 The interactive terminal from Sprint 00-23 remains fully integrated with the query and storage layers.
@@ -716,40 +955,34 @@ The `\history` command itself is intentionally not added to history.
 
 YEKDB uses JUnit 5 with regression testing after every development phase.
 
-Current project status after Sprint 00-27:
+Current project status after Sprint 00-28:
 
 ```text
 Compile: SUCCESS
-Tests:   1340 / 1340 PASSED
-Terminal referential action smoke tests: 6 / 6 PASSED
+Tests:   1475 / 1475 PASSED
+Sprint 00-28 terminal integration: PASSED
 ```
 
-Sprint 00-27 keeps the complete Sprint 00-26 regression suite green and adds coverage for:
+Sprint 00-28 keeps the complete Sprint 00-27 regression suite green and adds coverage for:
 
-- `ReferentialAction` defaults and explicit values
-- `ON DELETE` / `ON UPDATE` SQL parsing
-- `RESTRICT`, `CASCADE`, and `SET NULL` parsing
-- duplicate / malformed referential action rejection
-- explicit `ON DELETE RESTRICT`
-- recursive `ON DELETE CASCADE`
-- multiple-child delete cascades
-- composite foreign key delete cascades
-- `ON DELETE SET NULL`
-- composite foreign key `SET NULL`
-- `NOT NULL + SET NULL` rejection before mutation
-- mixed `CASCADE + SET NULL`
-- mixed `CASCADE + SET NULL + RESTRICT`
-- `ON UPDATE RESTRICT`
-- `ON UPDATE CASCADE`
-- recursive update cascades
-- `ON UPDATE SET NULL`
-- composite foreign key update cascades
-- referenced-key unchanged regression behavior
-- self-referencing foreign keys
-- self-referencing delete cascades
-- self-referencing update cascades
-- cycle-safe cascade planning
-- final live terminal verification for all six referential actions
+- function registry and built-in registration
+- `LOWER`, `UPPER`, `LENGTH`, `TRIM`, and `ABS`
+- function calls in expressions
+- nested scalar functions
+- function projection through `SELECT`
+- function predicates through `WHERE`
+- function-aware logical expressions
+- unknown-function and argument/type error handling
+- `CHAR(n)`, `VARCHAR(n)`, `TEXT`, `BOOLEAN`
+- `FLOAT`, `FLOAT(n)`, `NUMERIC`, and `DECIMAL(p,s)`
+- UUID and temporal type validation
+- ARRAY and JSON validation / persistence
+- HSTORE validation and duplicate-key rejection
+- UDT foundation and registry behavior
+- centralized `INSERT` / `UPDATE` extended-type validation
+- serialization / deserialization regression coverage
+- extended projection metadata preservation
+- live terminal verification across functions and data types
 
 The complete legacy regression suite remains green.
 
@@ -783,6 +1016,7 @@ Recent completed sprints:
 - **00-25** — Foreign Key Constraints
 - **00-26** — ALTER TABLE / Schema Evolution
 - **00-27** — Foreign Key Referential Actions: CASCADE / RESTRICT / SET NULL
+- **00-28** — Scalar SQL Functions & Extended Data Types
 
 ---
 
@@ -1083,9 +1317,20 @@ Observed terminal behavior matched the configured action in all six cases. `REST
 - Foreign key `ON DELETE RESTRICT / CASCADE / SET NULL`
 - Foreign key `ON UPDATE RESTRICT / CASCADE / SET NULL`
 - Recursive / self-referencing referential action handling
+- Scalar SQL function subsystem
+- Function projection and function-aware WHERE predicates
+- Extended character / boolean / numeric types
+- UUID and temporal data types
+- ARRAY / JSON / HSTORE structured types
+- UDT registry foundation
+- Centralized extended-type DML validation
 
 ### Upcoming
 
+- Positional `INSERT INTO table VALUES (...)` syntax without an explicit column list
+- Full SQL `CREATE TYPE / ALTER TYPE / DROP TYPE` support
+- Multi-dimensional ARRAY support and extended structured-type operators
+- JSON operators and richer structured-type query support
 - Physical row rewrite for `ADD COLUMN` / `DROP COLUMN` on non-empty tables
 - Extended `ALTER COLUMN` operations such as type/default changes
 - Further physical storage and free-space management
@@ -1126,7 +1371,7 @@ Development is documented sprint-by-sprint with technical developer notes coveri
 
 Latest documentation:
 
-**Developer Notes — Sprint 00-27: Foreign Key Referential Actions — CASCADE / RESTRICT / SET NULL**
+**Developer Notes — Sprint 00-28: Scalar SQL Functions & Extended Data Types**
 
 ---
 

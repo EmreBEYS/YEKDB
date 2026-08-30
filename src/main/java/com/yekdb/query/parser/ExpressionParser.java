@@ -4,6 +4,9 @@ import com.yekdb.query.expression.BetweenExpression;
 import com.yekdb.query.expression.ComparisonExpression;
 import com.yekdb.query.expression.ComparisonOperator;
 import com.yekdb.query.expression.Expression;
+import com.yekdb.query.expression.ColumnExpression;
+import com.yekdb.query.expression.FunctionCallExpression;
+import com.yekdb.query.expression.FunctionComparisonExpression;
 import com.yekdb.query.expression.InExpression;
 import com.yekdb.query.expression.LikeExpression;
 import com.yekdb.query.expression.LikeOperator;
@@ -977,7 +980,7 @@ public final class ExpressionParser {
                         normalized
                 );
 
-        String columnName =
+        String leftOperand =
                 normalized.substring(
                         0,
                         comparison.index()
@@ -989,9 +992,12 @@ public final class ExpressionParser {
                                 + comparison.symbol().length()
                 ).trim();
 
-        validateColumnName(
-                columnName
-        );
+        if (leftOperand.isBlank()) {
+
+            throw new ParserException(
+                    "Comparison left operand cannot be empty."
+            );
+        }
 
         if (rawValue.isBlank()) {
 
@@ -1020,16 +1026,380 @@ public final class ExpressionParser {
             );
         }
 
+        /*
+         * Sprint 00-28 Phase 6:
+         *
+         * LOWER(city) = 'malatya'
+         * ABS(balance) > 100
+         * LENGTH(TRIM(name)) >= 5
+         *
+         * Function call sol operand ise özel function
+         * comparison AST düğümü oluşturulur.
+         */
+        if (isFunctionCall(
+                leftOperand
+        )) {
+
+            FunctionCallExpression functionCall =
+                    parseFunctionCall(
+                            leftOperand
+                    );
+
+            Object expectedValue =
+                    parseFunctionComparisonRightOperand(
+                            rawValue
+                    );
+
+            return new FunctionComparisonExpression(
+                    functionCall,
+                    operator,
+                    expectedValue
+            );
+        }
+
+        /*
+         * Eski column-value davranışı aynen korunur.
+         */
+        validateColumnName(
+                leftOperand
+        );
+
         Object expectedValue =
                 SqlLiteralParser.parseRaw(
                         rawValue
                 );
 
         return new ComparisonExpression(
-                columnName,
+                leftOperand,
                 operator,
                 expectedValue
         );
+    }
+
+    // ==================================================
+    // SPRINT 00-28 - FUNCTION CALL PARSER
+    // ==================================================
+
+    /**
+     * Bir operandın scalar SQL function çağrısı olup
+     * olmadığını kontrol eder.
+     *
+     * Örnekler:
+     *
+     * LOWER(name)
+     * LENGTH(TRIM(name))
+     */
+    private boolean isFunctionCall(
+            String rawExpression
+    ) {
+
+        if (rawExpression == null) {
+
+            return false;
+        }
+
+        String expression =
+                rawExpression.trim();
+
+        int openParenthesis =
+                expression.indexOf('(');
+
+        if (openParenthesis <= 0
+                || !expression.endsWith(")")) {
+
+            return false;
+        }
+
+        String functionName =
+                expression.substring(
+                        0,
+                        openParenthesis
+                ).trim();
+
+        if (!functionName.matches(
+                "[A-Za-z_][A-Za-z0-9_]*"
+        )) {
+
+            return false;
+        }
+
+        return findMatchingClosingParenthesis(
+                expression,
+                openParenthesis
+        ) == expression.length() - 1;
+    }
+
+    /**
+     * Scalar function çağrısını recursive olarak parse eder.
+     *
+     * Destek:
+     *
+     * LOWER(name)
+     * ABS(-250)
+     * LENGTH(TRIM(name))
+     * LOWER('YEKDB')
+     */
+    private FunctionCallExpression parseFunctionCall(
+            String rawExpression
+    ) {
+
+        String expression =
+                rawExpression.trim();
+
+        if (!isFunctionCall(
+                expression
+        )) {
+
+            throw new ParserException(
+                    "Invalid function call: "
+                            + rawExpression
+            );
+        }
+
+        int openParenthesis =
+                expression.indexOf('(');
+
+        String functionName =
+                expression.substring(
+                        0,
+                        openParenthesis
+                ).trim();
+
+        String argumentsText =
+                expression.substring(
+                        openParenthesis + 1,
+                        expression.length() - 1
+                ).trim();
+
+        List<Object> arguments =
+                new ArrayList<>();
+
+        /*
+         * Sıfır argüman syntax olarak AST'ye alınabilir.
+         * Gerçek argument count doğrulamasını SqlFunction
+         * katmanı yapar.
+         */
+        if (!argumentsText.isBlank()) {
+
+            List<String> rawArguments =
+                    splitCommaSeparatedValues(
+                            argumentsText
+                    );
+
+            for (String rawArgument : rawArguments) {
+
+                if (rawArgument.isBlank()) {
+
+                    throw new ParserException(
+                            "Function argument cannot be empty: "
+                                    + rawExpression
+                    );
+                }
+
+                arguments.add(
+                        parseFunctionArgument(
+                                rawArgument
+                        )
+                );
+            }
+        }
+
+        return new FunctionCallExpression(
+                functionName,
+                arguments
+        );
+    }
+
+    /**
+     * Function argümanını literal, column veya nested
+     * function olarak çözer.
+     */
+    private Object parseFunctionArgument(
+            String rawArgument
+    ) {
+
+        String argument =
+                rawArgument.trim();
+
+        if (isFunctionCall(
+                argument
+        )) {
+
+            return parseFunctionCall(
+                    argument
+            );
+        }
+
+        if (isRawLiteral(
+                argument
+        )) {
+
+            return SqlLiteralParser.parseRaw(
+                    argument
+            );
+        }
+
+        validateColumnName(
+                argument
+        );
+
+        return ColumnExpression.parse(
+                argument
+        );
+    }
+
+    /**
+     * Function comparison sağ operandını çözer.
+     *
+     * Destek:
+     *
+     * LOWER(city) = 'malatya'
+     * LENGTH(name) = expected_length
+     * LENGTH(name) = LENGTH(city)
+     */
+    private Object parseFunctionComparisonRightOperand(
+            String rawOperand
+    ) {
+
+        String operand =
+                rawOperand.trim();
+
+        if (isFunctionCall(
+                operand
+        )) {
+
+            return parseFunctionCall(
+                    operand
+            );
+        }
+
+        if (isRawLiteral(
+                operand
+        )) {
+
+            return SqlLiteralParser.parseRaw(
+                    operand
+            );
+        }
+
+        validateColumnName(
+                operand
+        );
+
+        return ColumnExpression.parse(
+                operand
+        );
+    }
+
+    /**
+     * ExpressionParser'ın desteklediği ham SQL literal
+     * biçimlerini function operandları için tanır.
+     */
+    private boolean isRawLiteral(
+            String rawValue
+    ) {
+
+        if (rawValue == null) {
+
+            return false;
+        }
+
+        String value =
+                rawValue.trim();
+
+        if (value.length() >= 2
+                && ((value.startsWith("'")
+                && value.endsWith("'"))
+                || (value.startsWith("\"")
+                && value.endsWith("\"")))) {
+
+            return true;
+        }
+
+        if (value.equalsIgnoreCase(
+                "true"
+        )
+                || value.equalsIgnoreCase(
+                "false"
+        )
+                || value.equalsIgnoreCase(
+                "null"
+        )) {
+
+            return true;
+        }
+
+        return value.matches(
+                "-?[0-9]+(\\.[0-9]+)?"
+        );
+    }
+
+    /**
+     * Function çağrısındaki ilk '(' karakterinin eşleşen
+     * ')' konumunu bulur. Quote içindeki parantezleri
+     * dikkate almaz.
+     */
+    private int findMatchingClosingParenthesis(
+            String expression,
+            int openParenthesisIndex
+    ) {
+
+        boolean insideSingleQuote =
+                false;
+
+        boolean insideDoubleQuote =
+                false;
+
+        int depth =
+                0;
+
+        for (int i = openParenthesisIndex;
+             i < expression.length();
+             i++) {
+
+            char current =
+                    expression.charAt(i);
+
+            if (current == '\''
+                    && !insideDoubleQuote) {
+
+                insideSingleQuote =
+                        !insideSingleQuote;
+
+                continue;
+            }
+
+            if (current == '"'
+                    && !insideSingleQuote) {
+
+                insideDoubleQuote =
+                        !insideDoubleQuote;
+
+                continue;
+            }
+
+            if (insideSingleQuote
+                    || insideDoubleQuote) {
+
+                continue;
+            }
+
+            if (current == '(') {
+
+                depth++;
+
+            } else if (current == ')') {
+
+                depth--;
+
+                if (depth == 0) {
+
+                    return i;
+                }
+            }
+        }
+
+        return -1;
     }
 
     /**

@@ -383,12 +383,59 @@ public class TableManager {
             String columnName,
             DataType dataType
     ) {
+        return addColumn(tableName, columnName, dataType, null, null, null);
+    }
+
+    public TableMetadata addColumn(
+            String tableName,
+            String columnName,
+            DataType dataType,
+            Integer length
+    ) {
+        return addColumn(tableName, columnName, dataType, length, null, null);
+    }
+
+    public TableMetadata addColumn(
+            String tableName,
+            String columnName,
+            DataType dataType,
+            Integer length,
+            Integer precision,
+            Integer scale
+    ) {
         Table current = getTable(tableName);
         requireEmptyTableForStructuralAlter(tableName);
 
         List<Column> columns =
                 new java.util.ArrayList<>(current.getColumns());
-        columns.add(new Column(columnName, dataType));
+        columns.add(new Column(columnName, dataType, length, precision, scale));
+
+        Table updated = new Table(
+                current.getTableName(),
+                columns,
+                current.getConstraints()
+        );
+
+        return persistAlteredSchema(current, updated);
+    }
+
+    /**
+     * ARRAY gibi element metadata'sı taşıyan tipler için tam type definition ile
+     * sütun ekler. Structural ALTER kuralı aynen korunur.
+     */
+    public TableMetadata addColumn(
+            String tableName,
+            String columnName,
+            ColumnTypeDefinition typeDefinition
+    ) {
+        java.util.Objects.requireNonNull(typeDefinition, "typeDefinition");
+
+        Table current = getTable(tableName);
+        requireEmptyTableForStructuralAlter(tableName);
+
+        List<Column> columns =
+                new java.util.ArrayList<>(current.getColumns());
+        columns.add(Column.fromTypeDefinition(columnName, typeDefinition));
 
         Table updated = new Table(
                 current.getTableName(),
@@ -462,7 +509,14 @@ public class TableManager {
 
         for (Column column : current.getColumns()) {
             if (column.getName().equalsIgnoreCase(target.getName())) {
-                columns.add(new Column(newColumnName, column.getDataType()));
+                columns.add(new Column(
+                        newColumnName,
+                        column.getDataType(),
+                        column.getLength(),
+                        column.getPrecision(),
+                        column.getScale(),
+                        column.getArrayElementType()
+                ));
             } else {
                 columns.add(column);
             }
@@ -1632,7 +1686,7 @@ public class TableManager {
 
             builder.append(column.getName())
                     .append(":")
-                    .append(column.getDataType())
+                    .append(column.getTypeDeclaration())
                     .append(System.lineSeparator());
         }
 

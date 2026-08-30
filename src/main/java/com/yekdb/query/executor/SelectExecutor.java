@@ -58,6 +58,12 @@ public final class SelectExecutor {
 
     private final SelectAggregateExecutor selectAggregateExecutor;
 
+    /**
+     * Sprint 00-28 Phase 7 scalar function SELECT projection support.
+     */
+    private final SelectFunctionProjectionExecutor selectFunctionProjectionExecutor =
+            new SelectFunctionProjectionExecutor();
+
     // ==================================================
     // CONSTRUCTORS
     // ==================================================
@@ -1180,6 +1186,28 @@ public final class SelectExecutor {
                 "SelectStatement cannot be null."
         );
 
+        boolean hasFunctionProjection =
+                statement.getSelectItems()
+                        .stream()
+                        .anyMatch(
+                                SelectItem::isFunctionExpression
+                        );
+
+        if (hasFunctionProjection) {
+
+            SelectFunctionProjectionExecutor.Projection projection =
+                    selectFunctionProjectionExecutor.project(
+                            table,
+                            rows,
+                            statement
+                    );
+
+            return new SingleTableProjection(
+                    projection.columns(),
+                    projection.rows()
+            );
+        }
+
         if (statement.selectsAllColumns()) {
 
             return new SingleTableProjection(
@@ -1245,7 +1273,12 @@ public final class SelectExecutor {
             resultColumns.add(
                     new Column(
                             outputName,
-                            sourceColumn.getDataType()
+                            sourceColumn.getDataType(),
+                            sourceColumn.getLength(),
+                            sourceColumn.getPrecision(),
+                            sourceColumn.getScale(),
+                            sourceColumn.getArrayElementType(),
+                            sourceColumn.getUserDefinedTypeName()
                     )
             );
 

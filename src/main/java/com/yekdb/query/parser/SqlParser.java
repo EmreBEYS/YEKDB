@@ -4,6 +4,7 @@ import com.yekdb.query.expression.ColumnExpression;
 import com.yekdb.query.expression.ComparisonExpression;
 import com.yekdb.query.expression.ComparisonOperator;
 import com.yekdb.query.expression.Expression;
+import com.yekdb.query.expression.FunctionCallExpression;
 import com.yekdb.query.statement.DeleteStatement;
 import com.yekdb.query.statement.FetchClause;
 import com.yekdb.query.statement.GroupByClause;
@@ -829,10 +830,20 @@ public final class SqlParser {
 
         String expression;
 
+        FunctionCallExpression functionExpression = null;
+
         if (isAggregateFunction()) {
 
             expression =
                     parseAggregateExpression();
+
+        } else if (isScalarFunctionCall()) {
+
+            functionExpression =
+                    parseScalarFunctionCall();
+
+            expression =
+                    functionExpression.toString();
 
         } else {
 
@@ -872,9 +883,111 @@ public final class SqlParser {
                     );
         }
 
+        if (functionExpression != null) {
+
+            return SelectItem.function(
+                    functionExpression,
+                    alias
+            );
+        }
+
         return new SelectItem(
                 expression,
                 alias
+        );
+    }
+
+    /**
+     * Scalar SQL function projection başlangıcını kontrol eder.
+     *
+     * LOWER(name)
+     * LENGTH(TRIM(name))
+     */
+    private boolean isScalarFunctionCall() {
+
+        return tokenCursor.check(
+                SqlTokenType.IDENTIFIER
+        ) && tokenCursor.checkNext(
+                SqlTokenType.LEFT_PARENTHESIS
+        );
+    }
+
+    /**
+     * SELECT listesindeki scalar function çağrısını recursive parse eder.
+     *
+     * Desteklenen argümanlar:
+     * - kolon
+     * - qualified kolon
+     * - nested scalar function
+     * - SQL literal
+     */
+    private FunctionCallExpression parseScalarFunctionCall() {
+
+        String functionName =
+                tokenCursor.consumeIdentifier(
+                        "Expected scalar function name."
+                );
+
+        tokenCursor.expect(
+                SqlTokenType.LEFT_PARENTHESIS,
+                "Expected '(' after scalar function name."
+        );
+
+        List<Object> arguments =
+                new ArrayList<>();
+
+        if (!tokenCursor.check(
+                SqlTokenType.RIGHT_PARENTHESIS
+        )) {
+
+            arguments.add(
+                    parseScalarFunctionArgument()
+            );
+
+            while (tokenCursor.match(
+                    SqlTokenType.COMMA
+            )) {
+
+                arguments.add(
+                        parseScalarFunctionArgument()
+                );
+            }
+        }
+
+        tokenCursor.expect(
+                SqlTokenType.RIGHT_PARENTHESIS,
+                "Expected ')' after scalar function arguments."
+        );
+
+        return new FunctionCallExpression(
+                functionName,
+                arguments
+        );
+    }
+
+    private Object parseScalarFunctionArgument() {
+
+        if (isScalarFunctionCall()) {
+
+            return parseScalarFunctionCall();
+        }
+
+        SqlTokenType type =
+                tokenCursor.current()
+                        .getType();
+
+        if (type == SqlTokenType.STRING_LITERAL
+                || type == SqlTokenType.NUMBER_LITERAL
+                || type == SqlTokenType.BOOLEAN_LITERAL
+                || type == SqlTokenType.NULL_LITERAL) {
+
+            return SqlLiteralParser.parse(
+                    tokenCursor.advance()
+            );
+        }
+
+        return ColumnExpression.parse(
+                parseColumnReference()
         );
     }
 

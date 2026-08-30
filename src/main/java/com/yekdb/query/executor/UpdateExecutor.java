@@ -451,45 +451,9 @@ public final class UpdateExecutor {
             Column column,
             Object value
     ) {
-
-        if (value == null) {
-            return;
-        }
-
-        DataType dataType =
-                column.getDataType();
-
-        boolean valid =
-                switch (dataType) {
-
-                    case INT ->
-                            value instanceof Integer;
-
-                    case LONG ->
-                            value instanceof Long;
-
-                    case DOUBLE ->
-                            value instanceof Double;
-
-                    case BOOLEAN ->
-                            value instanceof Boolean;
-
-                    case STRING ->
-                            value instanceof String;
-                };
-
-        if (!valid) {
-
-            throw new IllegalArgumentException(
-                    "Invalid value type for column '" +
-                            column.getName() +
-                            "'. Expected " +
-                            dataType +
-                            " but received " +
-                            value.getClass()
-                                    .getSimpleName() +
-                            "."
-            );
-        }
+        com.yekdb.storage.table.ColumnValueValidator.validate(
+                column,
+                value
+        );
     }
 }
