@@ -1,9 +1,12 @@
 package com.yekdb.index;
 
-import com.yekdb.storage.record.RecordId;
-
+import com.yekdb.index.bplustree.BPlusTree;
+import com.yekdb.index.bplustree.BPlusTreeInternalNode;
+import com.yekdb.index.bplustree.BPlusTreeLeafNode;
+import com.yekdb.index.bplustree.BPlusTreeNode;
 import com.yekdb.index.exception.DuplicateIndexKeyException;
 import com.yekdb.index.exception.InvalidIndexException;
+import com.yekdb.storage.record.RecordId;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -22,6 +25,9 @@ import java.util.Objects;
  * NON_UNIQUE indekslerde aynı anahtara birden fazla
  * RecordPointer bağlanabilir.
  *
+ * Sprint 00-29 Phase 10 itibarıyla indeks girdilerinin fiziksel
+ * bellek içi backend'i B+ Tree'dir.
+ *
  * @param <K> indeks anahtar tipi
  */
 public class Index<K extends Comparable<K>>
@@ -35,17 +41,16 @@ public class Index<K extends Comparable<K>>
     private final IndexMetadata metadata;
 
     /**
-     * B+ Tree implementasyonu gelene kadar kullanılan
-     * bellek içi indeks yapısı.
+     * İndeks girdilerini sıralı olarak tutan B+ Tree backend'i.
      */
-    private final Map<K, List<RecordPointer>> entries;
+    private BPlusTree<K> tree;
 
     public Index(IndexMetadata metadata) {
 
         validateMetadata(metadata);
 
         this.metadata = metadata;
-        this.entries = new LinkedHashMap<>();
+        this.tree = new BPlusTree<>();
     }
 
     /**
@@ -59,28 +64,11 @@ public class Index<K extends Comparable<K>>
         validateKey(key);
         validatePointer(pointer);
 
-        List<RecordPointer> pointers =
-                entries.get(key);
-
-        if (pointers == null) {
-
-            List<RecordPointer> newPointers =
-                    new ArrayList<>();
-
-            newPointers.add(pointer);
-
-            entries.put(
-                    key,
-                    newPointers
-            );
-
-            return;
-        }
-
-        if (metadata.getIndexType().isUnique()) {
+        if (metadata.getIndexType().isUnique()
+                && tree.containsKey(key)) {
 
             throw new DuplicateIndexKeyException(
-                    "Tekrar eden indeks anahtarı kabul edilmedi. "
+                    "Duplicate index key is not allowed. "
                             + "Index: "
                             + metadata.getIndexName()
                             + ", key: "
@@ -88,9 +76,10 @@ public class Index<K extends Comparable<K>>
             );
         }
 
-        if (!pointers.contains(pointer)) {
-            pointers.add(pointer);
-        }
+        tree.insert(
+                key,
+                pointer
+        );
     }
 
     /**
@@ -114,7 +103,7 @@ public class Index<K extends Comparable<K>>
         if (entry == null || !entry.isValid()) {
 
             throw new InvalidIndexException(
-                    "Geçerli bir IndexEntry sağlanmalıdır."
+                    "A valid IndexEntry must be provided."
             );
         }
 
@@ -131,14 +120,7 @@ public class Index<K extends Comparable<K>>
 
         validateKey(key);
 
-        List<RecordPointer> pointers =
-                entries.get(key);
-
-        if (pointers == null) {
-            return List.of();
-        }
-
-        return List.copyOf(pointers);
+        return tree.search(key);
     }
 
     /**
@@ -152,13 +134,98 @@ public class Index<K extends Comparable<K>>
     }
 
     /**
+     * Alt ve üst sınır dahil olacak şekilde range araması yapar.
+     */
+    public List<RecordPointer> searchRange(
+            K fromKey,
+            K toKey
+    ) {
+
+        validateKey(fromKey);
+        validateKey(toKey);
+
+        return tree.searchRange(
+                fromKey,
+                toKey
+        );
+    }
+
+    /**
+     * Alt ve üst sınırların dahil edilme davranışı seçilerek range araması yapar.
+     */
+    public List<RecordPointer> searchRange(
+            K fromKey,
+            boolean fromInclusive,
+            K toKey,
+            boolean toInclusive
+    ) {
+
+        validateKey(fromKey);
+        validateKey(toKey);
+
+        return tree.searchRange(
+                fromKey,
+                fromInclusive,
+                toKey,
+                toInclusive
+        );
+    }
+
+    /**
+     * Belirtilen anahtardan büyük girdilerin pointer'larını döndürür.
+     */
+    public List<RecordPointer> searchGreaterThan(K key) {
+
+        validateKey(key);
+
+        return tree.searchGreaterThan(key);
+    }
+
+    /**
+     * Belirtilen anahtardan büyük veya eşit girdilerin pointer'larını döndürür.
+     */
+    public List<RecordPointer> searchGreaterThanOrEqual(K key) {
+
+        validateKey(key);
+
+        return tree.searchGreaterThanOrEqual(key);
+    }
+
+    /**
+     * Belirtilen anahtardan küçük girdilerin pointer'larını döndürür.
+     */
+    public List<RecordPointer> searchLessThan(K key) {
+
+        validateKey(key);
+
+        return tree.searchLessThan(key);
+    }
+
+    /**
+     * Belirtilen anahtardan küçük veya eşit girdilerin pointer'larını döndürür.
+     */
+    public List<RecordPointer> searchLessThanOrEqual(K key) {
+
+        validateKey(key);
+
+        return tree.searchLessThanOrEqual(key);
+    }
+
+    /**
+     * İndeksteki bütün pointer'ları anahtar sırasına göre döndürür.
+     */
+    public List<RecordPointer> scanAll() {
+        return tree.scanAll();
+    }
+
+    /**
      * Anahtarın indekste bulunup bulunmadığını kontrol eder.
      */
     public boolean containsKey(K key) {
 
         validateKey(key);
 
-        return entries.containsKey(key);
+        return tree.containsKey(key);
     }
 
     /**
@@ -168,7 +235,7 @@ public class Index<K extends Comparable<K>>
 
         validateKey(key);
 
-        return entries.remove(key) != null;
+        return tree.delete(key);
     }
 
     /**
@@ -182,21 +249,10 @@ public class Index<K extends Comparable<K>>
         validateKey(key);
         validatePointer(pointer);
 
-        List<RecordPointer> pointers =
-                entries.get(key);
-
-        if (pointers == null) {
-            return false;
-        }
-
-        boolean removed =
-                pointers.remove(pointer);
-
-        if (pointers.isEmpty()) {
-            entries.remove(key);
-        }
-
-        return removed;
+        return tree.delete(
+                key,
+                pointer
+        );
     }
 
     /**
@@ -226,16 +282,13 @@ public class Index<K extends Comparable<K>>
         validatePointer(newPointer);
 
         List<RecordPointer> pointers =
-                entries.get(key);
+                tree.search(key);
 
-        if (pointers == null) {
+        if (pointers.isEmpty()) {
             return false;
         }
 
-        int pointerIndex =
-                pointers.indexOf(oldPointer);
-
-        if (pointerIndex < 0) {
+        if (!pointers.contains(oldPointer)) {
             return false;
         }
 
@@ -245,8 +298,22 @@ public class Index<K extends Comparable<K>>
             return false;
         }
 
-        pointers.set(
-                pointerIndex,
+        if (oldPointer.equals(newPointer)) {
+            return true;
+        }
+
+        boolean removed =
+                tree.delete(
+                        key,
+                        oldPointer
+                );
+
+        if (!removed) {
+            return false;
+        }
+
+        tree.insert(
+                key,
                 newPointer
         );
 
@@ -270,36 +337,43 @@ public class Index<K extends Comparable<K>>
 
     /**
      * Bütün indeks girdilerini temizler.
+     *
+     * Aynı order değeri korunarak yeni boş B+ Tree oluşturulur.
      */
     public void clear() {
-        entries.clear();
+        tree = new BPlusTree<>(
+                tree.getOrder()
+        );
     }
 
     /**
      * Farklı anahtar sayısını döndürür.
      */
     public int size() {
-        return entries.size();
+
+        int count = 0;
+
+        BPlusTreeLeafNode<K> leaf =
+                firstLeaf();
+
+        while (leaf != null) {
+
+            count += leaf.getKeyCount();
+            leaf = leaf.getNextLeaf();
+        }
+
+        return count;
     }
 
     /**
      * Toplam RecordPointer sayısını döndürür.
      */
     public int pointerCount() {
-
-        int count = 0;
-
-        for (List<RecordPointer> pointers
-                : entries.values()) {
-
-            count += pointers.size();
-        }
-
-        return count;
+        return tree.scanAll().size();
     }
 
     public boolean isEmpty() {
-        return entries.isEmpty();
+        return tree.isEmpty();
     }
 
     public IndexMetadata getMetadata() {
@@ -307,22 +381,48 @@ public class Index<K extends Comparable<K>>
     }
 
     /**
-     * İndeks girdilerinin güvenli kopyasını döndürür.
+     * B+ Tree yüksekliğini döndürür.
+     *
+     * Test, diagnostics ve ileride query planner maliyet hesabı için
+     * kullanılabilir.
+     */
+    public int getTreeHeight() {
+        return tree.getHeight();
+    }
+
+    /**
+     * B+ Tree order değerini döndürür.
+     */
+    public int getTreeOrder() {
+        return tree.getOrder();
+    }
+
+    /**
+     * İndeks girdilerinin güvenli ve anahtara göre sıralı kopyasını döndürür.
      */
     public Map<K, List<RecordPointer>> getAllEntries() {
 
         Map<K, List<RecordPointer>> copiedEntries =
                 new LinkedHashMap<>();
 
-        for (Map.Entry<K, List<RecordPointer>> entry
-                : entries.entrySet()) {
+        BPlusTreeLeafNode<K> leaf =
+                firstLeaf();
 
-            copiedEntries.put(
-                    entry.getKey(),
-                    List.copyOf(
-                            entry.getValue()
-                    )
-            );
+        while (leaf != null) {
+
+            for (int i = 0;
+                 i < leaf.getKeyCount();
+                 i++) {
+
+                copiedEntries.put(
+                        leaf.getKey(i),
+                        List.copyOf(
+                                leaf.getPointers(i)
+                        )
+                );
+            }
+
+            leaf = leaf.getNextLeaf();
         }
 
         return Collections.unmodifiableMap(
@@ -338,24 +438,61 @@ public class Index<K extends Comparable<K>>
         List<IndexEntry<K>> result =
                 new ArrayList<>();
 
-        for (Map.Entry<K, List<RecordPointer>> mapEntry
-                : entries.entrySet()) {
+        BPlusTreeLeafNode<K> leaf =
+                firstLeaf();
 
-            for (RecordPointer pointer
-                    : mapEntry.getValue()) {
+        while (leaf != null) {
 
-                result.add(
-                        new IndexEntry<>(
-                                mapEntry.getKey(),
-                                pointer
-                        )
-                );
+            for (int i = 0;
+                 i < leaf.getKeyCount();
+                 i++) {
+
+                K key =
+                        leaf.getKey(i);
+
+                for (RecordPointer pointer
+                        : leaf.getPointers(i)) {
+
+                    result.add(
+                            new IndexEntry<>(
+                                    key,
+                                    pointer
+                            )
+                    );
+                }
             }
+
+            leaf = leaf.getNextLeaf();
         }
 
-        Collections.sort(result);
-
         return List.copyOf(result);
+    }
+
+    /**
+     * Tree'nin en soldaki leaf node'unu döndürür.
+     */
+    @SuppressWarnings("unchecked")
+    private BPlusTreeLeafNode<K> firstLeaf() {
+
+        BPlusTreeNode<K> current =
+                tree.getRoot();
+
+        while (!current.isLeaf()) {
+
+            BPlusTreeInternalNode<K> internal =
+                    (BPlusTreeInternalNode<K>) current;
+
+            if (internal.getChildCount() == 0) {
+                throw new IllegalStateException(
+                        "B+ Tree internal node cannot have zero children during index traversal."
+                );
+            }
+
+            current =
+                    internal.getChild(0);
+        }
+
+        return (BPlusTreeLeafNode<K>) current;
     }
 
     /**
@@ -368,14 +505,14 @@ public class Index<K extends Comparable<K>>
         if (metadata == null) {
 
             throw new InvalidIndexException(
-                    "Index metadata null olamaz."
+                    "Index metadata cannot be null."
             );
         }
 
         if (!metadata.isValid()) {
 
             throw new InvalidIndexException(
-                    "Geçersiz index metadata: "
+                    "Invalid index metadata: "
                             + metadata
             );
         }
@@ -389,7 +526,7 @@ public class Index<K extends Comparable<K>>
         if (key == null) {
 
             throw new InvalidIndexException(
-                    "Index anahtarı null olamaz."
+                    "Index key cannot be null."
             );
         }
     }
@@ -405,7 +542,7 @@ public class Index<K extends Comparable<K>>
                 || !pointer.isValid()) {
 
             throw new InvalidIndexException(
-                    "Geçerli bir RecordPointer sağlanmalıdır."
+                    "A valid RecordPointer must be provided."
             );
         }
     }
@@ -415,6 +552,8 @@ public class Index<K extends Comparable<K>>
 
         return "Index{" +
                 "metadata=" + metadata +
+                ", backend=BPlusTree" +
+                ", treeHeight=" + getTreeHeight() +
                 ", keyCount=" + size() +
                 ", pointerCount=" + pointerCount() +
                 '}';
@@ -436,8 +575,8 @@ public class Index<K extends Comparable<K>>
                 index.metadata
         )
                 && Objects.equals(
-                entries,
-                index.entries
+                getAllEntries(),
+                index.getAllEntries()
         );
     }
 
@@ -445,7 +584,7 @@ public class Index<K extends Comparable<K>>
     public int hashCode() {
         return Objects.hash(
                 metadata,
-                entries
+                getAllEntries()
         );
     }
 }

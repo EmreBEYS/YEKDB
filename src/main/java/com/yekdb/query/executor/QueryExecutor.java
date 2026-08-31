@@ -2,25 +2,36 @@ package com.yekdb.query.executor;
 
 import com.yekdb.database.Database;
 import com.yekdb.database.DatabaseManager;
+import com.yekdb.index.Index;
+import com.yekdb.index.IndexManager;
+import com.yekdb.index.IndexType;
+import com.yekdb.index.RecordPointer;
 import com.yekdb.query.command.Command;
 import com.yekdb.query.command.AlterTableCommand;
 import com.yekdb.query.command.CreateDatabaseCommand;
+import com.yekdb.query.command.CreateIndexCommand;
 import com.yekdb.query.command.CreateTableCommand;
 import com.yekdb.query.command.DeleteCommand;
 import com.yekdb.query.command.DropDatabaseCommand;
+import com.yekdb.query.command.DropIndexCommand;
 import com.yekdb.query.command.DropTableCommand;
 import com.yekdb.query.command.InsertCommand;
 import com.yekdb.query.command.SelectCommand;
 import com.yekdb.query.command.UpdateCommand;
 import com.yekdb.query.command.UseDatabaseCommand;
 import com.yekdb.query.datasource.QueryDataSource;
+import com.yekdb.query.datasource.StorageQueryDataSource;
 import com.yekdb.query.mapper.StatementCommandMapper;
 import com.yekdb.query.parser.SqlParser;
 import com.yekdb.query.statement.Statement;
+import com.yekdb.storage.record.Row;
+import com.yekdb.storage.table.Table;
 import com.yekdb.storage.table.TableManager;
 import com.yekdb.storage.table.TableMetadata;
 
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -102,6 +113,13 @@ public final class QueryExecutor implements AutoCloseable {
      * ALTER TABLE komutlarını fiziksel şema katmanına yönlendirir.
      */
     private final AlterTableExecutor alterTableExecutor;
+
+    /**
+     * Aktif terminal/query session içerisindeki B+ Tree index kataloğudur.
+     *
+     * Phase 16 kapsamında index metadata yaşam döngüsü session-scope'tur.
+     */
+    private IndexManager indexManager;
 
     /**
      * Aktif veritabanına bağlı tablo yöneticisidir.
@@ -267,6 +285,9 @@ public final class QueryExecutor implements AutoCloseable {
 
         this.alterTableExecutor =
                 new AlterTableExecutor();
+
+        this.indexManager =
+                new IndexManager();
 
         initializeTableManager();
     }
@@ -436,6 +457,22 @@ public final class QueryExecutor implements AutoCloseable {
             }
 
             if (command
+                    instanceof CreateIndexCommand value) {
+
+                return executeCreateIndex(
+                        value
+                );
+            }
+
+            if (command
+                    instanceof DropIndexCommand value) {
+
+                return executeDropIndex(
+                        value
+                );
+            }
+
+            if (command
                     instanceof DropTableCommand value) {
 
                 return executeDropTable(
@@ -590,6 +627,14 @@ public final class QueryExecutor implements AutoCloseable {
             return "CREATE TABLE";
         }
 
+        if (command instanceof CreateIndexCommand) {
+            return "CREATE INDEX";
+        }
+
+        if (command instanceof DropIndexCommand) {
+            return "DROP INDEX";
+        }
+
         if (command instanceof DropTableCommand) {
             return "DROP TABLE";
         }
@@ -648,6 +693,9 @@ public final class QueryExecutor implements AutoCloseable {
                         database.getDatabasePath()
                 );
 
+        indexManager =
+                new IndexManager();
+
         return ExecuteResult.success(
                 "Database selected successfully: "
                         + database.getName()
@@ -680,6 +728,7 @@ public final class QueryExecutor implements AutoCloseable {
         if (droppingCurrentDatabase) {
 
             tableManager = null;
+            indexManager = new IndexManager();
         }
 
         return ExecuteResult.success(
@@ -725,9 +774,133 @@ public final class QueryExecutor implements AutoCloseable {
                 command.getTableName()
         );
 
+        Database currentDatabase =
+                databaseManager.getCurrentDatabase();
+
+        if (currentDatabase != null) {
+            indexManager.dropIndexesForTable(
+                    currentDatabase.getName(),
+                    command.getTableName()
+            );
+        }
+
         return ExecuteResult.success(
                 "Table dropped successfully: "
                         + command.getTableName()
+        );
+    }
+
+    /**
+     * CREATE INDEX / CREATE UNIQUE INDEX.
+     *
+     * Index oluşturulduğunda tabloda mevcut olan aktif kayıtlar da
+     * B+ Tree içerisine backfill edilir.
+     */
+    @SuppressWarnings({
+            "rawtypes",
+            "unchecked"
+    })
+    private ExecuteResult executeCreateIndex(
+            CreateIndexCommand command
+    ) {
+        TableManager activeTableManager =
+                requireTableManager();
+
+        Database database =
+                databaseManager.getCurrentDatabase();
+
+        Table table =
+                activeTableManager.getTable(
+                        command.getTableName()
+                );
+
+        table.getColumn(
+                command.getColumnName()
+        );
+
+        Index index =
+                indexManager.createIndex(
+                        command.getIndexName(),
+                        database.getName(),
+                        table.getTableName(),
+                        command.getColumnName(),
+                        command.isUnique()
+                                ? IndexType.UNIQUE
+                                : IndexType.NON_UNIQUE
+                );
+
+        try {
+            if (queryDataSource
+                    instanceof StorageQueryDataSource storageDataSource) {
+
+                int columnIndex =
+                        findColumnIndex(
+                                table,
+                                command.getColumnName()
+                        );
+
+                for (Map.Entry<RecordPointer, Row> entry :
+                        storageDataSource
+                                .getRowsByPointer(
+                                        table.getTableName()
+                                )
+                                .entrySet()) {
+
+                    Object key =
+                            entry.getValue()
+                                    .getValue(
+                                            columnIndex
+                                    );
+
+                    if (key == null) {
+                        continue;
+                    }
+
+                    if (!(key instanceof Comparable comparable)) {
+                        throw new QueryExecutionException(
+                                "Indexed column value must implement Comparable."
+                        );
+                    }
+
+                    index.insert(
+                            comparable,
+                            entry.getKey()
+                    );
+                }
+            }
+
+        } catch (RuntimeException exception) {
+            if (indexManager.indexExists(
+                    command.getIndexName()
+            )) {
+                indexManager.dropIndex(
+                        command.getIndexName()
+                );
+            }
+            throw exception;
+        }
+
+        return ExecuteResult.success(
+                (command.isUnique()
+                        ? "Unique index created successfully: "
+                        : "Index created successfully: ")
+                        + command.getIndexName()
+        );
+    }
+
+    /**
+     * DROP INDEX.
+     */
+    private ExecuteResult executeDropIndex(
+            DropIndexCommand command
+    ) {
+        indexManager.dropIndex(
+                command.getIndexName()
+        );
+
+        return ExecuteResult.success(
+                "Index dropped successfully: "
+                        + command.getIndexName()
         );
     }
 
@@ -757,7 +930,10 @@ public final class QueryExecutor implements AutoCloseable {
         return mutationExecutionSupport
                 .executeInsert(
                         requireTableManager(),
-                        command
+                        command,
+                        indexesForTable(
+                                command.getTableName()
+                        )
                 );
     }
 
@@ -771,7 +947,10 @@ public final class QueryExecutor implements AutoCloseable {
         return mutationExecutionSupport
                 .executeUpdate(
                         requireTableManager(),
-                        command
+                        command,
+                        indexesForTable(
+                                command.getTableName()
+                        )
                 );
     }
 
@@ -785,7 +964,10 @@ public final class QueryExecutor implements AutoCloseable {
         return mutationExecutionSupport
                 .executeDelete(
                         requireTableManager(),
-                        command
+                        command,
+                        indexesForTable(
+                                command.getTableName()
+                        )
                 );
     }
 
@@ -813,11 +995,82 @@ public final class QueryExecutor implements AutoCloseable {
             SelectCommand command
     ) {
 
-        return selectExecutionSupport
-                .execute(
-                        command,
-                        requireQueryDataSource()
+        QueryDataSource dataSource =
+                requireQueryDataSource();
+
+        List<Index<?>> indexes =
+                indexesForTable(
+                        command.getTableName()
                 );
+
+        if (indexes.isEmpty()
+                || !(dataSource
+                instanceof StorageQueryDataSource storageDataSource)) {
+
+            return selectExecutionSupport.execute(
+                    command,
+                    dataSource
+            );
+        }
+
+        Map<RecordPointer, Row> rowsByPointer =
+                storageDataSource.getRowsByPointer(
+                        command.getTableName()
+                );
+
+        return selectExecutionSupport.execute(
+                command,
+                dataSource,
+                indexes,
+                rowsByPointer::get
+        );
+    }
+
+    /**
+     * Aktif veritabanındaki tabloya ait index'leri döndürür.
+     */
+    private List<Index<?>> indexesForTable(
+            String tableName
+    ) {
+        Database currentDatabase =
+                databaseManager.getCurrentDatabase();
+
+        if (currentDatabase == null
+                || indexManager == null) {
+            return List.of();
+        }
+
+        return indexManager.getIndexesForTable(
+                currentDatabase.getName(),
+                tableName
+        );
+    }
+
+    /**
+     * Table schema içerisinde kolon index'ini case-insensitive bulur.
+     */
+    private int findColumnIndex(
+            Table table,
+            String columnName
+    ) {
+        for (int i = 0;
+             i < table.getColumns().size();
+             i++) {
+
+            if (table.getColumns()
+                    .get(i)
+                    .getName()
+                    .equalsIgnoreCase(
+                            columnName
+                    )) {
+                return i;
+            }
+        }
+
+        throw new QueryExecutionException(
+                "Column not found for index: "
+                        + columnName
+        );
     }
 
     /**
@@ -941,5 +1194,6 @@ public final class QueryExecutor implements AutoCloseable {
     public void close() {
 
         tableManager = null;
+        indexManager = new IndexManager();
     }
 }

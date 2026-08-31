@@ -1,5 +1,7 @@
 package com.yekdb.query.executor;
 
+import com.yekdb.index.Index;
+import com.yekdb.index.RecordPointer;
 import com.yekdb.query.evaluator.ExpressionEvaluator;
 import com.yekdb.query.expression.Expression;
 import com.yekdb.query.optimizer.QueryOptimizer;
@@ -18,6 +20,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 
 /**
  * SELECT sorgularını yürütür.
@@ -50,6 +53,12 @@ public final class SelectExecutor {
     private final LimitExecutor limitExecutor;
 
     private final ExpressionEvaluator expressionEvaluator;
+
+    /**
+     * Sprint 00-29 Phase 13 B+ Tree INDEX_SCAN executor.
+     */
+    private final IndexScanExecutor indexScanExecutor =
+            new IndexScanExecutor();
 
     private final JoinExecutor joinExecutor;
 
@@ -255,6 +264,60 @@ public final class SelectExecutor {
         );
     }
 
+    /**
+     * B+ Tree index listesi ve fiziksel row resolver ile index-aware SELECT çalıştırır.
+     *
+     * Uygun index yoksa otomatik olarak Full Table Scan fallback uygulanır.
+     */
+    public QueryResult execute(
+            Table table,
+            List<Row> rows,
+            Expression whereExpression,
+            List<Index<?>> availableIndexes,
+            Function<RecordPointer, Row> rowResolver
+    ) {
+
+        Objects.requireNonNull(
+                table,
+                "Table cannot be null."
+        );
+
+        Objects.requireNonNull(
+                rows,
+                "Row list cannot be null."
+        );
+
+        Objects.requireNonNull(
+                availableIndexes,
+                "Available index list cannot be null."
+        );
+
+        Objects.requireNonNull(
+                rowResolver,
+                "Row resolver cannot be null."
+        );
+
+        QueryPlan queryPlan =
+                queryOptimizer.optimize(
+                        table,
+                        whereExpression,
+                        availableIndexes
+                );
+
+        Objects.requireNonNull(
+                queryPlan,
+                "QueryOptimizer cannot return null QueryPlan."
+        );
+
+        return executeIndexAwarePlan(
+                queryPlan,
+                table,
+                rows,
+                availableIndexes,
+                rowResolver
+        );
+    }
+
     // ==================================================
     // FINAL SELECT STATEMENT PIPELINE
     // ==================================================
@@ -277,6 +340,53 @@ public final class SelectExecutor {
             Table table,
             List<Row> rows,
             SelectStatement statement
+    ) {
+        return executeStatementInternal(
+                table,
+                rows,
+                statement,
+                null,
+                null
+        );
+    }
+
+    /**
+     * B+ Tree index context'i bulunan tek-table SELECT pipeline'ı.
+     * Projection / aggregate / order / limit davranışları normal
+     * executeStatement yolu ile aynıdır; yalnızca WHERE access path
+     * index-aware çalışır.
+     */
+    public QueryResult executeStatement(
+            Table table,
+            List<Row> rows,
+            SelectStatement statement,
+            List<Index<?>> availableIndexes,
+            Function<RecordPointer, Row> rowResolver
+    ) {
+        Objects.requireNonNull(
+                availableIndexes,
+                "Available index list cannot be null."
+        );
+        Objects.requireNonNull(
+                rowResolver,
+                "Row resolver cannot be null."
+        );
+
+        return executeStatementInternal(
+                table,
+                rows,
+                statement,
+                availableIndexes,
+                rowResolver
+        );
+    }
+
+    private QueryResult executeStatementInternal(
+            Table table,
+            List<Row> rows,
+            SelectStatement statement,
+            List<Index<?>> availableIndexes,
+            Function<RecordPointer, Row> rowResolver
     ) {
 
         Objects.requireNonNull(
@@ -309,12 +419,28 @@ public final class SelectExecutor {
         // 1 - WHERE
         // ----------------------------------------------
 
-        QueryResult scanResult =
-                execute(
-                        table,
-                        rows,
-                        statement.getWhereExpression()
-                );
+        QueryResult scanResult;
+
+        if (availableIndexes != null
+                && rowResolver != null
+                && statement.getWhereExpression() != null) {
+
+            scanResult = execute(
+                    table,
+                    rows,
+                    statement.getWhereExpression(),
+                    availableIndexes,
+                    rowResolver
+            );
+
+        } else {
+
+            scanResult = execute(
+                    table,
+                    rows,
+                    statement.getWhereExpression()
+            );
+        }
 
         List<Row> currentRows =
                 new ArrayList<>(
@@ -1445,10 +1571,63 @@ public final class SelectExecutor {
 
             case INDEX_SCAN ->
                     throw new UnsupportedOperationException(
-                            "INDEX_SCAN execution support "
-                                    + "has not yet been implemented."
+                            "INDEX_SCAN requires index context and a row resolver."
                     );
         };
+    }
+
+    /**
+     * Index context bulunan SELECT execution planını çalıştırır.
+     */
+    private QueryResult executeIndexAwarePlan(
+            QueryPlan queryPlan,
+            Table table,
+            List<Row> rows,
+            List<Index<?>> availableIndexes,
+            Function<RecordPointer, Row> rowResolver
+    ) {
+
+        if (queryPlan.getPlanType()
+                == com.yekdb.query.optimizer.QueryPlanType.FULL_TABLE_SCAN) {
+
+            return TableScanExecutor.execute(
+                    table,
+                    rows,
+                    queryPlan.getWhereExpression()
+            );
+        }
+
+        String indexName =
+                queryPlan.getIndexName()
+                        .orElseThrow(() ->
+                                new IllegalStateException(
+                                        "INDEX_SCAN plan does not contain an index name."
+                                )
+                        );
+
+        Index<?> selectedIndex =
+                availableIndexes
+                        .stream()
+                        .filter(Objects::nonNull)
+                        .filter(index ->
+                                index.getMetadata()
+                                        .getIndexName()
+                                        .equalsIgnoreCase(indexName)
+                        )
+                        .findFirst()
+                        .orElseThrow(() ->
+                                new IllegalStateException(
+                                        "INDEX_SCAN selected index is not available: "
+                                                + indexName
+                                )
+                        );
+
+        return indexScanExecutor.execute(
+                table,
+                selectedIndex,
+                queryPlan.getWhereExpression(),
+                rowResolver
+        );
     }
 
 }

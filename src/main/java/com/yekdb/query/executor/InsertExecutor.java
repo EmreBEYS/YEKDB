@@ -2,6 +2,8 @@ package com.yekdb.query.executor;
 
 import com.yekdb.constraint.ConstraintValidator;
 import com.yekdb.constraint.ValidationContext;
+import com.yekdb.index.Index;
+import com.yekdb.index.RecordPointer;
 import com.yekdb.query.command.InsertCommand;
 import com.yekdb.storage.record.Record;
 import com.yekdb.storage.record.RecordManager;
@@ -54,7 +56,8 @@ public final class InsertExecutor {
                 table,
                 command,
                 recordManager,
-                null
+                null,
+                List.of()
         );
     }
 
@@ -78,7 +81,51 @@ public final class InsertExecutor {
                 Objects.requireNonNull(
                         tableManager,
                         "TableManager cannot be null."
-                )
+                ),
+                List.of()
+        );
+    }
+
+    /**
+     * Sprint 00-29 Phase 14:
+     * INSERT sonrasında ilgili B+ Tree index yapılarını güncelleyen overload.
+     */
+    public Record execute(
+            Table table,
+            InsertCommand command,
+            RecordManager recordManager,
+            List<Index<?>> indexes
+    ) throws IOException {
+
+        return executeInternal(
+                table,
+                command,
+                recordManager,
+                null,
+                indexes
+        );
+    }
+
+    /**
+     * FOREIGN KEY ve B+ Tree index maintenance desteğini birlikte taşır.
+     */
+    public Record execute(
+            Table table,
+            InsertCommand command,
+            RecordManager recordManager,
+            TableManager tableManager,
+            List<Index<?>> indexes
+    ) throws IOException {
+
+        return executeInternal(
+                table,
+                command,
+                recordManager,
+                Objects.requireNonNull(
+                        tableManager,
+                        "TableManager cannot be null."
+                ),
+                indexes
         );
     }
 
@@ -86,7 +133,8 @@ public final class InsertExecutor {
             Table table,
             InsertCommand command,
             RecordManager recordManager,
-            TableManager tableManager
+            TableManager tableManager,
+            List<Index<?>> indexes
     ) throws IOException {
 
         Objects.requireNonNull(
@@ -154,9 +202,48 @@ public final class InsertExecutor {
             );
         }
 
-        return recordManager.insert(
-                row
+        IndexMaintenanceSupport.validateInsert(
+                table,
+                row,
+                indexes
         );
+
+        Record insertedRecord =
+                recordManager.insert(
+                        row
+                );
+
+        com.yekdb.storage.record.RecordId physicalRecordId =
+                recordManager.findPhysicalRecordId(
+                        insertedRecord.getRecordId()
+                );
+
+        if (physicalRecordId == null) {
+            throw new IllegalStateException(
+                    "Physical RecordId could not be resolved after INSERT."
+            );
+        }
+
+        RecordPointer pointer =
+                RecordPointer.fromRecordId(
+                        physicalRecordId
+                );
+
+        try {
+            IndexMaintenanceSupport.applyInsert(
+                    table,
+                    row,
+                    pointer,
+                    indexes
+            );
+        } catch (RuntimeException exception) {
+            recordManager.delete(
+                    insertedRecord.getRecordId()
+            );
+            throw exception;
+        }
+
+        return insertedRecord;
     }
 
     /**

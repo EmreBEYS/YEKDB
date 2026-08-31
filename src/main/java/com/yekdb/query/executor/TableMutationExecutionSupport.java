@@ -1,5 +1,6 @@
 package com.yekdb.query.executor;
 
+import com.yekdb.index.Index;
 import com.yekdb.query.command.DeleteCommand;
 import com.yekdb.query.command.InsertCommand;
 import com.yekdb.query.command.UpdateCommand;
@@ -12,6 +13,7 @@ import com.yekdb.storage.table.TableManager;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 
@@ -59,6 +61,18 @@ final class TableMutationExecutionSupport {
             TableManager tableManager,
             InsertCommand command
     ) {
+        return executeInsert(
+                tableManager,
+                command,
+                List.of()
+        );
+    }
+
+    ExecuteResult executeInsert(
+            TableManager tableManager,
+            InsertCommand command,
+            List<Index<?>> indexes
+    ) {
         Objects.requireNonNull(command, "InsertCommand cannot be null.");
 
         Table table = requireTable(tableManager, command.getTableName());
@@ -72,7 +86,8 @@ final class TableMutationExecutionSupport {
                     table,
                     command,
                     recordManager,
-                    tableManager
+                    tableManager,
+                    indexes == null ? List.of() : indexes
             );
 
             return ExecuteResult.success(
@@ -95,6 +110,18 @@ final class TableMutationExecutionSupport {
             TableManager tableManager,
             UpdateCommand command
     ) {
+        return executeUpdate(
+                tableManager,
+                command,
+                List.of()
+        );
+    }
+
+    ExecuteResult executeUpdate(
+            TableManager tableManager,
+            UpdateCommand command,
+            List<Index<?>> indexes
+    ) {
         Objects.requireNonNull(command, "UpdateCommand cannot be null.");
 
         Table table = requireTable(tableManager, command.getTableName());
@@ -108,7 +135,8 @@ final class TableMutationExecutionSupport {
                     table,
                     command,
                     recordManager,
-                    tableManager
+                    tableManager,
+                    indexes == null ? List.of() : indexes
             );
 
             return ExecuteResult.success(
@@ -131,6 +159,18 @@ final class TableMutationExecutionSupport {
             TableManager tableManager,
             DeleteCommand command
     ) {
+        return executeDelete(
+                tableManager,
+                command,
+                List.of()
+        );
+    }
+
+    ExecuteResult executeDelete(
+            TableManager tableManager,
+            DeleteCommand command,
+            List<Index<?>> indexes
+    ) {
         Objects.requireNonNull(command, "DeleteCommand cannot be null.");
 
         Table table = requireTable(tableManager, command.getTableName());
@@ -144,7 +184,8 @@ final class TableMutationExecutionSupport {
                     table,
                     command,
                     recordManager,
-                    tableManager
+                    tableManager,
+                    indexes == null ? List.of() : indexes
             );
 
             return ExecuteResult.success(

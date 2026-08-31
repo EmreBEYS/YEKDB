@@ -4,6 +4,8 @@ import com.yekdb.constraint.Constraint;
 import com.yekdb.constraint.ConstraintType;
 import com.yekdb.constraint.ConstraintValidator;
 import com.yekdb.constraint.ValidationContext;
+import com.yekdb.index.Index;
+import com.yekdb.index.RecordPointer;
 import com.yekdb.query.command.UpdateCommand;
 import com.yekdb.query.evaluator.WhereEvaluator;
 import com.yekdb.storage.record.Record;
@@ -79,7 +81,8 @@ public final class UpdateExecutor {
                 table,
                 command,
                 recordManager,
-                null
+                null,
+                List.of()
         );
     }
 
@@ -102,7 +105,51 @@ public final class UpdateExecutor {
                 Objects.requireNonNull(
                         tableManager,
                         "TableManager cannot be null."
-                )
+                ),
+                List.of()
+        );
+    }
+
+    /**
+     * Sprint 00-29 Phase 14:
+     * UPDATE sırasında B+ Tree index key/pointer maintenance uygular.
+     */
+    public int execute(
+            Table table,
+            UpdateCommand command,
+            RecordManager recordManager,
+            List<Index<?>> indexes
+    ) throws IOException {
+
+        return executeInternal(
+                table,
+                command,
+                recordManager,
+                null,
+                indexes
+        );
+    }
+
+    /**
+     * FOREIGN KEY ve B+ Tree index maintenance desteğini birlikte taşır.
+     */
+    public int execute(
+            Table table,
+            UpdateCommand command,
+            RecordManager recordManager,
+            TableManager tableManager,
+            List<Index<?>> indexes
+    ) throws IOException {
+
+        return executeInternal(
+                table,
+                command,
+                recordManager,
+                Objects.requireNonNull(
+                        tableManager,
+                        "TableManager cannot be null."
+                ),
+                indexes
         );
     }
 
@@ -110,7 +157,8 @@ public final class UpdateExecutor {
             Table table,
             UpdateCommand command,
             RecordManager recordManager,
-            TableManager tableManager
+            TableManager tableManager,
+            List<Index<?>> indexes
     ) throws IOException {
 
         Objects.requireNonNull(
@@ -142,6 +190,9 @@ public final class UpdateExecutor {
                 recordManager.getActiveRecords();
 
         List<ForeignKeyUpdateReferentialActionValidator.UpdateCandidate> candidates =
+                new java.util.ArrayList<>();
+
+        List<IndexMaintenanceSupport.UpdateChange> indexChanges =
                 new java.util.ArrayList<>();
 
         /*
@@ -210,7 +261,35 @@ public final class UpdateExecutor {
                             updatedRow
                     )
             );
+
+            com.yekdb.storage.record.RecordId physicalRecordId =
+                    recordManager.findPhysicalRecordId(
+                            recordId
+                    );
+
+            if (physicalRecordId == null) {
+                throw new IllegalStateException(
+                        "Physical RecordId could not be resolved before UPDATE."
+                );
+            }
+
+            indexChanges.add(
+                    new IndexMaintenanceSupport.UpdateChange(
+                            recordId,
+                            currentRow,
+                            updatedRow,
+                            RecordPointer.fromRecordId(
+                                    physicalRecordId
+                            )
+                    )
+            );
         }
+
+        IndexMaintenanceSupport.validateUpdates(
+                table,
+                indexChanges,
+                indexes
+        );
 
         ForeignKeyUpdateReferentialActionValidator.UpdatePlan updatePlan = null;
 
@@ -227,11 +306,39 @@ public final class UpdateExecutor {
          * Parent/root rows are changed only after all referential-action
          * planning and generated child-row constraint validation succeeded.
          */
-        for (ForeignKeyUpdateReferentialActionValidator.UpdateCandidate candidate
-                : candidates) {
+        for (int i = 0; i < candidates.size(); i++) {
+
+            ForeignKeyUpdateReferentialActionValidator.UpdateCandidate candidate =
+                    candidates.get(i);
+
+            IndexMaintenanceSupport.UpdateChange indexChange =
+                    indexChanges.get(i);
+
             recordManager.update(
                     candidate.recordId(),
                     candidate.updatedRow()
+            );
+
+            com.yekdb.storage.record.RecordId newPhysicalRecordId =
+                    recordManager.findPhysicalRecordId(
+                            candidate.recordId()
+                    );
+
+            if (newPhysicalRecordId == null) {
+                throw new IllegalStateException(
+                        "Physical RecordId could not be resolved after UPDATE."
+                );
+            }
+
+            IndexMaintenanceSupport.applyUpdate(
+                    table,
+                    indexChange.oldRow(),
+                    indexChange.newRow(),
+                    indexChange.oldPointer(),
+                    RecordPointer.fromRecordId(
+                            newPhysicalRecordId
+                    ),
+                    indexes
             );
         }
 

@@ -1,5 +1,7 @@
 package com.yekdb.query.executor;
 
+import com.yekdb.index.Index;
+import com.yekdb.index.RecordPointer;
 import com.yekdb.query.command.DeleteCommand;
 import com.yekdb.query.evaluator.WhereEvaluator;
 import com.yekdb.storage.record.Record;
@@ -51,7 +53,8 @@ public final class DeleteExecutor {
                 table,
                 command,
                 recordManager,
-                null
+                null,
+                List.of()
         );
     }
 
@@ -74,7 +77,51 @@ public final class DeleteExecutor {
                 Objects.requireNonNull(
                         tableManager,
                         "TableManager cannot be null."
-                )
+                ),
+                List.of()
+        );
+    }
+
+    /**
+     * Sprint 00-29 Phase 14:
+     * DELETE sonrasında ilgili B+ Tree index girdilerini temizler.
+     */
+    public int execute(
+            Table table,
+            DeleteCommand command,
+            RecordManager recordManager,
+            List<Index<?>> indexes
+    ) throws IOException {
+
+        return executeInternal(
+                table,
+                command,
+                recordManager,
+                null,
+                indexes
+        );
+    }
+
+    /**
+     * FOREIGN KEY ve B+ Tree index maintenance desteğini birlikte taşır.
+     */
+    public int execute(
+            Table table,
+            DeleteCommand command,
+            RecordManager recordManager,
+            TableManager tableManager,
+            List<Index<?>> indexes
+    ) throws IOException {
+
+        return executeInternal(
+                table,
+                command,
+                recordManager,
+                Objects.requireNonNull(
+                        tableManager,
+                        "TableManager cannot be null."
+                ),
+                indexes
         );
     }
 
@@ -82,7 +129,8 @@ public final class DeleteExecutor {
             Table table,
             DeleteCommand command,
             RecordManager recordManager,
-            TableManager tableManager
+            TableManager tableManager,
+            List<Index<?>> indexes
     ) throws IOException {
 
         Objects.requireNonNull(
@@ -111,6 +159,9 @@ public final class DeleteExecutor {
         List<ForeignKeyDeleteRestrictValidator.DeleteCandidate> candidates =
                 new java.util.ArrayList<>();
 
+        java.util.Map<Long, RecordPointer> indexPointers =
+                new java.util.LinkedHashMap<>();
+
         for (Record record : activeRecords) {
 
             long recordId = record.getRecordId();
@@ -128,6 +179,24 @@ public final class DeleteExecutor {
                     new ForeignKeyDeleteRestrictValidator.DeleteCandidate(
                             recordId,
                             row
+                    )
+            );
+
+            com.yekdb.storage.record.RecordId physicalRecordId =
+                    recordManager.findPhysicalRecordId(
+                            recordId
+                    );
+
+            if (physicalRecordId == null) {
+                throw new IllegalStateException(
+                        "Physical RecordId could not be resolved before DELETE."
+                );
+            }
+
+            indexPointers.put(
+                    recordId,
+                    RecordPointer.fromRecordId(
+                            physicalRecordId
                     )
             );
         }
@@ -148,7 +217,19 @@ public final class DeleteExecutor {
 
         for (ForeignKeyDeleteRestrictValidator.DeleteCandidate candidate
                 : candidates) {
-            recordManager.delete(candidate.recordId());
+
+            recordManager.delete(
+                    candidate.recordId()
+            );
+
+            IndexMaintenanceSupport.applyDelete(
+                    table,
+                    candidate.row(),
+                    indexPointers.get(
+                            candidate.recordId()
+                    ),
+                    indexes
+            );
         }
 
         return candidates.size();

@@ -7,8 +7,8 @@
 ![Maven](https://img.shields.io/badge/Maven-3.x-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-green)
 ![Status](https://img.shields.io/badge/Status-Active%20Development-yellow)
-![Tests](https://img.shields.io/badge/JUnit-1475%20Tests%20Passed-brightgreen)
-![Sprint](https://img.shields.io/badge/Sprint-00--28-blueviolet)
+![Tests](https://img.shields.io/badge/JUnit-1723%20Tests%20Passed-brightgreen)
+![Sprint](https://img.shields.io/badge/Sprint-00--29-blueviolet)
 
 ---
 
@@ -102,6 +102,17 @@ The long-term goal is a complete page-oriented database engine with durable stor
 - User Defined Type (`UDT`) foundation and registry
 - Centralized extended-type validation for `INSERT` and `UPDATE`
 - Extended type metadata persistence and recovery
+- B+ Tree based index core
+- Ordered key lookup and range traversal
+- SQL `CREATE INDEX` integration
+- Existing-row index backfill
+- Equality predicate index access
+- Range / `BETWEEN` index access
+- Automatic index maintenance on `INSERT`
+- Old-key / new-key index maintenance on `UPDATE`
+- Index cleanup on `DELETE`
+- `DROP INDEX` execution
+- Full-table-scan fallback when an index is unavailable
 
 ---
 
@@ -616,6 +627,186 @@ Current V1 limitations:
 - UDT support is currently an infrastructure / registry foundation.
 
 
+---
+
+## B+ Tree Index Integration — Sprint 00-29
+
+Sprint 00-29 introduces a B+ Tree based index access path and integrates it with YEKDB's SQL, query execution, mutation, metadata, and terminal layers.
+
+The sprint moves YEKDB beyond an index abstraction by making indexes participate in the complete table lifecycle: creation, backfill, lookup, range access, mutation maintenance, removal, and fallback execution.
+
+### B+ Tree Core
+
+Implemented B+ Tree capabilities:
+
+- ordered key storage
+- leaf-node key / record-reference entries
+- internal-node routing
+- child traversal
+- node splitting
+- split propagation
+- exact-key lookup
+- duplicate-safe lookup behavior
+- ordered leaf traversal
+- range scanning
+
+Conceptual access flow:
+
+```text
+SQL Predicate
+     |
+     v
+Suitable index?
+   /      \
+ yes      no
+  |        |
+  v        v
+B+ Tree   Full Table Scan
+  |
+  +--> equality lookup
+  |
+  +--> range / BETWEEN scan
+  |
+  v
+Candidate record references
+  |
+  v
+Executor validation
+  |
+  v
+Result Set
+```
+
+### CREATE INDEX & Backfill
+
+`CREATE INDEX` now builds a usable B+ Tree index for both future and existing rows.
+
+When an index is created on a table that already contains records, YEKDB scans the persisted rows and backfills the index before it becomes the active access path.
+
+```text
+CREATE INDEX
+    |
+    v
+Create index metadata
+    |
+    v
+Scan existing rows
+    |
+    v
+Insert key -> record reference
+    |
+    v
+Index ready
+```
+
+This ensures that indexes created after data insertion immediately represent the complete table state.
+
+### Equality Lookup
+
+Indexed equality predicates can use the B+ Tree instead of scanning the full table.
+
+Example:
+
+```sql
+SELECT *
+FROM users
+WHERE age = 25;
+```
+
+When a compatible index exists, the query layer resolves matching record references through the index and continues normal executor validation.
+
+### Range & BETWEEN Access
+
+The ordered nature of the B+ Tree is also used for range-oriented predicates.
+
+Examples:
+
+```sql
+SELECT *
+FROM users
+WHERE age >= 20 AND age <= 30;
+```
+
+```sql
+SELECT *
+FROM users
+WHERE age BETWEEN 20 AND 30;
+```
+
+The index layer can produce ordered candidate records for compatible range conditions while preserving SQL result semantics.
+
+### INSERT Index Maintenance
+
+After a successful row insert, YEKDB automatically adds the corresponding index entries for indexed columns.
+
+```text
+INSERT row
+    |
+    v
+Persist record
+    |
+    v
+Add index entries
+```
+
+This keeps newly inserted rows immediately visible through indexed queries.
+
+### UPDATE Index Maintenance
+
+When an indexed column changes, YEKDB updates the index by removing the old key entry and inserting the new key entry.
+
+```text
+old key -> remove
+new key -> insert
+```
+
+This prevents stale lookups after indexed-key updates.
+
+### DELETE Index Maintenance
+
+Deleted records are removed from the corresponding index structures.
+
+This prevents stale index entries from resolving to records that no longer exist.
+
+### DROP INDEX
+
+`DROP INDEX` removes the index access path and associated metadata.
+
+After an index is removed, compatible queries continue to work through the normal full-table-scan path.
+
+### Full-Table-Scan Fallback
+
+Index usage is an optimization, not a correctness requirement.
+
+If:
+
+- no compatible index exists
+- an index was dropped
+- the query is not index-eligible
+
+YEKDB safely falls back to normal table scanning without changing query semantics.
+
+### Terminal Validation
+
+Live terminal verification confirmed the complete Sprint 00-29 lifecycle:
+
+```text
+CREATE INDEX on populated table                  PASS
+Existing-row backfill                            PASS
+Equality lookup                                  PASS
+Range lookup                                     PASS
+BETWEEN lookup                                   PASS
+INSERT index maintenance                         PASS
+UPDATE old-key / new-key maintenance             PASS
+DELETE index cleanup                             PASS
+DROP INDEX                                       PASS
+Full-table-scan fallback after DROP INDEX        PASS
+```
+
+The observed terminal results matched the expected behavior across all scenarios.
+
+
+
 The interactive terminal from Sprint 00-23 remains fully integrated with the query and storage layers.
 
 The terminal provides:
@@ -955,34 +1146,37 @@ The `\history` command itself is intentionally not added to history.
 
 YEKDB uses JUnit 5 with regression testing after every development phase.
 
-Current project status after Sprint 00-28:
+Current project status after Sprint 00-29:
 
 ```text
 Compile: SUCCESS
-Tests:   1475 / 1475 PASSED
-Sprint 00-28 terminal integration: PASSED
+Tests:   1723 / 1723 PASSED
+Sprint 00-29 terminal integration: PASSED
 ```
 
-Sprint 00-28 keeps the complete Sprint 00-27 regression suite green and adds coverage for:
+Sprint 00-29 keeps the complete Sprint 00-28 regression suite green and adds coverage for:
 
-- function registry and built-in registration
-- `LOWER`, `UPPER`, `LENGTH`, `TRIM`, and `ABS`
-- function calls in expressions
-- nested scalar functions
-- function projection through `SELECT`
-- function predicates through `WHERE`
-- function-aware logical expressions
-- unknown-function and argument/type error handling
-- `CHAR(n)`, `VARCHAR(n)`, `TEXT`, `BOOLEAN`
-- `FLOAT`, `FLOAT(n)`, `NUMERIC`, and `DECIMAL(p,s)`
-- UUID and temporal type validation
-- ARRAY and JSON validation / persistence
-- HSTORE validation and duplicate-key rejection
-- UDT foundation and registry behavior
-- centralized `INSERT` / `UPDATE` extended-type validation
-- serialization / deserialization regression coverage
-- extended projection metadata preservation
-- live terminal verification across functions and data types
+- B+ Tree node and entry behavior
+- ordered key insertion and lookup
+- internal-node routing and child traversal
+- node split and split propagation
+- exact-key index lookup
+- duplicate-safe lookup behavior
+- ordered leaf traversal
+- range scan behavior
+- SQL index abstraction integration
+- index metadata lifecycle
+- `CREATE INDEX`
+- existing-row index backfill
+- equality predicate index access
+- range predicate index access
+- `BETWEEN` index access
+- index maintenance after `INSERT`
+- old-key / new-key maintenance after `UPDATE`
+- index cleanup after `DELETE`
+- `DROP INDEX`
+- full-table-scan fallback
+- live terminal verification across the complete index lifecycle
 
 The complete legacy regression suite remains green.
 
@@ -1017,6 +1211,7 @@ Recent completed sprints:
 - **00-26** — ALTER TABLE / Schema Evolution
 - **00-27** — Foreign Key Referential Actions: CASCADE / RESTRICT / SET NULL
 - **00-28** — Scalar SQL Functions & Extended Data Types
+- **00-29** — B+ Tree Index Integration
 
 ---
 
@@ -1282,6 +1477,84 @@ Observed terminal behavior matched the configured action in all six cases. `REST
 
 ---
 
+---
+
+## Sprint 00-29 Summary
+
+Sprint 00-29 completed the first fully integrated B+ Tree index workflow in YEKDB.
+
+Implemented areas:
+
+1. B+ Tree index core
+2. Ordered key entry model
+3. Leaf-node insertion and search
+4. Internal-node routing
+5. Child traversal
+6. Node splitting
+7. Split propagation
+8. Exact-key lookup
+9. Duplicate-safe lookup behavior
+10. Ordered leaf traversal
+11. Range scan infrastructure
+12. Integration with YEKDB index abstractions
+13. Index metadata / catalog lifecycle
+14. `CREATE INDEX`
+15. Existing-row index backfill
+16. Equality predicate index lookup
+17. Range predicate index lookup
+18. `BETWEEN` index lookup
+19. `INSERT` index maintenance
+20. `UPDATE` old-key removal
+21. `UPDATE` new-key insertion
+22. `DELETE` index cleanup
+23. `DROP INDEX`
+24. Full-table-scan fallback
+25. Query correctness preservation with and without indexes
+26. Interactive terminal live verification
+27. Full unit / integration / regression verification
+
+Final verification:
+
+```text
+1723 / 1723 tests passed
+Compile successful
+B+ Tree index terminal live test successful
+```
+
+Live terminal verification covered:
+
+```sql
+CREATE INDEX idx_users_age
+ON users(age);
+
+SELECT *
+FROM users
+WHERE age = 25;
+
+SELECT *
+FROM users
+WHERE age >= 20 AND age <= 30;
+
+SELECT *
+FROM users
+WHERE age BETWEEN 20 AND 30;
+
+INSERT INTO users (id, name, age)
+VALUES (4, 'New User', 28);
+
+UPDATE users
+SET age = 29
+WHERE id = 4;
+
+DELETE FROM users
+WHERE id = 4;
+
+DROP INDEX idx_users_age;
+```
+
+The live workflow confirmed existing-row backfill, indexed equality and range access, automatic mutation maintenance, index removal, and correct full-table-scan fallback after the index was dropped.
+
+
 ## Roadmap
 
 ### Completed / Established
@@ -1324,6 +1597,12 @@ Observed terminal behavior matched the configured action in all six cases. `REST
 - ARRAY / JSON / HSTORE structured types
 - UDT registry foundation
 - Centralized extended-type DML validation
+- B+ Tree index core
+- Ordered equality and range index access
+- `CREATE INDEX` with existing-row backfill
+- Index maintenance across `INSERT / UPDATE / DELETE`
+- `DROP INDEX`
+- Full-table-scan fallback after index removal
 
 ### Upcoming
 
@@ -1334,8 +1613,7 @@ Observed terminal behavior matched the configured action in all six cases. `REST
 - Physical row rewrite for `ADD COLUMN` / `DROP COLUMN` on non-empty tables
 - Extended `ALTER COLUMN` operations such as type/default changes
 - Further physical storage and free-space management
-- Persistent index recovery
-- B+ Tree persistence improvements
+- Persistent index storage / recovery improvements
 - Transaction manager
 - Write Ahead Logging (WAL)
 - Buffer pool
@@ -1371,7 +1649,7 @@ Development is documented sprint-by-sprint with technical developer notes coveri
 
 Latest documentation:
 
-**Developer Notes — Sprint 00-28: Scalar SQL Functions & Extended Data Types**
+**Developer Notes — Sprint 00-29: B+ Tree Index Integration**
 
 ---
 

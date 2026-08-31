@@ -3,6 +3,7 @@ package com.yekdb.query.datasource;
 import com.yekdb.database.Database;
 import com.yekdb.database.DatabaseManager;
 import com.yekdb.storage.StorageEngine;
+import com.yekdb.index.RecordPointer;
 import com.yekdb.storage.record.Record;
 import com.yekdb.storage.record.RecordManager;
 import com.yekdb.storage.record.Row;
@@ -15,6 +16,8 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -197,6 +200,102 @@ public final class StorageQueryDataSource
                     table
             );
         }
+    }
+
+    /**
+     * Aktif kayıtları fiziksel RecordPointer bilgileriyle birlikte döndürür.
+     *
+     * B+ Tree index oluşturma ve INDEX_SCAN row resolution aşamalarında
+     * kullanılır.
+     */
+    public Map<RecordPointer, Row> getRowsByPointer(
+            String tableName
+    ) {
+        validateTableName(tableName);
+
+        TableManager tableManager = createTableManager();
+        tableManager.loadCatalog();
+        Table table = tableManager.getTable(tableName);
+
+        StorageEngine storageEngine =
+                new StorageEngine(
+                        resolveTableDataFile(
+                                tableManager,
+                                table
+                        )
+                );
+
+        try {
+            storageEngine.initialize();
+
+            RecordManager recordManager =
+                    new RecordManager(
+                            storageEngine.getPageManager(),
+                            PageType.DATA
+                    );
+
+            Map<RecordPointer, Row> rowsByPointer =
+                    new LinkedHashMap<>();
+
+            for (Record record :
+                    recordManager.getActiveRecords()) {
+
+                RecordPointer pointer =
+                        RecordPointer.fromRecordId(
+                                recordManager.findPhysicalRecordId(
+                                        record.getRecordId()
+                                )
+                        );
+
+                rowsByPointer.put(
+                        pointer,
+                        RowSerializer.deserialize(
+                                record.getData()
+                        )
+                );
+            }
+
+            return Collections.unmodifiableMap(
+                    rowsByPointer
+            );
+
+        } catch (IOException exception) {
+            throw new IllegalStateException(
+                    "Failed to read physical rows from table: "
+                            + table.getTableName(),
+                    exception
+            );
+        } finally {
+            shutdownStorageEngine(
+                    storageEngine,
+                    table
+            );
+        }
+    }
+
+    /**
+     * Fiziksel RecordPointer değerini Row nesnesine çözer.
+     */
+    public Row resolveRow(
+            String tableName,
+            RecordPointer pointer
+    ) {
+        Objects.requireNonNull(
+                pointer,
+                "RecordPointer cannot be null."
+        );
+
+        Row row = getRowsByPointer(tableName)
+                .get(pointer);
+
+        if (row == null) {
+            throw new IllegalStateException(
+                    "No active row found for RecordPointer: "
+                            + pointer
+            );
+        }
+
+        return row;
     }
 
     /**

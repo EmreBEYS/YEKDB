@@ -58,6 +58,20 @@ final class ManagementCommandParser {
             );
         }
 
+        if (upperSql.startsWith("CREATE UNIQUE INDEX ")) {
+            return parseCreateIndexCommand(sql, true);
+        }
+
+        if (upperSql.startsWith("CREATE INDEX ")) {
+            return parseCreateIndexCommand(sql, false);
+        }
+
+        if (upperSql.startsWith("DROP INDEX ")) {
+            return new DropIndexCommand(
+                    extractValueAfterKeyword(sql, "DROP INDEX")
+            );
+        }
+
         if (upperSql.startsWith("CREATE TABLE ")) {
             return parseCreateTableCommand(sql);
         }
@@ -74,6 +88,67 @@ final class ManagementCommandParser {
 
         throw new QueryExecutionException(
                 "Unsupported SQL statement: " + sql
+        );
+    }
+
+    /**
+     * CREATE INDEX / CREATE UNIQUE INDEX syntax'ini ayrıştırır.
+     *
+     * Desteklenen biçim:
+     * CREATE [UNIQUE] INDEX index_name ON table_name (column_name)
+     */
+    private CreateIndexCommand parseCreateIndexCommand(
+            String sql,
+            boolean unique
+    ) {
+        String keyword = unique
+                ? "CREATE UNIQUE INDEX"
+                : "CREATE INDEX";
+
+        String remaining = sql.substring(keyword.length()).trim();
+        String[] onParts = remaining.split("(?i)\\s+ON\\s+", -1);
+
+        if (onParts.length != 2) {
+            throw new QueryExecutionException(
+                    keyword + " must use '" + keyword
+                            + " index_name ON table_name (column_name)' syntax."
+            );
+        }
+
+        String indexName = onParts[0].trim();
+        String target = onParts[1].trim();
+
+        int open = target.indexOf('(');
+        int close = target.lastIndexOf(')');
+
+        if (indexName.isBlank()
+                || indexName.chars().anyMatch(Character::isWhitespace)
+                || open <= 0
+                || close <= open
+                || close != target.length() - 1) {
+            throw new QueryExecutionException(
+                    "Invalid " + keyword + " statement: " + sql
+            );
+        }
+
+        String tableName = target.substring(0, open).trim();
+        String columnName = target.substring(open + 1, close).trim();
+
+        if (tableName.isBlank()
+                || tableName.chars().anyMatch(Character::isWhitespace)
+                || columnName.isBlank()
+                || columnName.contains(",")
+                || columnName.chars().anyMatch(Character::isWhitespace)) {
+            throw new QueryExecutionException(
+                    "Phase 16 CREATE INDEX supports exactly one indexed column."
+            );
+        }
+
+        return new CreateIndexCommand(
+                indexName,
+                tableName,
+                columnName,
+                unique
         );
     }
 

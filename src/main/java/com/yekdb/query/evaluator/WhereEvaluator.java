@@ -1,5 +1,6 @@
 package com.yekdb.query.evaluator;
 
+import com.yekdb.query.expression.BetweenExpression;
 import com.yekdb.query.expression.ColumnExpression;
 import com.yekdb.query.expression.ComparisonExpression;
 import com.yekdb.query.expression.FunctionCallExpression;
@@ -73,6 +74,14 @@ public final class WhereEvaluator {
 
             return evaluateComparison(
                     comparisonExpression,
+                    valueProvider
+            );
+        }
+
+        if (expression instanceof BetweenExpression betweenExpression) {
+
+            return evaluateBetween(
+                    betweenExpression,
                     valueProvider
             );
         }
@@ -208,6 +217,43 @@ public final class WhereEvaluator {
                 expression.expectedValue(),
                 expression.operator()
         );
+    }
+
+    /**
+     * BETWEEN / NOT BETWEEN ifadesini değerlendirir.
+     *
+     * BETWEEN sınırları inclusive olarak uygulanır.
+     */
+    private static boolean evaluateBetween(
+            BetweenExpression expression,
+            Function<String, Object> valueProvider
+    ) {
+
+        Object actualValue =
+                valueProvider.apply(
+                        expression.getColumnName()
+                );
+
+        boolean lowerMatches =
+                PredicateEvaluator.evaluate(
+                        actualValue,
+                        expression.getLowerBound(),
+                        com.yekdb.query.expression.ComparisonOperator.GREATER_THAN_OR_EQUALS
+                );
+
+        boolean upperMatches =
+                PredicateEvaluator.evaluate(
+                        actualValue,
+                        expression.getUpperBound(),
+                        com.yekdb.query.expression.ComparisonOperator.LESS_THAN_OR_EQUALS
+                );
+
+        boolean result =
+                lowerMatches && upperMatches;
+
+        return expression.isNegated()
+                ? !result
+                : result;
     }
 
     /**

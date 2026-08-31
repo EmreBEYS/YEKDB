@@ -1,5 +1,7 @@
 package com.yekdb.query.executor;
 
+import com.yekdb.index.Index;
+import com.yekdb.index.RecordPointer;
 import com.yekdb.query.command.SelectCommand;
 import com.yekdb.query.datasource.QueryDataSource;
 import com.yekdb.query.result.QueryResult;
@@ -11,6 +13,7 @@ import com.yekdb.storage.table.Table;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Function;
 
 /**
  * SelectCommand için veri kaynağı hazırlama ve SelectExecutor çağrılarını
@@ -30,6 +33,20 @@ final class SelectCommandExecutionSupport {
     ExecuteResult execute(
             SelectCommand command,
             QueryDataSource dataSource
+    ) {
+        return execute(
+                command,
+                dataSource,
+                List.of(),
+                null
+        );
+    }
+
+    ExecuteResult execute(
+            SelectCommand command,
+            QueryDataSource dataSource,
+            List<Index<?>> availableIndexes,
+            Function<RecordPointer, Row> rowResolver
     ) {
         Objects.requireNonNull(
                 command,
@@ -56,11 +73,28 @@ final class SelectCommandExecutionSupport {
         QueryResult queryResult;
 
         if (!statement.hasJoins()) {
-            queryResult = selectExecutor.executeStatement(
-                    leftTable,
-                    leftRows,
-                    statement
-            );
+
+            if (availableIndexes != null
+                    && !availableIndexes.isEmpty()
+                    && rowResolver != null) {
+
+                queryResult = selectExecutor.executeStatement(
+                        leftTable,
+                        leftRows,
+                        statement,
+                        availableIndexes,
+                        rowResolver
+                );
+
+            } else {
+
+                queryResult = selectExecutor.executeStatement(
+                        leftTable,
+                        leftRows,
+                        statement
+                );
+            }
+
         } else {
             queryResult = executeJoinSelect(
                     dataSource,
