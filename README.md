@@ -7,8 +7,8 @@
 ![Maven](https://img.shields.io/badge/Maven-3.x-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-green)
 ![Status](https://img.shields.io/badge/Status-Active%20Development-yellow)
-![Tests](https://img.shields.io/badge/JUnit-1723%20Tests%20Passed-brightgreen)
-![Sprint](https://img.shields.io/badge/Sprint-00--29-blueviolet)
+![Tests](https://img.shields.io/badge/JUnit-1830%20Tests%20Passed-brightgreen)
+![Sprint](https://img.shields.io/badge/Sprint-00--30-blueviolet)
 
 ---
 
@@ -113,6 +113,14 @@ The long-term goal is a complete page-oriented database engine with durable stor
 - Index cleanup on `DELETE`
 - `DROP INDEX` execution
 - Full-table-scan fallback when an index is unavailable
+- SQL `CREATE VIEW` integration
+- View metadata lifecycle and recovery
+- Live view resolution against current base-table data
+- `CREATE TRIGGER` / `DROP TRIGGER` integration
+- `BEFORE` and `AFTER` trigger timing
+- Trigger events for `INSERT`, `UPDATE`, and `DELETE`
+- Trigger pseudo-row access through `NEW.*` and `OLD.*`
+- Trigger body DML execution
 
 ---
 
@@ -806,6 +814,105 @@ Full-table-scan fallback after DROP INDEX        PASS
 The observed terminal results matched the expected behavior across all scenarios.
 
 
+---
+
+## Views & Triggers — Sprint 00-30
+
+Sprint 00-30 introduces SQL view support and the first trigger execution pipeline, extending YEKDB with derived relational projections and event-driven mutation hooks.
+
+The sprint integrates views and triggers across parsing, metadata, query execution, mutation workflows, persistence, recovery, and terminal validation.
+
+### Views
+
+Implemented view capabilities:
+
+- `CREATE VIEW ... AS SELECT ...`
+- View metadata model
+- View catalog registration
+- View metadata persistence
+- View recovery after database restart
+- View resolution through normal `SELECT`
+- Projection preservation from view queries
+- Live base-table data visibility
+- Terminal-visible view creation and querying
+
+Example:
+
+```sql
+CREATE VIEW it_employees AS
+SELECT id, name, salary
+FROM employees
+WHERE department = 'IT';
+
+SELECT *
+FROM it_employees;
+```
+
+Views are resolved dynamically. When the base table changes, subsequent view queries reflect the current table state rather than a stale materialized snapshot.
+
+### Triggers
+
+Implemented trigger capabilities:
+
+- `CREATE TRIGGER`
+- `DROP TRIGGER`
+- `BEFORE INSERT`
+- `BEFORE UPDATE`
+- `BEFORE DELETE`
+- `AFTER INSERT`
+- `AFTER UPDATE`
+- `AFTER DELETE`
+- Trigger metadata model
+- Trigger catalog registration
+- Trigger metadata persistence
+- Trigger recovery after database restart
+- `NEW.*` pseudo-row access for insert/update workflows
+- `OLD.*` pseudo-row access for update/delete workflows
+- Trigger body DML execution
+- Terminal-visible trigger execution failures
+
+Example:
+
+```sql
+CREATE TRIGGER employees_after_insert_log
+AFTER INSERT ON employees
+BEGIN
+    INSERT INTO employee_log (id, employee_name, action)
+    VALUES (NEW.id, NEW.name, 'INSERT')
+END;
+```
+
+When a matching mutation occurs, YEKDB executes the trigger body through the normal DML pipeline.
+
+### Terminal Validation
+
+Live terminal verification confirmed the complete Sprint 00-30 view and trigger workflow:
+
+```text
+CREATE VIEW                                      PASS
+SELECT from view                                 PASS
+Live view update after base-table INSERT         PASS
+Live view update after base-table UPDATE         PASS
+AFTER INSERT trigger                             PASS
+AFTER UPDATE trigger                             PASS
+AFTER DELETE trigger                             PASS
+BEFORE INSERT trigger                            PASS
+BEFORE UPDATE trigger                            PASS
+BEFORE DELETE trigger                            PASS
+NEW.id / NEW.name access                         PASS
+OLD.id / OLD.name access                         PASS
+Trigger body DML                                 PASS
+DROP TRIGGER                                     PASS
+Trigger removal prevents future execution        PASS
+```
+
+The live workflow confirmed that views remain connected to current base-table data and that triggers can observe row state through `NEW.*` / `OLD.*` while executing DML against another table.
+
+Current V1 limitations:
+
+- Trigger execution is not transaction-atomic yet. If an `AFTER` trigger fails, the main mutation and earlier `BEFORE` trigger side effects may remain applied instead of being rolled back as a single atomic statement.
+- `INSERT INTO table VALUES (...)` without an explicit column list is not yet supported.
+
 
 The interactive terminal from Sprint 00-23 remains fully integrated with the query and storage layers.
 
@@ -1146,37 +1253,32 @@ The `\history` command itself is intentionally not added to history.
 
 YEKDB uses JUnit 5 with regression testing after every development phase.
 
-Current project status after Sprint 00-29:
+Current project status after Sprint 00-30:
 
 ```text
 Compile: SUCCESS
-Tests:   1723 / 1723 PASSED
-Sprint 00-29 terminal integration: PASSED
+Tests:   1830 / 1830 PASSED
+Sprint 00-30 terminal integration: PASSED
 ```
 
-Sprint 00-29 keeps the complete Sprint 00-28 regression suite green and adds coverage for:
+Sprint 00-30 keeps the complete Sprint 00-29 regression suite green and adds coverage for:
 
-- B+ Tree node and entry behavior
-- ordered key insertion and lookup
-- internal-node routing and child traversal
-- node split and split propagation
-- exact-key index lookup
-- duplicate-safe lookup behavior
-- ordered leaf traversal
-- range scan behavior
-- SQL index abstraction integration
-- index metadata lifecycle
-- `CREATE INDEX`
-- existing-row index backfill
-- equality predicate index access
-- range predicate index access
-- `BETWEEN` index access
-- index maintenance after `INSERT`
-- old-key / new-key maintenance after `UPDATE`
-- index cleanup after `DELETE`
-- `DROP INDEX`
-- full-table-scan fallback
-- live terminal verification across the complete index lifecycle
+- `CREATE VIEW`
+- view metadata lifecycle
+- view persistence and recovery
+- view resolution through `SELECT`
+- live view updates after base-table mutation
+- `CREATE TRIGGER`
+- `DROP TRIGGER`
+- trigger metadata lifecycle
+- trigger persistence and recovery
+- `BEFORE INSERT / UPDATE / DELETE`
+- `AFTER INSERT / UPDATE / DELETE`
+- `NEW.*` pseudo-row access
+- `OLD.*` pseudo-row access
+- trigger body DML execution
+- terminal-visible trigger execution behavior
+- live terminal verification across the complete view and trigger lifecycle
 
 The complete legacy regression suite remains green.
 
@@ -1212,6 +1314,7 @@ Recent completed sprints:
 - **00-27** — Foreign Key Referential Actions: CASCADE / RESTRICT / SET NULL
 - **00-28** — Scalar SQL Functions & Extended Data Types
 - **00-29** — B+ Tree Index Integration
+- **00-30** — Views & Triggers
 
 ---
 
@@ -1555,6 +1658,82 @@ DROP INDEX idx_users_age;
 The live workflow confirmed existing-row backfill, indexed equality and range access, automatic mutation maintenance, index removal, and correct full-table-scan fallback after the index was dropped.
 
 
+---
+
+## Sprint 00-30 Summary
+
+Sprint 00-30 completed YEKDB's first integrated view and trigger workflow.
+
+Implemented areas:
+
+1. View metadata model
+2. View catalog lifecycle
+3. `CREATE VIEW ... AS SELECT ...`
+4. View metadata persistence
+5. View metadata recovery
+6. View resolution through `SELECT`
+7. Projection preservation for view queries
+8. Live view evaluation against current base-table data
+9. Trigger metadata model
+10. Trigger catalog lifecycle
+11. `CREATE TRIGGER`
+12. `DROP TRIGGER`
+13. Trigger metadata persistence
+14. Trigger metadata recovery
+15. `BEFORE INSERT`
+16. `BEFORE UPDATE`
+17. `BEFORE DELETE`
+18. `AFTER INSERT`
+19. `AFTER UPDATE`
+20. `AFTER DELETE`
+21. `NEW.*` pseudo-row support
+22. `OLD.*` pseudo-row support
+23. Trigger body DML execution
+24. Trigger execution integration with table mutations
+25. Terminal-visible trigger failure behavior
+26. Interactive terminal live verification
+27. Full unit / integration / regression verification
+
+Final verification:
+
+```text
+1830 / 1830 tests passed
+Compile successful
+Views and triggers terminal live test successful
+```
+
+Live terminal verification covered:
+
+```sql
+CREATE VIEW it_employees AS
+SELECT id, name, salary
+FROM employees
+WHERE department = 'IT';
+
+CREATE TRIGGER employees_after_insert_log
+AFTER INSERT ON employees
+BEGIN
+    INSERT INTO employee_log (id, employee_name, action)
+    VALUES (NEW.id, NEW.name, 'INSERT')
+END;
+
+CREATE TRIGGER employees_before_delete_log
+BEFORE DELETE ON employees
+BEGIN
+    INSERT INTO employee_log (id, employee_name, action)
+    VALUES (OLD.id, OLD.name, 'BEFORE_DELETE')
+END;
+
+DROP TRIGGER employees_after_insert_log;
+```
+
+The live workflow confirmed `CREATE VIEW`, live view updates, `BEFORE` and `AFTER` triggers for `INSERT`, `UPDATE`, and `DELETE`, `NEW.*` and `OLD.*` pseudo-row access, trigger body DML, and `DROP TRIGGER`.
+
+Observed V1 limitation:
+
+- Trigger execution is not transaction-atomic yet. If an `AFTER` trigger fails, the main mutation and earlier `BEFORE` trigger side effects may remain applied instead of being rolled back as a single atomic statement.
+
+
 ## Roadmap
 
 ### Completed / Established
@@ -1603,6 +1782,13 @@ The live workflow confirmed existing-row backfill, indexed equality and range ac
 - Index maintenance across `INSERT / UPDATE / DELETE`
 - `DROP INDEX`
 - Full-table-scan fallback after index removal
+- `CREATE VIEW` and live view resolution
+- View metadata persistence and recovery
+- `CREATE TRIGGER` and `DROP TRIGGER`
+- `BEFORE / AFTER` trigger execution
+- `INSERT / UPDATE / DELETE` trigger events
+- `NEW.*` and `OLD.*` pseudo-row support
+- Trigger body DML execution
 
 ### Upcoming
 
@@ -1649,7 +1835,7 @@ Development is documented sprint-by-sprint with technical developer notes coveri
 
 Latest documentation:
 
-**Developer Notes — Sprint 00-29: B+ Tree Index Integration**
+**Developer Notes — Sprint 00-30: Views & Triggers**
 
 ---
 

@@ -1,5 +1,8 @@
 package com.yekdb.database;
 
+import com.yekdb.trigger.TriggerCatalog;
+import com.yekdb.view.ViewCatalog;
+
 import java.nio.file.Path;
 import java.util.Objects;
 
@@ -14,11 +17,44 @@ public class Database {
     private final String name;
     private final Path databasePath;
     private final DatabaseMetadata metadata;
+    private final ViewCatalog viewCatalog;
+    private final TriggerCatalog triggerCatalog;
 
     public Database(
             String name,
             Path databasePath,
             DatabaseMetadata metadata
+    ) {
+        this(
+                name,
+                databasePath,
+                metadata,
+                new ViewCatalog(),
+                new TriggerCatalog()
+        );
+    }
+
+    public Database(
+            String name,
+            Path databasePath,
+            DatabaseMetadata metadata,
+            ViewCatalog viewCatalog
+    ) {
+        this(
+                name,
+                databasePath,
+                metadata,
+                viewCatalog,
+                new TriggerCatalog()
+        );
+    }
+
+    public Database(
+            String name,
+            Path databasePath,
+            DatabaseMetadata metadata,
+            ViewCatalog viewCatalog,
+            TriggerCatalog triggerCatalog
     ) {
         this.name = DatabaseNameValidator.validate(name);
 
@@ -30,6 +66,16 @@ public class Database {
         this.metadata = Objects.requireNonNull(
                 metadata,
                 "Database metadata cannot be null."
+        );
+
+        this.viewCatalog = Objects.requireNonNull(
+                viewCatalog,
+                "View catalog cannot be null."
+        );
+
+        this.triggerCatalog = Objects.requireNonNull(
+                triggerCatalog,
+                "Trigger catalog cannot be null."
         );
 
         validateMetadataConsistency();
@@ -45,6 +91,14 @@ public class Database {
 
     public DatabaseMetadata getMetadata() {
         return metadata;
+    }
+
+    public ViewCatalog getViewCatalog() {
+        return viewCatalog;
+    }
+
+    public TriggerCatalog getTriggerCatalog() {
+        return triggerCatalog;
     }
 
     /**
@@ -69,6 +123,8 @@ public class Database {
                 "name='" + name + '\'' +
                 ", databasePath=" + databasePath +
                 ", metadata=" + metadata +
+                ", viewCatalog=" + viewCatalog +
+                ", triggerCatalog=" + triggerCatalog +
                 '}';
     }
 }

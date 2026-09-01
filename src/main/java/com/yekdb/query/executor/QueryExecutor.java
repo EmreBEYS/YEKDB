@@ -11,28 +11,47 @@ import com.yekdb.query.command.AlterTableCommand;
 import com.yekdb.query.command.CreateDatabaseCommand;
 import com.yekdb.query.command.CreateIndexCommand;
 import com.yekdb.query.command.CreateTableCommand;
+import com.yekdb.query.command.CreateTriggerCommand;
+import com.yekdb.query.command.CreateViewCommand;
 import com.yekdb.query.command.DeleteCommand;
 import com.yekdb.query.command.DropDatabaseCommand;
 import com.yekdb.query.command.DropIndexCommand;
 import com.yekdb.query.command.DropTableCommand;
+import com.yekdb.query.command.DropTriggerCommand;
+import com.yekdb.query.command.DropViewCommand;
 import com.yekdb.query.command.InsertCommand;
 import com.yekdb.query.command.SelectCommand;
+import com.yekdb.query.command.ShowTriggersCommand;
+import com.yekdb.query.command.ShowViewsCommand;
 import com.yekdb.query.command.UpdateCommand;
 import com.yekdb.query.command.UseDatabaseCommand;
+import com.yekdb.query.datasource.InMemoryQueryDataSource;
 import com.yekdb.query.datasource.QueryDataSource;
 import com.yekdb.query.datasource.StorageQueryDataSource;
+import com.yekdb.query.evaluator.WhereEvaluator;
 import com.yekdb.query.mapper.StatementCommandMapper;
 import com.yekdb.query.parser.SqlParser;
 import com.yekdb.query.statement.Statement;
 import com.yekdb.storage.record.Row;
+import com.yekdb.storage.table.Column;
+import com.yekdb.storage.table.DataType;
 import com.yekdb.storage.table.Table;
 import com.yekdb.storage.table.TableManager;
 import com.yekdb.storage.table.TableMetadata;
+import com.yekdb.trigger.TriggerDefinition;
+import com.yekdb.trigger.TriggerEvent;
+import com.yekdb.trigger.TriggerMetadata;
+import com.yekdb.trigger.TriggerTiming;
+import com.yekdb.view.ViewDefinition;
+import com.yekdb.view.ViewMetadata;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Parser veya istemci katmanı tarafından oluşturulan SQL komutlarını
@@ -44,7 +63,11 @@ import java.util.Objects;
  * - UseDatabaseCommand
  * - DropDatabaseCommand
  * - CreateTableCommand
+ * - CreateTriggerCommand
+ * - CreateViewCommand
  * - DropTableCommand
+ * - DropTriggerCommand
+ * - DropViewCommand
  * - InsertCommand
  * - UpdateCommand
  * - DeleteCommand
@@ -113,6 +136,16 @@ public final class QueryExecutor implements AutoCloseable {
      * ALTER TABLE komutlarını fiziksel şema katmanına yönlendirir.
      */
     private final AlterTableExecutor alterTableExecutor;
+
+    /**
+     * CREATE VIEW komutunu aktif database view catalog'una kaydeder.
+     */
+    private final CreateViewExecutor createViewExecutor;
+
+    /**
+     * INSERT pipeline içerisinde trigger body'lerini çalıştırır.
+     */
+    private final TriggerExecutionSupport triggerExecutionSupport;
 
     /**
      * Aktif terminal/query session içerisindeki B+ Tree index kataloğudur.
@@ -286,6 +319,12 @@ public final class QueryExecutor implements AutoCloseable {
         this.alterTableExecutor =
                 new AlterTableExecutor();
 
+        this.createViewExecutor =
+                new CreateViewExecutor();
+
+        this.triggerExecutionSupport =
+                new TriggerExecutionSupport();
+
         this.indexManager =
                 new IndexManager();
 
@@ -302,7 +341,11 @@ public final class QueryExecutor implements AutoCloseable {
      * USE
      * DROP DATABASE
      * CREATE TABLE
+     * CREATE TRIGGER
+     * CREATE VIEW
      * DROP TABLE
+     * DROP TRIGGER
+     * DROP VIEW
      * INSERT
      * SELECT
      * UPDATE
@@ -465,9 +508,53 @@ public final class QueryExecutor implements AutoCloseable {
             }
 
             if (command
+                    instanceof CreateViewCommand value) {
+
+                return executeCreateView(
+                        value
+                );
+            }
+
+            if (command
+                    instanceof CreateTriggerCommand value) {
+
+                return executeCreateTrigger(
+                        value
+                );
+            }
+
+            if (command
+                    instanceof ShowTriggersCommand value) {
+
+                return executeShowTriggers(
+                        value
+                );
+            }
+
+            if (command instanceof ShowViewsCommand) {
+                return executeShowViews();
+            }
+
+            if (command
                     instanceof DropIndexCommand value) {
 
                 return executeDropIndex(
+                        value
+                );
+            }
+
+            if (command
+                    instanceof DropViewCommand value) {
+
+                return executeDropView(
+                        value
+                );
+            }
+
+            if (command
+                    instanceof DropTriggerCommand value) {
+
+                return executeDropTrigger(
                         value
                 );
             }
@@ -631,8 +718,32 @@ public final class QueryExecutor implements AutoCloseable {
             return "CREATE INDEX";
         }
 
+        if (command instanceof CreateViewCommand) {
+            return "CREATE VIEW";
+        }
+
+        if (command instanceof CreateTriggerCommand) {
+            return "CREATE TRIGGER";
+        }
+
+        if (command instanceof ShowViewsCommand) {
+            return "SHOW VIEWS";
+        }
+
+        if (command instanceof ShowTriggersCommand) {
+            return "SHOW TRIGGERS";
+        }
+
         if (command instanceof DropIndexCommand) {
             return "DROP INDEX";
+        }
+
+        if (command instanceof DropViewCommand) {
+            return "DROP VIEW";
+        }
+
+        if (command instanceof DropTriggerCommand) {
+            return "DROP TRIGGER";
         }
 
         if (command instanceof DropTableCommand) {
@@ -889,6 +1000,205 @@ public final class QueryExecutor implements AutoCloseable {
     }
 
     /**
+     * CREATE VIEW.
+     *
+     * Phase 3 kapsamında view fiziksel veri saklamaz;
+     * yalnızca aktif database view catalog'una kaydedilir.
+     */
+    private ExecuteResult executeCreateView(
+            CreateViewCommand command
+    ) {
+        Database currentDatabase =
+                requireCurrentDatabase();
+
+        TableManager activeTableManager =
+                requireTableManager();
+
+        if (tableExists(
+                activeTableManager,
+                command.getViewName()
+        )) {
+            throw new QueryExecutionException(
+                    "View name conflicts with existing table: "
+                            + command.getViewName()
+            );
+        }
+
+        return createViewExecutor.execute(
+                currentDatabase,
+                command
+        );
+    }
+
+    /**
+     * CREATE TRIGGER.
+     */
+    private ExecuteResult executeCreateTrigger(
+            CreateTriggerCommand command
+    ) {
+        Database currentDatabase =
+                requireCurrentDatabase();
+
+        TableManager activeTableManager =
+                requireTableManager();
+
+        activeTableManager.getTable(
+                command.getTableName()
+        );
+
+        TriggerDefinition definition =
+                new TriggerDefinition(
+                        command.getTriggerName(),
+                        command.getTableName(),
+                        command.getTiming(),
+                        command.getEvent(),
+                        command.getBody()
+                );
+
+        TriggerMetadata metadata =
+                new TriggerMetadata(
+                        definition.getTriggerName(),
+                        definition.getTableName()
+                );
+
+        currentDatabase.getTriggerCatalog()
+                .registerTrigger(
+                        definition,
+                        metadata
+                );
+
+        return ExecuteResult.success(
+                "Trigger created successfully: "
+                        + definition.getTriggerName()
+        );
+    }
+
+    /**
+     * SHOW TRIGGERS.
+     */
+    private ExecuteResult executeShowTriggers(
+            ShowTriggersCommand command
+    ) {
+        Database currentDatabase =
+                requireCurrentDatabase();
+
+        List<Column> columns =
+                List.of(
+                        new Column("trigger_name", DataType.STRING),
+                        new Column("table_name", DataType.STRING),
+                        new Column("timing", DataType.STRING),
+                        new Column("event", DataType.STRING),
+                        new Column("version", DataType.INT),
+                        new Column("created_at", DataType.STRING)
+                );
+
+        List<Row> rows =
+                new ArrayList<>();
+
+        for (TriggerDefinition definition :
+                currentDatabase
+                        .getTriggerCatalog()
+                        .listTriggers()) {
+
+            if (command.hasTableName()
+                    && !definition.getTableName()
+                    .equalsIgnoreCase(
+                            command.getTableName()
+                    )) {
+                continue;
+            }
+
+            TriggerMetadata metadata =
+                    currentDatabase
+                            .getTriggerCatalog()
+                            .getMetadata(
+                                    definition.getTriggerName()
+                            );
+
+            rows.add(
+                    new Row(
+                            List.of(
+                                    definition.getTriggerName(),
+                                    definition.getTableName(),
+                                    definition.getTiming().name(),
+                                    definition.getEvent().name(),
+                                    metadata.getVersion(),
+                                    metadata.getCreatedAt().toString()
+                            )
+                    )
+            );
+        }
+
+        return ExecuteResult.selectSuccess(
+                "Triggers listed successfully.",
+                columns,
+                rows
+        );
+    }
+
+    /**
+     * SHOW VIEWS.
+     */
+    private ExecuteResult executeShowViews() {
+        Database currentDatabase =
+                requireCurrentDatabase();
+
+        List<Column> columns =
+                List.of(
+                        new Column("view_name", DataType.STRING),
+                        new Column("source_select", DataType.STRING),
+                        new Column("version", DataType.INT),
+                        new Column("created_at", DataType.STRING)
+                );
+
+        List<Row> rows =
+                new ArrayList<>();
+
+        for (ViewDefinition definition :
+                currentDatabase
+                        .getViewCatalog()
+                        .listViews()) {
+
+            ViewMetadata metadata =
+                    currentDatabase
+                            .getViewCatalog()
+                            .getMetadata(
+                                    definition.getViewName()
+                            );
+
+            rows.add(
+                    new Row(
+                            List.of(
+                                    definition.getViewName(),
+                                    definition.getSourceSelect(),
+                                    metadata.getVersion(),
+                                    metadata.getCreatedAt().toString()
+                            )
+                    )
+            );
+        }
+
+        return ExecuteResult.selectSuccess(
+                "Views listed successfully.",
+                columns,
+                rows
+        );
+    }
+
+    private boolean tableExists(
+            TableManager tableManager,
+            String tableName
+    ) {
+        try {
+            tableManager.getTable(tableName);
+            return true;
+
+        } catch (RuntimeException exception) {
+            return false;
+        }
+    }
+
+    /**
      * DROP INDEX.
      */
     private ExecuteResult executeDropIndex(
@@ -901,6 +1211,46 @@ public final class QueryExecutor implements AutoCloseable {
         return ExecuteResult.success(
                 "Index dropped successfully: "
                         + command.getIndexName()
+        );
+    }
+
+    /**
+     * DROP VIEW.
+     */
+    private ExecuteResult executeDropView(
+            DropViewCommand command
+    ) {
+        Database currentDatabase =
+                requireCurrentDatabase();
+
+        currentDatabase.getViewCatalog()
+                .unregisterView(
+                        command.getViewName()
+                );
+
+        return ExecuteResult.success(
+                "View dropped successfully: "
+                        + command.getViewName()
+        );
+    }
+
+    /**
+     * DROP TRIGGER.
+     */
+    private ExecuteResult executeDropTrigger(
+            DropTriggerCommand command
+    ) {
+        Database currentDatabase =
+                requireCurrentDatabase();
+
+        currentDatabase.getTriggerCatalog()
+                .unregisterTrigger(
+                        command.getTriggerName()
+                );
+
+        return ExecuteResult.success(
+                "Trigger dropped successfully: "
+                        + command.getTriggerName()
         );
     }
 
@@ -926,15 +1276,44 @@ public final class QueryExecutor implements AutoCloseable {
     private ExecuteResult executeInsert(
             InsertCommand command
     ) {
+        Database currentDatabase =
+                requireCurrentDatabase();
 
-        return mutationExecutionSupport
-                .executeInsert(
-                        requireTableManager(),
-                        command,
-                        indexesForTable(
-                                command.getTableName()
-                        )
+        TableManager activeTableManager =
+                requireTableManager();
+
+        Table table =
+                activeTableManager.getTable(
+                        command.getTableName()
                 );
+
+        triggerExecutionSupport.executeInsertTriggers(
+                currentDatabase,
+                table,
+                command,
+                TriggerTiming.BEFORE,
+                this::execute
+        );
+
+        ExecuteResult result =
+                mutationExecutionSupport
+                        .executeInsert(
+                                activeTableManager,
+                                command,
+                                indexesForTable(
+                                        command.getTableName()
+                                )
+                        );
+
+        triggerExecutionSupport.executeInsertTriggers(
+                currentDatabase,
+                table,
+                command,
+                TriggerTiming.AFTER,
+                this::execute
+        );
+
+        return result;
     }
 
     /**
@@ -944,14 +1323,50 @@ public final class QueryExecutor implements AutoCloseable {
             UpdateCommand command
     ) {
 
-        return mutationExecutionSupport
+        Database currentDatabase =
+                requireCurrentDatabase();
+
+        TableManager activeTableManager =
+                requireTableManager();
+
+        Table table =
+                activeTableManager.getTable(
+                        command.getTableName()
+                );
+
+        List<TriggerExecutionSupport.RowChange> rowChanges =
+                collectUpdateRowChanges(
+                        table,
+                        command
+                );
+
+        triggerExecutionSupport.executeUpdateTriggers(
+                currentDatabase,
+                table,
+                rowChanges,
+                TriggerTiming.BEFORE,
+                this::execute
+        );
+
+        ExecuteResult result =
+                mutationExecutionSupport
                 .executeUpdate(
-                        requireTableManager(),
+                        activeTableManager,
                         command,
                         indexesForTable(
                                 command.getTableName()
                         )
                 );
+
+        triggerExecutionSupport.executeUpdateTriggers(
+                currentDatabase,
+                table,
+                rowChanges,
+                TriggerTiming.AFTER,
+                this::execute
+        );
+
+        return result;
     }
 
     /**
@@ -961,14 +1376,152 @@ public final class QueryExecutor implements AutoCloseable {
             DeleteCommand command
     ) {
 
-        return mutationExecutionSupport
+        Database currentDatabase =
+                requireCurrentDatabase();
+
+        TableManager activeTableManager =
+                requireTableManager();
+
+        Table table =
+                activeTableManager.getTable(
+                        command.getTableName()
+                );
+
+        List<Row> oldRows =
+                collectDeleteRows(
+                        table,
+                        command
+                );
+
+        triggerExecutionSupport.executeDeleteTriggers(
+                currentDatabase,
+                table,
+                oldRows,
+                TriggerTiming.BEFORE,
+                this::execute
+        );
+
+        ExecuteResult result =
+                mutationExecutionSupport
                 .executeDelete(
-                        requireTableManager(),
+                        activeTableManager,
                         command,
                         indexesForTable(
                                 command.getTableName()
                         )
                 );
+
+        triggerExecutionSupport.executeDeleteTriggers(
+                currentDatabase,
+                table,
+                oldRows,
+                TriggerTiming.AFTER,
+                this::execute
+        );
+
+        return result;
+    }
+
+    private List<TriggerExecutionSupport.RowChange> collectUpdateRowChanges(
+            Table table,
+            UpdateCommand command
+    ) {
+        List<Row> matchedRows =
+                collectMatchingRows(
+                        table,
+                        command.hasWhereExpression()
+                                ? command.getWhereExpression()
+                                : null
+                );
+
+        List<TriggerExecutionSupport.RowChange> rowChanges =
+                new ArrayList<>(matchedRows.size());
+
+        for (Row oldRow : matchedRows) {
+            rowChanges.add(
+                    new TriggerExecutionSupport.RowChange(
+                            oldRow,
+                            createUpdatedRow(
+                                    table,
+                                    oldRow,
+                                    command.getUpdatedValues()
+                            )
+                    )
+            );
+        }
+
+        return List.copyOf(rowChanges);
+    }
+
+    private List<Row> collectDeleteRows(
+            Table table,
+            DeleteCommand command
+    ) {
+        return collectMatchingRows(
+                table,
+                command.hasWhereExpression()
+                        ? command.getWhereExpression()
+                        : null
+        );
+    }
+
+    private List<Row> collectMatchingRows(
+            Table table,
+            com.yekdb.query.expression.Expression whereExpression
+    ) {
+        StorageQueryDataSource dataSource =
+                new StorageQueryDataSource(
+                        databaseManager
+                );
+
+        List<Row> rows =
+                dataSource.getRows(
+                        table.getTableName()
+                );
+
+        if (whereExpression == null) {
+            return rows;
+        }
+
+        List<Row> matchedRows =
+                new ArrayList<>();
+
+        for (Row row : rows) {
+            if (WhereEvaluator.evaluate(
+                    whereExpression,
+                    row,
+                    table
+            )) {
+                matchedRows.add(row);
+            }
+        }
+
+        return List.copyOf(matchedRows);
+    }
+
+    private Row createUpdatedRow(
+            Table table,
+            Row currentRow,
+            Map<String, Object> updatedValues
+    ) {
+        Row updatedRow =
+                new Row(
+                        currentRow.getValues()
+                );
+
+        for (Map.Entry<String, Object> entry :
+                updatedValues.entrySet()) {
+
+            updatedRow.setValue(
+                    findColumnIndex(
+                            table,
+                            entry.getKey()
+                    ),
+                    entry.getValue()
+            );
+        }
+
+        return updatedRow;
     }
 
     /**
@@ -994,6 +1547,39 @@ public final class QueryExecutor implements AutoCloseable {
     private ExecuteResult executeSelect(
             SelectCommand command
     ) {
+        return executeSelect(
+                command,
+                new HashSet<>()
+        );
+    }
+
+    /**
+     * SELECT.
+     *
+     * View varsa kaynak SELECT önce çalıştırılır, sonucu geçici
+     * data source olarak dış SELECT'e verilir.
+     */
+    private ExecuteResult executeSelect(
+            SelectCommand command,
+            Set<String> resolvingViews
+    ) {
+
+        Database currentDatabase =
+                databaseManager.getCurrentDatabase();
+
+        if (currentDatabase != null
+                && currentDatabase
+                .getViewCatalog()
+                .containsView(
+                        command.getTableName()
+                )) {
+
+            return executeSelectFromView(
+                    command,
+                    currentDatabase,
+                    resolvingViews
+            );
+        }
 
         QueryDataSource dataSource =
                 requireQueryDataSource();
@@ -1023,6 +1609,83 @@ public final class QueryExecutor implements AutoCloseable {
                 dataSource,
                 indexes,
                 rowsByPointer::get
+        );
+    }
+
+    private ExecuteResult executeSelectFromView(
+            SelectCommand outerCommand,
+            Database currentDatabase,
+            Set<String> resolvingViews
+    ) {
+        String viewName =
+                outerCommand.getTableName()
+                        .trim()
+                        .toLowerCase(Locale.ROOT);
+
+        if (!resolvingViews.add(viewName)) {
+            throw new QueryExecutionException(
+                    "Recursive view reference detected: "
+                            + viewName
+            );
+        }
+
+        try {
+            ViewDefinition definition =
+                    currentDatabase.getViewCatalog()
+                            .getView(viewName);
+
+            SelectCommand sourceCommand =
+                    parseViewSourceSelect(
+                            definition.getSourceSelect()
+                    );
+
+            ExecuteResult sourceResult =
+                    executeSelect(
+                            sourceCommand,
+                            resolvingViews
+                    );
+
+            InMemoryQueryDataSource viewDataSource =
+                    new InMemoryQueryDataSource();
+
+            viewDataSource.register(
+                    new Table(
+                            viewName,
+                            sourceResult.getColumns()
+                    ),
+                    sourceResult.getRows()
+            );
+
+            return selectExecutionSupport.execute(
+                    outerCommand,
+                    viewDataSource
+            );
+
+        } finally {
+            resolvingViews.remove(viewName);
+        }
+    }
+
+    private SelectCommand parseViewSourceSelect(
+            String sourceSelect
+    ) {
+        Statement statement =
+                new SqlParser()
+                        .parse(
+                                sourceSelect
+                        );
+
+        Command command =
+                StatementCommandMapper.map(
+                        statement
+                );
+
+        if (command instanceof SelectCommand selectCommand) {
+            return selectCommand;
+        }
+
+        throw new QueryExecutionException(
+                "View source must be a SELECT statement."
         );
     }
 
@@ -1147,16 +1810,7 @@ public final class QueryExecutor implements AutoCloseable {
     private TableManager requireTableManager() {
 
         Database currentDatabase =
-                databaseManager
-                        .getCurrentDatabase();
-
-        if (currentDatabase == null) {
-
-            throw new QueryExecutionException(
-                    "No database selected. "
-                            + "Execute USE DATABASE first."
-            );
-        }
+                requireCurrentDatabase();
 
         if (tableManager == null) {
 
@@ -1168,6 +1822,26 @@ public final class QueryExecutor implements AutoCloseable {
         }
 
         return tableManager;
+    }
+
+    /**
+     * Yönetim komutlarından önce aktif database bulunmasını zorunlu kılar.
+     */
+    private Database requireCurrentDatabase() {
+
+        Database currentDatabase =
+                databaseManager
+                        .getCurrentDatabase();
+
+        if (currentDatabase == null) {
+
+            throw new QueryExecutionException(
+                    "No database selected. "
+                            + "Execute USE DATABASE first."
+            );
+        }
+
+        return currentDatabase;
     }
 
     /**

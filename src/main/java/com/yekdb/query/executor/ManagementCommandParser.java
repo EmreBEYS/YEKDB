@@ -7,9 +7,14 @@ import com.yekdb.constraint.PrimaryKeyConstraint;
 import com.yekdb.constraint.ReferentialAction;
 import com.yekdb.constraint.UniqueConstraint;
 import com.yekdb.query.command.*;
+import com.yekdb.query.parser.SqlParser;
+import com.yekdb.query.statement.SelectStatement;
+import com.yekdb.query.statement.Statement;
 import com.yekdb.storage.table.Column;
 import com.yekdb.storage.table.ColumnTypeDefinition;
 import com.yekdb.storage.table.DataType;
+import com.yekdb.trigger.TriggerEvent;
+import com.yekdb.trigger.TriggerTiming;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -28,6 +33,24 @@ import java.util.Locale;
  * PRIMARY KEY (student_id, course_id)
  * UNIQUE (first_name, last_name)
  * FOREIGN KEY (user_id) REFERENCES users(id)
+ *
+ * Sprint 00-30 Phase 2:
+ *
+ * CREATE VIEW view_name AS SELECT ...
+ *
+ * Sprint 00-30 Phase 6:
+ *
+ * CREATE TRIGGER trigger_name BEFORE|AFTER INSERT|UPDATE|DELETE ON table_name BEGIN ... END
+ * DROP TRIGGER trigger_name
+ *
+ * Sprint 00-30 Phase 10:
+ *
+ * SHOW TRIGGERS
+ * SHOW TRIGGERS FROM table_name
+ *
+ * Sprint 00-30 Phase 11:
+ *
+ * SHOW VIEWS
  */
 final class ManagementCommandParser {
 
@@ -66,9 +89,45 @@ final class ManagementCommandParser {
             return parseCreateIndexCommand(sql, false);
         }
 
+        if (upperSql.startsWith("CREATE VIEW ")) {
+            return parseCreateViewCommand(sql);
+        }
+
+        if (upperSql.startsWith("CREATE TRIGGER ")) {
+            return parseCreateTriggerCommand(sql);
+        }
+
+        if (upperSql.equals("SHOW VIEWS")
+                || upperSql.equals("SHOW VIEWS;")) {
+            return new ShowViewsCommand();
+        }
+
+        if (upperSql.equals("SHOW TRIGGERS")
+                || upperSql.startsWith("SHOW TRIGGERS ")) {
+            return parseShowTriggersCommand(sql);
+        }
+
         if (upperSql.startsWith("DROP INDEX ")) {
             return new DropIndexCommand(
                     extractValueAfterKeyword(sql, "DROP INDEX")
+            );
+        }
+
+        if (upperSql.startsWith("DROP VIEW ")) {
+            return new DropViewCommand(
+                    extractValueAfterKeyword(
+                            stripOptionalSemicolon(sql),
+                            "DROP VIEW"
+                    )
+            );
+        }
+
+        if (upperSql.startsWith("DROP TRIGGER ")) {
+            return new DropTriggerCommand(
+                    extractValueAfterKeyword(
+                            stripOptionalSemicolon(sql),
+                            "DROP TRIGGER"
+                    )
             );
         }
 
@@ -90,6 +149,299 @@ final class ManagementCommandParser {
                 "Unsupported SQL statement: " + sql
         );
     }
+
+    private ShowTriggersCommand parseShowTriggersCommand(String sql) {
+        String normalizedSql =
+                stripOptionalSemicolon(sql)
+                        .trim();
+
+        String remaining =
+                normalizedSql.substring(
+                        "SHOW TRIGGERS".length()
+                ).trim();
+
+        if (remaining.isEmpty()) {
+            return new ShowTriggersCommand();
+        }
+
+        if (!remaining.toUpperCase(Locale.ROOT)
+                .startsWith("FROM ")) {
+            throw new QueryExecutionException(
+                    "SHOW TRIGGERS must use 'SHOW TRIGGERS' or 'SHOW TRIGGERS FROM table_name' syntax."
+            );
+        }
+
+        String tableName =
+                remaining.substring(
+                        "FROM".length()
+                ).trim();
+
+        if (tableName.isBlank()
+                || tableName.contains(" ")) {
+            throw new QueryExecutionException(
+                    "SHOW TRIGGERS FROM must contain one table name."
+            );
+        }
+
+        return new ShowTriggersCommand(
+                tableName
+        );
+    }
+
+    /**
+     * CREATE TRIGGER syntax'ini ayrıştırır.
+     *
+     * Desteklenen biçim:
+     * CREATE TRIGGER trigger_name BEFORE|AFTER INSERT|UPDATE|DELETE ON table_name BEGIN ... END
+     */
+    private CreateTriggerCommand parseCreateTriggerCommand(String sql) {
+        String remaining =
+                stripOptionalSemicolon(
+                        sql.substring(
+                                "CREATE TRIGGER".length()
+                        ).trim()
+                );
+
+        List<String> headerParts =
+                splitTriggerHeaderAndBody(
+                        remaining
+                );
+
+        String header =
+                headerParts.get(0);
+
+        String body =
+                headerParts.get(1);
+
+        String[] tokens =
+                header.split("\\s+");
+
+        if (tokens.length != 5) {
+            throw new QueryExecutionException(
+                    "CREATE TRIGGER must use 'CREATE TRIGGER name BEFORE|AFTER INSERT|UPDATE|DELETE ON table BEGIN ... END' syntax."
+            );
+        }
+
+        if (!tokens[3].equalsIgnoreCase("ON")) {
+            throw new QueryExecutionException(
+                    "CREATE TRIGGER must contain ON before table name."
+            );
+        }
+
+        return new CreateTriggerCommand(
+                tokens[0],
+                tokens[4],
+                parseTriggerTiming(tokens[1]),
+                parseTriggerEvent(tokens[2]),
+                body
+        );
+    }
+
+    private List<String> splitTriggerHeaderAndBody(
+            String remaining
+    ) {
+        int beginIndex =
+                findKeywordOutsideQuotes(
+                        remaining,
+                        "BEGIN"
+                );
+
+        if (beginIndex < 0) {
+            throw new QueryExecutionException(
+                    "CREATE TRIGGER must contain BEGIN."
+            );
+        }
+
+        String header =
+                remaining.substring(
+                        0,
+                        beginIndex
+                ).trim();
+
+        String bodyWithEnd =
+                remaining.substring(
+                        beginIndex + "BEGIN".length()
+                ).trim();
+
+        int endIndex =
+                findLastKeywordOutsideQuotes(
+                        bodyWithEnd,
+                        "END"
+                );
+
+        if (endIndex < 0) {
+            throw new QueryExecutionException(
+                    "CREATE TRIGGER must end with END."
+            );
+        }
+
+        String body =
+                bodyWithEnd.substring(
+                        0,
+                        endIndex
+                ).trim();
+
+        String trailing =
+                bodyWithEnd.substring(
+                        endIndex + "END".length()
+                ).trim();
+
+        if (!trailing.isBlank()) {
+            throw new QueryExecutionException(
+                    "Unexpected text after CREATE TRIGGER END: "
+                            + trailing
+            );
+        }
+
+        if (header.isBlank()) {
+            throw new QueryExecutionException(
+                    "CREATE TRIGGER header cannot be empty."
+            );
+        }
+
+        if (body.isBlank()) {
+            throw new QueryExecutionException(
+                    "CREATE TRIGGER body cannot be empty."
+            );
+        }
+
+        return List.of(
+                header,
+                body
+        );
+    }
+
+    private TriggerTiming parseTriggerTiming(String value) {
+        try {
+            return TriggerTiming.valueOf(
+                    value.toUpperCase(Locale.ROOT)
+            );
+
+        } catch (IllegalArgumentException exception) {
+            throw new QueryExecutionException(
+                    "Trigger timing must be BEFORE or AFTER: "
+                            + value,
+                    exception
+            );
+        }
+    }
+
+    private TriggerEvent parseTriggerEvent(String value) {
+        try {
+            return TriggerEvent.valueOf(
+                    value.toUpperCase(Locale.ROOT)
+            );
+
+        } catch (IllegalArgumentException exception) {
+            throw new QueryExecutionException(
+                    "Trigger event must be INSERT, UPDATE, or DELETE: "
+                            + value,
+                    exception
+            );
+        }
+    }
+
+    private int findKeywordOutsideQuotes(
+            String value,
+            String keyword
+    ) {
+        boolean insideSingleQuote = false;
+        boolean insideDoubleQuote = false;
+
+        for (int index = 0;
+             index <= value.length() - keyword.length();
+             index++) {
+
+            char current = value.charAt(index);
+
+            if (current == '\''
+                    && !insideDoubleQuote) {
+                insideSingleQuote = !insideSingleQuote;
+                continue;
+            }
+
+            if (current == '"'
+                    && !insideSingleQuote) {
+                insideDoubleQuote = !insideDoubleQuote;
+                continue;
+            }
+
+            if (insideSingleQuote || insideDoubleQuote) {
+                continue;
+            }
+
+            if (matchesKeywordAt(value, index, keyword)) {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private int findLastKeywordOutsideQuotes(
+            String value,
+            String keyword
+    ) {
+        int foundIndex = -1;
+        int searchIndex = 0;
+
+        while (searchIndex <= value.length() - keyword.length()) {
+            int currentIndex =
+                    findKeywordOutsideQuotes(
+                            value.substring(searchIndex),
+                            keyword
+                    );
+
+            if (currentIndex < 0) {
+                return foundIndex;
+            }
+
+            foundIndex = searchIndex + currentIndex;
+            searchIndex = foundIndex + keyword.length();
+        }
+
+        return foundIndex;
+    }
+
+    private boolean matchesKeywordAt(
+            String value,
+            int index,
+            String keyword
+    ) {
+        if (!value.regionMatches(
+                true,
+                index,
+                keyword,
+                0,
+                keyword.length()
+        )) {
+            return false;
+        }
+
+        boolean validLeftBoundary =
+                index == 0
+                        || !isIdentifierCharacter(
+                        value.charAt(index - 1)
+                );
+
+        int endIndex =
+                index + keyword.length();
+
+        boolean validRightBoundary =
+                endIndex == value.length()
+                        || !isIdentifierCharacter(
+                        value.charAt(endIndex)
+                );
+
+        return validLeftBoundary
+                && validRightBoundary;
+    }
+
+    private boolean isIdentifierCharacter(char character) {
+        return Character.isLetterOrDigit(character)
+                || character == '_';
+    }
+
 
     /**
      * CREATE INDEX / CREATE UNIQUE INDEX syntax'ini ayrıştırır.
@@ -150,6 +502,162 @@ final class ManagementCommandParser {
                 columnName,
                 unique
         );
+    }
+
+    /**
+     * CREATE VIEW syntax'ini ayrıştırır.
+     *
+     * Desteklenen biçim:
+     * CREATE VIEW view_name AS SELECT ...
+     */
+    private CreateViewCommand parseCreateViewCommand(String sql) {
+        String remaining =
+                stripOptionalSemicolon(
+                        sql.substring(
+                                "CREATE VIEW".length()
+                        ).trim()
+                );
+
+        int firstSpace =
+                findFirstWhitespace(remaining);
+
+        if (firstSpace <= 0) {
+            throw new QueryExecutionException(
+                    "CREATE VIEW statement must contain a view name and AS SELECT definition."
+            );
+        }
+
+        String viewName =
+                remaining.substring(
+                        0,
+                        firstSpace
+                ).trim();
+
+        if (viewName.isBlank()) {
+            throw new QueryExecutionException(
+                    "CREATE VIEW statement must contain a view name."
+            );
+        }
+
+        String definition =
+                remaining.substring(
+                        firstSpace + 1
+                ).trim();
+
+        String sourceSelect =
+                extractCreateViewSourceSelect(
+                        definition
+                );
+
+        validateCreateViewSourceSelect(
+                sourceSelect
+        );
+
+        return new CreateViewCommand(
+                viewName,
+                sourceSelect
+        );
+    }
+
+    private String extractCreateViewSourceSelect(
+            String definition
+    ) {
+
+        if (definition.length() < 2
+                || !definition.regionMatches(
+                true,
+                0,
+                "AS",
+                0,
+                2
+        )) {
+            throw new QueryExecutionException(
+                    "CREATE VIEW must use AS before the SELECT statement."
+            );
+        }
+
+        if (definition.length() > 2
+                && !Character.isWhitespace(
+                definition.charAt(2)
+        )) {
+            throw new QueryExecutionException(
+                    "CREATE VIEW must use AS before the SELECT statement."
+            );
+        }
+
+        String sourceSelect =
+                definition.substring(2).trim();
+
+        if (sourceSelect.isBlank()) {
+            throw new QueryExecutionException(
+                    "CREATE VIEW source SELECT cannot be empty."
+            );
+        }
+
+        if (!sourceSelect.toUpperCase(Locale.ROOT)
+                .startsWith("SELECT ")) {
+            throw new QueryExecutionException(
+                    "CREATE VIEW source must be a SELECT statement."
+            );
+        }
+
+        return sourceSelect;
+    }
+
+    private void validateCreateViewSourceSelect(
+            String sourceSelect
+    ) {
+        try {
+            Statement statement =
+                    new SqlParser()
+                            .parse(
+                                    sourceSelect
+                            );
+
+            if (!(statement instanceof SelectStatement)) {
+                throw new QueryExecutionException(
+                        "CREATE VIEW source must be a SELECT statement."
+                );
+            }
+
+        } catch (QueryExecutionException exception) {
+            throw exception;
+
+        } catch (RuntimeException exception) {
+            throw new QueryExecutionException(
+                    "Invalid CREATE VIEW source SELECT: "
+                            + exception.getMessage(),
+                    exception
+            );
+        }
+    }
+
+    private int findFirstWhitespace(String value) {
+        for (int index = 0;
+             index < value.length();
+             index++) {
+
+            if (Character.isWhitespace(
+                    value.charAt(index)
+            )) {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private String stripOptionalSemicolon(String value) {
+        String result = value.trim();
+
+        if (result.endsWith(";")) {
+            result = result.substring(
+                    0,
+                    result.length() - 1
+            ).trim();
+        }
+
+        return result;
     }
 
 
