@@ -1,6 +1,7 @@
 package com.yekdb.query.evaluator;
 
 import com.yekdb.query.expression.BetweenExpression;
+import com.yekdb.query.expression.BooleanConstantExpression;
 import com.yekdb.query.expression.ColumnExpression;
 import com.yekdb.query.expression.ComparisonExpression;
 import com.yekdb.query.expression.FunctionCallExpression;
@@ -68,6 +69,11 @@ public final class WhereEvaluator {
                     functionComparisonExpression,
                     valueProvider
             );
+        }
+
+        if (expression instanceof BooleanConstantExpression booleanConstantExpression) {
+
+            return booleanConstantExpression.value();
         }
 
         if (expression instanceof ComparisonExpression comparisonExpression) {

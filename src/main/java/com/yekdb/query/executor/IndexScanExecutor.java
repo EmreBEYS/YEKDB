@@ -44,6 +44,27 @@ public final class IndexScanExecutor {
             Function<RecordPointer, Row> rowResolver
     ) {
 
+        return execute(
+                table,
+                index,
+                whereExpression,
+                whereExpression,
+                rowResolver
+        );
+    }
+
+    /**
+     * Access predicate ile index pointer'larını çözer, final predicate ile
+     * SQL semantiğini koruyacak son filtrelemeyi yapar.
+     */
+    public QueryResult execute(
+            Table table,
+            Index<?> index,
+            Expression accessPredicate,
+            Expression finalPredicate,
+            Function<RecordPointer, Row> rowResolver
+    ) {
+
         Objects.requireNonNull(
                 table,
                 "Table cannot be null."
@@ -55,8 +76,8 @@ public final class IndexScanExecutor {
         );
 
         Objects.requireNonNull(
-                whereExpression,
-                "WHERE expression cannot be null for INDEX_SCAN."
+                accessPredicate,
+                "Access predicate cannot be null for INDEX_SCAN."
         );
 
         Objects.requireNonNull(
@@ -70,7 +91,7 @@ public final class IndexScanExecutor {
         List<RecordPointer> pointers =
                 resolvePointers(
                         index,
-                        whereExpression
+                        accessPredicate
                 );
 
         List<Row> matchedRows =
@@ -106,8 +127,9 @@ public final class IndexScanExecutor {
              * Böylece INDEX_SCAN ve FULL_TABLE_SCAN
              * aynı SQL semantiğini korur.
              */
-            if (WhereEvaluator.evaluate(
-                    whereExpression,
+            if (finalPredicate == null
+                    || WhereEvaluator.evaluate(
+                    finalPredicate,
                     row,
                     table
             )) {

@@ -1,6 +1,7 @@
 package com.yekdb.query.parser;
 
 import com.yekdb.query.expression.BetweenExpression;
+import com.yekdb.query.expression.BooleanConstantExpression;
 import com.yekdb.query.expression.ComparisonExpression;
 import com.yekdb.query.expression.ComparisonOperator;
 import com.yekdb.query.expression.Expression;
@@ -484,12 +485,12 @@ public final class ExpressionParser {
         }
 
         Object lowerBound =
-                SqlLiteralParser.parseRaw(
+                SqlConstantExpressionFolder.parseRaw(
                         lowerRaw
                 );
 
         Object upperBound =
-                SqlLiteralParser.parseRaw(
+                SqlConstantExpressionFolder.parseRaw(
                         upperRaw
                 );
 
@@ -620,7 +621,7 @@ public final class ExpressionParser {
             }
 
             values.add(
-                    SqlLiteralParser.parseRaw(
+                    SqlConstantExpressionFolder.parseRaw(
                             rawValue
                     )
             );
@@ -1060,12 +1061,38 @@ public final class ExpressionParser {
         /*
          * Eski column-value davranışı aynen korunur.
          */
+        if (isConstantOperand(
+                leftOperand
+        )
+                && isConstantOperand(
+                rawValue
+        )) {
+
+            Object leftValue =
+                    SqlConstantExpressionFolder.parseRaw(
+                            leftOperand
+                    );
+
+            Object rightValue =
+                    SqlConstantExpressionFolder.parseRaw(
+                            rawValue
+                    );
+
+            return new BooleanConstantExpression(
+                    com.yekdb.query.evaluator.PredicateEvaluator.evaluate(
+                            leftValue,
+                            rightValue,
+                            operator
+                    )
+            );
+        }
+
         validateColumnName(
                 leftOperand
         );
 
         Object expectedValue =
-                SqlLiteralParser.parseRaw(
+                SqlConstantExpressionFolder.parseRaw(
                         rawValue
                 );
 
@@ -1234,7 +1261,7 @@ public final class ExpressionParser {
                 argument
         )) {
 
-            return SqlLiteralParser.parseRaw(
+            return SqlConstantExpressionFolder.parseRaw(
                     argument
             );
         }
@@ -1277,7 +1304,7 @@ public final class ExpressionParser {
                 operand
         )) {
 
-            return SqlLiteralParser.parseRaw(
+            return SqlConstantExpressionFolder.parseRaw(
                     operand
             );
         }
@@ -1332,6 +1359,31 @@ public final class ExpressionParser {
         return value.matches(
                 "-?[0-9]+(\\.[0-9]+)?"
         );
+    }
+
+    private boolean isConstantOperand(
+            String rawValue
+    ) {
+
+        if (rawValue == null) {
+            return false;
+        }
+
+        String value =
+                rawValue.trim();
+
+        if (value.isBlank()) {
+            return false;
+        }
+
+        try {
+            SqlConstantExpressionFolder.parseRaw(
+                    value
+            );
+            return true;
+        } catch (ParserException exception) {
+            return false;
+        }
     }
 
     /**

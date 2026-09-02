@@ -7,6 +7,7 @@ package com.yekdb.query.statement;
 public enum StatementType {
 
     INSERT,
+    EXPLAIN,
     SELECT,
     UPDATE,
     DELETE

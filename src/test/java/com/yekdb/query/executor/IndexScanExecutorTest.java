@@ -262,7 +262,7 @@ class IndexScanExecutorTest {
     }
 
     @Test
-    void shouldFallbackForLogicalExpression() {
+    void shouldCreateIndexScanPlanForAndExpressionWithIndexedPredicate() {
 
         QueryPlan plan =
                 new QueryOptimizer()
@@ -285,8 +285,14 @@ class IndexScanExecutorTest {
                         );
 
         assertEquals(
-                QueryPlanType.FULL_TABLE_SCAN,
+                QueryPlanType.INDEX_SCAN,
                 plan.getPlanType()
+        );
+
+        assertEquals(
+                "idx_users_id",
+                plan.getIndexName()
+                        .orElseThrow()
         );
     }
 
@@ -495,6 +501,102 @@ class IndexScanExecutorTest {
                 result.getRows()
                         .get(0)
                         .getValue(1)
+        );
+    }
+
+    @Test
+    void shouldExecuteAndExpressionUsingIndexPathAndResidualFilter() {
+
+        SelectExecutor executor =
+                new SelectExecutor();
+
+        QueryResult result =
+                executor.execute(
+                        usersTable,
+                        rows,
+                        new LogicalExpression(
+                                new ComparisonExpression(
+                                        "id",
+                                        ComparisonOperator.GREATER_THAN,
+                                        10
+                                ),
+                                LogicalOperator.AND,
+                                new ComparisonExpression(
+                                        "age",
+                                        ComparisonOperator.LESS_THAN,
+                                        30
+                                )
+                        ),
+                        List.of(idIndex),
+                        rowStore::get
+                );
+
+        assertEquals(
+                2,
+                result.getRows()
+                        .size()
+        );
+
+        assertEquals(
+                "Ayse",
+                result.getRows()
+                        .get(0)
+                        .getValue(1)
+        );
+
+        assertEquals(
+                "Mehmet",
+                result.getRows()
+                        .get(1)
+                        .getValue(1)
+        );
+    }
+
+    @Test
+    void shouldExecuteAndRangeBoundsUsingSingleRangeIndexPath() {
+
+        SelectExecutor executor =
+                new SelectExecutor();
+
+        QueryResult result =
+                executor.execute(
+                        usersTable,
+                        rows,
+                        new LogicalExpression(
+                                new ComparisonExpression(
+                                        "id",
+                                        ComparisonOperator.GREATER_THAN_OR_EQUALS,
+                                        20
+                                ),
+                                LogicalOperator.AND,
+                                new ComparisonExpression(
+                                        "id",
+                                        ComparisonOperator.LESS_THAN_OR_EQUALS,
+                                        40
+                                )
+                        ),
+                        List.of(idIndex),
+                        rowStore::get
+                );
+
+        assertEquals(
+                3,
+                result.getRows()
+                        .size()
+        );
+
+        assertEquals(
+                20,
+                result.getRows()
+                        .get(0)
+                        .getValue(0)
+        );
+
+        assertEquals(
+                40,
+                result.getRows()
+                        .get(2)
+                        .getValue(0)
         );
     }
 

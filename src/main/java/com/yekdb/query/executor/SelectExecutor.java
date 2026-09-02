@@ -3,7 +3,13 @@ package com.yekdb.query.executor;
 import com.yekdb.index.Index;
 import com.yekdb.index.RecordPointer;
 import com.yekdb.query.evaluator.ExpressionEvaluator;
+import com.yekdb.query.expression.ColumnExpression;
+import com.yekdb.query.expression.ComparisonExpression;
 import com.yekdb.query.expression.Expression;
+import com.yekdb.query.expression.LogicalExpression;
+import com.yekdb.query.expression.LogicalOperator;
+import com.yekdb.query.optimizer.OptimizedQuery;
+import com.yekdb.query.optimizer.OptimizationContext;
 import com.yekdb.query.optimizer.QueryOptimizer;
 import com.yekdb.query.optimizer.QueryPlan;
 import com.yekdb.query.result.QueryResult;
@@ -16,10 +22,13 @@ import com.yekdb.storage.table.Column;
 import com.yekdb.storage.table.Table;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -297,12 +306,17 @@ public final class SelectExecutor {
                 "Row resolver cannot be null."
         );
 
-        QueryPlan queryPlan =
-                queryOptimizer.optimize(
-                        table,
-                        whereExpression,
-                        availableIndexes
+        OptimizedQuery optimizedQuery =
+                queryOptimizer.optimizeQuery(
+                        new OptimizationContext(
+                                table,
+                                whereExpression,
+                                availableIndexes
+                        )
                 );
+
+        QueryPlan queryPlan =
+                optimizedQuery.getQueryPlan();
 
         Objects.requireNonNull(
                 queryPlan,
@@ -314,7 +328,8 @@ public final class SelectExecutor {
                 table,
                 rows,
                 availableIndexes,
-                rowResolver
+                rowResolver,
+                optimizedQuery.getOptimizedWhereExpression()
         );
     }
 
@@ -687,16 +702,43 @@ public final class SelectExecutor {
         // 1 - JOIN
         // ----------------------------------------------
 
+        Map<String, Set<String>> requiredColumns =
+                collectJoinProjectionPushdownColumns(
+                        statement
+                );
+
         List<Map<String, Object>> leftRowMaps =
                 convertRowsToMaps(
                         leftTable,
-                        leftRows
+                        leftRows,
+                        requiredColumnsFor(
+                                leftReference,
+                                requiredColumns
+                        )
                 );
 
         List<Map<String, Object>> rightRowMaps =
                 convertRowsToMaps(
                         rightTable,
-                        rightRows
+                        rightRows,
+                        requiredColumnsFor(
+                                rightReference,
+                                requiredColumns
+                        )
+                );
+
+        rightRowMaps =
+                applyPushdownPredicates(
+                        rightReference,
+                        rightRowMaps,
+                        statement.getWhereExpression()
+                );
+
+        leftRowMaps =
+                applyPushdownPredicates(
+                        leftReference,
+                        leftRowMaps,
+                        statement.getWhereExpression()
                 );
 
         List<Map<String, Object>> joinedMaps =
@@ -977,10 +1019,19 @@ public final class SelectExecutor {
         // 1 - ROW CONVERSION
         // ----------------------------------------------
 
+        Map<String, Set<String>> requiredColumns =
+                collectJoinProjectionPushdownColumns(
+                        statement
+                );
+
         List<Map<String, Object>> baseRowMaps =
                 convertRowsToMaps(
                         baseTable,
-                        baseRows
+                        baseRows,
+                        requiredColumnsFor(
+                                statement.getTable(),
+                                requiredColumns
+                        )
                 );
 
         List<List<Map<String, Object>>> convertedRightRows =
@@ -993,7 +1044,49 @@ public final class SelectExecutor {
             convertedRightRows.add(
                     convertRowsToMaps(
                             rightTables.get(index),
-                            rightTableRows.get(index)
+                            rightTableRows.get(index),
+                            requiredColumnsFor(
+                                    new TableReference(
+                                            statement.getJoins()
+                                                    .get(index)
+                                                    .getTableName(),
+                                            statement.getJoins()
+                                                    .get(index)
+                                                    .getAlias()
+                                    ),
+                                    requiredColumns
+                            )
+                    )
+            );
+        }
+
+        baseRowMaps =
+                applyPushdownPredicates(
+                        statement.getTable(),
+                        baseRowMaps,
+                        statement.getWhereExpression()
+                );
+
+        for (int index = 0;
+             index < convertedRightRows.size();
+             index++) {
+
+            JoinClause joinClause =
+                    statement.getJoins()
+                            .get(index);
+
+            TableReference rightReference =
+                    new TableReference(
+                            joinClause.getTableName(),
+                            joinClause.getAlias()
+                    );
+
+            convertedRightRows.set(
+                    index,
+                    applyPushdownPredicates(
+                            rightReference,
+                            convertedRightRows.get(index),
+                            statement.getWhereExpression()
                     )
             );
         }
@@ -1216,6 +1309,25 @@ public final class SelectExecutor {
             List<Row> rows
     ) {
 
+        return convertRowsToMaps(
+                table,
+                rows,
+                null
+        );
+    }
+
+    /**
+     * Storage Row listesini JoinExecutor'ın kullandığı
+     * column -> value map biçimine dönüştürür.
+     *
+     * requiredColumns null ise bütün kolonlar taşınır.
+     */
+    private List<Map<String, Object>> convertRowsToMaps(
+            Table table,
+            List<Row> rows,
+            Set<String> requiredColumns
+    ) {
+
         List<Column> columns =
                 table.getColumns();
 
@@ -1231,9 +1343,21 @@ public final class SelectExecutor {
                  i < columns.size();
                  i++) {
 
+                Column column =
+                        columns.get(i);
+
+                if (requiredColumns != null
+                        && !requiredColumns.contains(
+                        normalizeIdentifier(
+                                column.getName()
+                        )
+                )) {
+
+                    continue;
+                }
+
                 values.put(
-                        columns.get(i)
-                                .getName(),
+                        column.getName(),
                         row.getValue(i)
                 );
             }
@@ -1244,6 +1368,334 @@ public final class SelectExecutor {
         }
 
         return result;
+    }
+
+    /**
+     * JOIN map conversion için gerekli kolonları hesaplar.
+     *
+     * Bu pushdown sadece taşınan kolon sayısını azaltır; SELECT * ve aggregate
+     * sorgularda tüm kolonlar korunur.
+     */
+    private Map<String, Set<String>> collectJoinProjectionPushdownColumns(
+            SelectStatement statement
+    ) {
+
+        if (statement.selectsAllColumns()
+                || statement.hasGroupBy()
+                || statement.hasHaving()
+                || containsAggregateProjection(
+                statement
+        )) {
+
+            return Map.of();
+        }
+
+        Map<String, Set<String>> requiredColumns =
+                new LinkedHashMap<>();
+
+        for (SelectItem item : statement.getSelectItems()) {
+
+            if (item.isFunctionExpression()) {
+                collectFunctionColumns(
+                        item.getFunctionExpression(),
+                        requiredColumns
+                );
+            } else {
+                collectColumnReference(
+                        item.getExpression(),
+                        requiredColumns
+                );
+            }
+        }
+
+        collectExpressionColumns(
+                statement.getWhereExpression(),
+                requiredColumns
+        );
+
+        for (JoinClause joinClause : statement.getJoins()) {
+            collectExpressionColumns(
+                    joinClause.getCondition(),
+                    requiredColumns
+            );
+        }
+
+        statement.getOrderByItems()
+                .forEach(orderByItem ->
+                        collectColumnReference(
+                                orderByItem.getColumnName(),
+                                requiredColumns
+                        )
+                );
+
+        return requiredColumns;
+    }
+
+    private boolean containsAggregateProjection(
+            SelectStatement statement
+    ) {
+
+        return statement.getSelectItems()
+                .stream()
+                .map(SelectItem::getExpression)
+                .filter(Objects::nonNull)
+                .map(value ->
+                        value.trim()
+                                .toUpperCase(
+                                        Locale.ROOT
+                                )
+                )
+                .anyMatch(value ->
+                        value.startsWith("COUNT(")
+                                || value.startsWith("SUM(")
+                                || value.startsWith("AVG(")
+                                || value.startsWith("MIN(")
+                                || value.startsWith("MAX(")
+                );
+    }
+
+    private void collectExpressionColumns(
+            Expression expression,
+            Map<String, Set<String>> target
+    ) {
+
+        if (expression == null) {
+            return;
+        }
+
+        if (expression instanceof ComparisonExpression comparisonExpression) {
+
+            collectColumnExpression(
+                    comparisonExpression.getLeftColumnExpression(),
+                    target
+            );
+
+            if (comparisonExpression.isColumnToColumnComparison()) {
+                collectColumnExpression(
+                        comparisonExpression.getRightColumnExpression(),
+                        target
+                );
+            }
+
+            return;
+        }
+
+        if (expression instanceof com.yekdb.query.expression.BetweenExpression betweenExpression) {
+            collectColumnReference(
+                    betweenExpression.getColumnName(),
+                    target
+            );
+            return;
+        }
+
+        if (expression instanceof com.yekdb.query.expression.InExpression inExpression) {
+            collectColumnReference(
+                    inExpression.getColumnName(),
+                    target
+            );
+            return;
+        }
+
+        if (expression instanceof com.yekdb.query.expression.LikeExpression likeExpression) {
+            collectColumnReference(
+                    likeExpression.getColumnName(),
+                    target
+            );
+            return;
+        }
+
+        if (expression instanceof com.yekdb.query.expression.FunctionComparisonExpression functionExpression) {
+            collectFunctionColumns(
+                    functionExpression.getLeftFunction(),
+                    target
+            );
+
+            collectFunctionOperandColumns(
+                    functionExpression.getExpectedValue(),
+                    target
+            );
+
+            return;
+        }
+
+        if (expression instanceof LogicalExpression logicalExpression) {
+            collectExpressionColumns(
+                    logicalExpression.leftExpression(),
+                    target
+            );
+            collectExpressionColumns(
+                    logicalExpression.rightExpression(),
+                    target
+            );
+            return;
+        }
+
+        if (expression instanceof com.yekdb.query.expression.NotExpression notExpression) {
+            collectExpressionColumns(
+                    notExpression.expression(),
+                    target
+            );
+        }
+    }
+
+    private void collectFunctionColumns(
+            com.yekdb.query.expression.FunctionCallExpression functionExpression,
+            Map<String, Set<String>> target
+    ) {
+
+        for (Object argument : functionExpression.getArguments()) {
+            collectFunctionOperandColumns(
+                    argument,
+                    target
+            );
+        }
+    }
+
+    private void collectFunctionOperandColumns(
+            Object operand,
+            Map<String, Set<String>> target
+    ) {
+
+        if (operand instanceof ColumnExpression columnExpression) {
+            collectColumnExpression(
+                    columnExpression,
+                    target
+            );
+            return;
+        }
+
+        if (operand instanceof com.yekdb.query.expression.FunctionCallExpression functionExpression) {
+            collectFunctionColumns(
+                    functionExpression,
+                    target
+            );
+        }
+    }
+
+    private void collectColumnReference(
+            String columnReference,
+            Map<String, Set<String>> target
+    ) {
+
+        if (columnReference == null
+                || columnReference.isBlank()) {
+            return;
+        }
+
+        String trimmed =
+                columnReference.trim();
+
+        if ("*".equals(
+                trimmed
+        )
+                || trimmed.contains(
+                "("
+        )) {
+            return;
+        }
+
+        collectColumnExpression(
+                ColumnExpression.parse(
+                        trimmed
+                ),
+                target
+        );
+    }
+
+    private void collectColumnExpression(
+            ColumnExpression columnExpression,
+            Map<String, Set<String>> target
+    ) {
+
+        if (columnExpression == null) {
+            return;
+        }
+
+        String qualifier =
+                columnExpression.isQualified()
+                        ? normalizeIdentifier(
+                        columnExpression.getQualifier()
+                )
+                        : "";
+
+        target.computeIfAbsent(
+                qualifier,
+                ignored -> new LinkedHashSet<>()
+        ).add(
+                normalizeIdentifier(
+                        columnExpression.getColumnName()
+                )
+        );
+    }
+
+    private Set<String> requiredColumnsFor(
+            TableReference tableReference,
+            Map<String, Set<String>> requiredColumns
+    ) {
+
+        if (requiredColumns.isEmpty()) {
+            return null;
+        }
+
+        Set<String> result =
+                new LinkedHashSet<>();
+
+        Set<String> unqualified =
+                requiredColumns.get(
+                        ""
+                );
+
+        if (unqualified != null) {
+            result.addAll(
+                    unqualified
+            );
+        }
+
+        Set<String> tableColumns =
+                requiredColumns.get(
+                        normalizeIdentifier(
+                                tableReference.getTableName()
+                        )
+                );
+
+        if (tableColumns != null) {
+            result.addAll(
+                    tableColumns
+            );
+        }
+
+        if (tableReference.hasAlias()) {
+            Set<String> aliasColumns =
+                    requiredColumns.get(
+                            normalizeIdentifier(
+                                    tableReference.getAlias()
+                            )
+                    );
+
+            if (aliasColumns != null) {
+                result.addAll(
+                        aliasColumns
+                );
+            }
+        }
+
+        return result.isEmpty()
+                ? null
+                : result;
+    }
+
+    private String normalizeIdentifier(
+            String identifier
+    ) {
+
+        return Objects.requireNonNull(
+                        identifier,
+                        "Identifier cannot be null."
+                )
+                .trim()
+                .toLowerCase(
+                        Locale.ROOT
+                );
     }
 
     /**
@@ -1277,6 +1729,163 @@ public final class SelectExecutor {
         }
 
         return matched;
+    }
+
+    /**
+     * JOIN öncesinde yalnızca tek tabloya bağlı qualified WHERE
+     * predicate'lerini ilgili tablo satırlarına uygular.
+     *
+     * Final WHERE filtresi korunur; bu nedenle pushdown yalnızca join'e
+     * girecek aday satırları azaltır.
+     */
+    private List<Map<String, Object>> applyPushdownPredicates(
+            TableReference tableReference,
+            List<Map<String, Object>> rows,
+            Expression whereExpression
+    ) {
+
+        Objects.requireNonNull(
+                tableReference,
+                "Table reference cannot be null."
+        );
+
+        Objects.requireNonNull(
+                rows,
+                "Row map list cannot be null."
+        );
+
+        List<Expression> predicates =
+                collectPushdownPredicates(
+                        tableReference,
+                        whereExpression
+                );
+
+        if (predicates.isEmpty()) {
+            return rows;
+        }
+
+        List<Map<String, Object>> matchedRows =
+                new ArrayList<>();
+
+        for (Map<String, Object> row : rows) {
+
+            boolean matched =
+                    true;
+
+            for (Expression predicate : predicates) {
+
+                if (!expressionEvaluator.evaluate(
+                        predicate,
+                        row
+                )) {
+
+                    matched =
+                            false;
+
+                    break;
+                }
+            }
+
+            if (matched) {
+                matchedRows.add(
+                        row
+                );
+            }
+        }
+
+        return matchedRows;
+    }
+
+    private List<Expression> collectPushdownPredicates(
+            TableReference tableReference,
+            Expression expression
+    ) {
+
+        List<Expression> predicates =
+                new ArrayList<>();
+
+        collectPushdownPredicates(
+                tableReference,
+                expression,
+                predicates
+        );
+
+        return predicates;
+    }
+
+    private void collectPushdownPredicates(
+            TableReference tableReference,
+            Expression expression,
+            List<Expression> target
+    ) {
+
+        if (expression == null) {
+            return;
+        }
+
+        if (expression instanceof ComparisonExpression comparisonExpression) {
+
+            Expression unqualifiedPredicate =
+                    createPushdownPredicate(
+                            tableReference,
+                            comparisonExpression
+                    );
+
+            if (unqualifiedPredicate != null) {
+                target.add(
+                        unqualifiedPredicate
+                );
+            }
+
+            return;
+        }
+
+        if (expression instanceof LogicalExpression logicalExpression) {
+
+            if (logicalExpression.operator()
+                    != LogicalOperator.AND) {
+                return;
+            }
+
+            collectPushdownPredicates(
+                    tableReference,
+                    logicalExpression.leftExpression(),
+                    target
+            );
+
+            collectPushdownPredicates(
+                    tableReference,
+                    logicalExpression.rightExpression(),
+                    target
+            );
+        }
+    }
+
+    private Expression createPushdownPredicate(
+            TableReference tableReference,
+            ComparisonExpression comparisonExpression
+    ) {
+
+        if (!comparisonExpression.isColumnToValueComparison()) {
+            return null;
+        }
+
+        ColumnExpression column =
+                comparisonExpression.getLeftColumnExpression();
+
+        if (!column.isQualified()
+                || !tableReference.matches(
+                column.getQualifier()
+        )) {
+
+            return null;
+        }
+
+        return new ComparisonExpression(
+                column.getColumnName(),
+                comparisonExpression.operator(),
+                comparisonExpression.expectedValue()
+        );
     }
 
 
@@ -1569,6 +2178,13 @@ public final class SelectExecutor {
                             queryPlan.getWhereExpression()
                     );
 
+            case EMPTY_RESULT ->
+                    QueryResult.selectSuccess(
+                            table.getColumns(),
+                            List.of(),
+                            0L
+                    );
+
             case INDEX_SCAN ->
                     throw new UnsupportedOperationException(
                             "INDEX_SCAN requires index context and a row resolver."
@@ -1584,7 +2200,8 @@ public final class SelectExecutor {
             Table table,
             List<Row> rows,
             List<Index<?>> availableIndexes,
-            Function<RecordPointer, Row> rowResolver
+            Function<RecordPointer, Row> rowResolver,
+            Expression finalWhereExpression
     ) {
 
         if (queryPlan.getPlanType()
@@ -1594,6 +2211,16 @@ public final class SelectExecutor {
                     table,
                     rows,
                     queryPlan.getWhereExpression()
+            );
+        }
+
+        if (queryPlan.getPlanType()
+                == com.yekdb.query.optimizer.QueryPlanType.EMPTY_RESULT) {
+
+            return QueryResult.selectSuccess(
+                    table.getColumns(),
+                    List.of(),
+                    0L
             );
         }
 
@@ -1626,6 +2253,7 @@ public final class SelectExecutor {
                 table,
                 selectedIndex,
                 queryPlan.getWhereExpression(),
+                finalWhereExpression,
                 rowResolver
         );
     }

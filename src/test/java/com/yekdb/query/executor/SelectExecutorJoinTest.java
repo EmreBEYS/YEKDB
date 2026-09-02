@@ -3,6 +3,8 @@ package com.yekdb.query.executor;
 import com.yekdb.query.expression.ColumnExpression;
 import com.yekdb.query.expression.ComparisonExpression;
 import com.yekdb.query.expression.ComparisonOperator;
+import com.yekdb.query.expression.LogicalExpression;
+import com.yekdb.query.expression.LogicalOperator;
 import com.yekdb.query.result.QueryResult;
 import com.yekdb.query.statement.JoinClause;
 import com.yekdb.query.statement.JoinType;
@@ -291,6 +293,153 @@ class SelectExecutorJoinTest {
                 result.getRows()
                         .get(1)
                         .getValue(1)
+        );
+    }
+
+    @Test
+    void shouldApplyQualifiedAndPredicatesWithJoinPushdown() {
+
+        ComparisonExpression employeePredicate =
+                new ComparisonExpression(
+                        new ColumnExpression(
+                                "e",
+                                "id"
+                        ),
+                        ComparisonOperator.GREATER_THAN,
+                        1
+                );
+
+        ComparisonExpression departmentPredicate =
+                new ComparisonExpression(
+                        new ColumnExpression(
+                                "d",
+                                "name"
+                        ),
+                        ComparisonOperator.EQUALS,
+                        "IT"
+                );
+
+        SelectStatement statement =
+                new SelectStatement(
+                        new TableReference(
+                                "employee",
+                                "e"
+                        ),
+                        List.of(
+                                new SelectItem(
+                                        "e.name"
+                                ),
+                                new SelectItem(
+                                        "d.name"
+                                )
+                        ),
+                        List.of(
+                                createDepartmentJoin()
+                        ),
+                        new LogicalExpression(
+                                employeePredicate,
+                                LogicalOperator.AND,
+                                departmentPredicate
+                        )
+                );
+
+        QueryResult result =
+                selectExecutor.executeStatement(
+                        employeeTable,
+                        employeeRows,
+                        departmentTable,
+                        departmentRows,
+                        statement
+                );
+
+        assertEquals(
+                1,
+                result.getRows()
+                        .size()
+        );
+
+        assertEquals(
+                "Ayse",
+                result.getRows()
+                        .get(0)
+                        .getValue(0)
+        );
+
+        assertEquals(
+                "IT",
+                result.getRows()
+                        .get(0)
+                        .getValue(1)
+        );
+    }
+
+    @Test
+    void projectionPushdownShouldKeepJoinAndWhereColumns() {
+
+        SelectStatement statement =
+                new SelectStatement(
+                        new TableReference(
+                                "employee",
+                                "e"
+                        ),
+                        List.of(
+                                new SelectItem(
+                                        "e.name"
+                                )
+                        ),
+                        List.of(
+                                createDepartmentJoin()
+                        ),
+                        new ComparisonExpression(
+                                new ColumnExpression(
+                                        "d",
+                                        "name"
+                                ),
+                                ComparisonOperator.EQUALS,
+                                "IT"
+                        )
+                );
+
+        QueryResult result =
+                selectExecutor.executeStatement(
+                        employeeTable,
+                        employeeRows,
+                        departmentTable,
+                        departmentRows,
+                        statement
+                );
+
+        assertEquals(
+                2,
+                result.getRows()
+                        .size()
+        );
+
+        assertEquals(
+                1,
+                result.getColumns()
+                        .size()
+        );
+
+        assertEquals(
+                "e.name",
+                result.getColumns()
+                        .get(0)
+                        .getName()
+        );
+
+        assertEquals(
+                "Yunus",
+                result.getRows()
+                        .get(0)
+                        .getValue(0)
+        );
+
+        assertEquals(
+                "Ayse",
+                result.getRows()
+                        .get(1)
+                        .getValue(0)
         );
     }
 

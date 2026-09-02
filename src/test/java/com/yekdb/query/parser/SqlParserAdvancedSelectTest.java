@@ -1,5 +1,6 @@
 package com.yekdb.query.parser;
 
+import com.yekdb.query.expression.ComparisonExpression;
 import com.yekdb.query.statement.FetchClause;
 import com.yekdb.query.statement.GroupByClause;
 import com.yekdb.query.statement.HavingClause;
@@ -613,6 +614,30 @@ class SqlParserAdvancedSelectTest {
 
         assertTrue(
                 statement.hasGroupBy()
+        );
+    }
+
+    @Test
+    void shouldFoldConstantExpressionInWhereClause() {
+
+        SelectStatement statement =
+                parseSelect(
+                        """
+                        SELECT *
+                        FROM employees
+                        WHERE salary > (10000 + 5000);
+                        """
+                );
+
+        ComparisonExpression comparison =
+                assertInstanceOf(
+                        ComparisonExpression.class,
+                        statement.getWhereExpression()
+                );
+
+        assertEquals(
+                15000,
+                comparison.expectedValue()
         );
     }
 

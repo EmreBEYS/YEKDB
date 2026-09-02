@@ -2,11 +2,13 @@ package com.yekdb.query.mapper;
 
 import com.yekdb.query.command.Command;
 import com.yekdb.query.command.DeleteCommand;
+import com.yekdb.query.command.ExplainCommand;
 import com.yekdb.query.command.InsertCommand;
 import com.yekdb.query.command.SelectCommand;
 import com.yekdb.query.command.UpdateCommand;
 import com.yekdb.query.executor.QueryExecutionException;
 import com.yekdb.query.statement.DeleteStatement;
+import com.yekdb.query.statement.ExplainStatement;
 import com.yekdb.query.statement.InsertStatement;
 import com.yekdb.query.statement.SelectStatement;
 import com.yekdb.query.statement.Statement;
@@ -69,6 +71,14 @@ public final class StatementCommandMapper {
         }
 
         if (statement
+                instanceof ExplainStatement explainStatement) {
+
+            return mapExplain(
+                    explainStatement
+            );
+        }
+
+        if (statement
                 instanceof SelectStatement selectStatement) {
 
             return mapSelect(
@@ -112,6 +122,19 @@ public final class StatementCommandMapper {
                 statement.getTableName(),
                 statement.getColumns(),
                 statement.getValues()
+        );
+    }
+
+    // ==================================================
+    // EXPLAIN
+    // ==================================================
+
+    private static ExplainCommand mapExplain(
+            ExplainStatement statement
+    ) {
+
+        return new ExplainCommand(
+                statement.getSelectStatement()
         );
     }
 

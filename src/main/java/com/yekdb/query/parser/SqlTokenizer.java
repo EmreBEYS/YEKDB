@@ -54,6 +54,11 @@ public final class SqlTokenizer {
                     ),
 
                     Map.entry(
+                            "EXPLAIN",
+                            SqlTokenType.EXPLAIN
+                    ),
+
+                    Map.entry(
                             "INSERT",
                             SqlTokenType.INSERT
                     ),
@@ -666,6 +671,21 @@ public final class SqlTokenizer {
                             SqlTokenType.ASTERISK
                     );
 
+            case '+' ->
+                    singleCharacterToken(
+                            SqlTokenType.PLUS
+                    );
+
+            case '-' ->
+                    singleCharacterToken(
+                            SqlTokenType.MINUS
+                    );
+
+            case '/' ->
+                    singleCharacterToken(
+                            SqlTokenType.SLASH
+                    );
+
             case ';' ->
                     singleCharacterToken(
                             SqlTokenType.SEMICOLON
@@ -797,7 +817,44 @@ public final class SqlTokenizer {
                 && hasNextCharacter()
                 && Character.isDigit(
                 nextCharacter()
-        );
+        )
+                && previousNonWhitespaceAllowsNegativeNumber();
+    }
+
+    private boolean previousNonWhitespaceAllowsNegativeNumber() {
+
+        int previousPosition =
+                position - 1;
+
+        while (previousPosition >= 0
+                && Character.isWhitespace(
+                sql.charAt(
+                        previousPosition
+                )
+        )) {
+
+            previousPosition--;
+        }
+
+        if (previousPosition < 0) {
+            return true;
+        }
+
+        char previous =
+                sql.charAt(
+                        previousPosition
+                );
+
+        return previous == '('
+                || previous == ','
+                || previous == '='
+                || previous == '>'
+                || previous == '<'
+                || previous == '!'
+                || previous == '+'
+                || previous == '-'
+                || previous == '*'
+                || previous == '/';
     }
 
     // ==================================================

@@ -13,5 +13,11 @@ public enum QueryPlanType {
     /**
      * Uygun bir index kullanılarak satırlara erişilir.
      */
-    INDEX_SCAN
+    INDEX_SCAN,
+
+    /**
+     * WHERE koşulunun sabit olarak false olduğu bilindiği için
+     * storage taraması yapılmadan boş sonuç döndürülür.
+     */
+    EMPTY_RESULT
 }

@@ -7,8 +7,8 @@
 ![Maven](https://img.shields.io/badge/Maven-3.x-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-green)
 ![Status](https://img.shields.io/badge/Status-Active%20Development-yellow)
-![Tests](https://img.shields.io/badge/JUnit-1830%20Tests%20Passed-brightgreen)
-![Sprint](https://img.shields.io/badge/Sprint-00--30-blueviolet)
+![Tests](https://img.shields.io/badge/JUnit-1870%20Tests%20Passed-brightgreen)
+![Sprint](https://img.shields.io/badge/Sprint-00--31-blueviolet)
 
 ---
 
@@ -121,6 +121,14 @@ The long-term goal is a complete page-oriented database engine with durable stor
 - Trigger events for `INSERT`, `UPDATE`, and `DELETE`
 - Trigger pseudo-row access through `NEW.*` and `OLD.*`
 - Trigger body DML execution
+- Rule-based Query Optimization V2 pipeline
+- SQL `EXPLAIN SELECT ...` integration
+- Query plan reporting with `FULL_TABLE_SCAN` and `INDEX_SCAN`
+- Index-selection trace through `ACCESS_PREDICATE` and `RESIDUAL_PREDICATE`
+- Original vs optimized WHERE expression tracing
+- Optimization-rule reporting
+- `EXPLAIN` support for view-backed queries
+- Full-table-scan fallback after index removal
 
 ---
 
@@ -869,6 +877,12 @@ Implemented trigger capabilities:
 - `NEW.*` pseudo-row access for insert/update workflows
 - `OLD.*` pseudo-row access for update/delete workflows
 - Trigger body DML execution
+- Query Optimization V2 rule pipeline
+- `EXPLAIN SELECT` execution-plan inspection
+- Full-table-scan / index-scan plan reporting
+- Access / residual predicate tracing
+- View-aware EXPLAIN planning
+- Index-removal fallback verification
 - Terminal-visible trigger execution failures
 
 Example:
@@ -912,6 +926,139 @@ Current V1 limitations:
 
 - Trigger execution is not transaction-atomic yet. If an `AFTER` trigger fails, the main mutation and earlier `BEFORE` trigger side effects may remain applied instead of being rolled back as a single atomic statement.
 - `INSERT INTO table VALUES (...)` without an explicit column list is not yet supported.
+
+
+---
+
+## Query Optimization V2 & EXPLAIN — Sprint 00-31
+
+Sprint 00-31 extends YEKDB's query engine with a second-stage rule-based optimization pipeline and terminal-visible execution-plan inspection through `EXPLAIN`.
+
+The sprint connects SQL parsing, optimizer context construction, B+ Tree index selection, predicate classification, view resolution, query execution, and terminal output into one explainable planning workflow.
+
+### EXPLAIN
+
+YEKDB now supports:
+
+```sql
+EXPLAIN SELECT id, name
+FROM users
+WHERE age > 18;
+```
+
+A plan can expose information such as:
+
+```text
+PLAN: INDEX_SCAN
+INDEX: idx_users_age
+ORIGINAL_WHERE: age GREATER_THAN 18
+OPTIMIZED_WHERE: age GREATER_THAN 18
+ACCESS_PREDICATE: age GREATER_THAN 18
+RESIDUAL_PREDICATE: NONE
+RULES: EXPRESSION_OPTIMIZATION, INDEX_SELECTION
+DETAIL: B+ Tree index 'idx_users_age' will be used for column 'age'.
+```
+
+When no compatible index exists, the optimizer falls back safely:
+
+```text
+PLAN: FULL_TABLE_SCAN
+INDEX: NONE
+ACCESS_PREDICATE: NONE
+RESIDUAL_PREDICATE: age GREATER_THAN 18
+RULES: EXPRESSION_OPTIMIZATION
+```
+
+### Access vs Residual Predicates
+
+For compound predicates, YEKDB distinguishes the part used to access the index from the part that still needs row-level filtering.
+
+Example:
+
+```sql
+EXPLAIN SELECT id, name
+FROM users
+WHERE id = 3 AND age > 18;
+```
+
+With an index on `id`, the observed plan is:
+
+```text
+PLAN: INDEX_SCAN
+INDEX: idx_users_id
+ACCESS_PREDICATE: id EQUALS 3
+RESIDUAL_PREDICATE: age GREATER_THAN 18
+RULES: EXPRESSION_OPTIMIZATION, INDEX_SELECTION
+```
+
+This keeps index access and post-access filtering explicit instead of hiding both inside a single WHERE representation.
+
+### View-Aware EXPLAIN
+
+`EXPLAIN` also resolves view-backed queries.
+
+Example:
+
+```sql
+CREATE VIEW adult_users AS
+SELECT id, name, age
+FROM users
+WHERE age >= 18;
+
+EXPLAIN SELECT name
+FROM adult_users;
+```
+
+The resulting plan reports the view, its source query, and the selected access path for the underlying base table.
+
+Observed live output included:
+
+```text
+VIEW: adult_users
+VIEW_SOURCE: SELECT id, name, age FROM users WHERE age >= 18
+PLAN: INDEX_SCAN
+INDEX: idx_users_age
+ACCESS_PREDICATE: age GREATER_THAN_OR_EQUALS 18
+RESIDUAL_PREDICATE: NONE
+RULES: EXPRESSION_OPTIMIZATION, INDEX_SELECTION
+```
+
+### EXPLAIN Scope
+
+Sprint 00-31 intentionally limits `EXPLAIN` to `SELECT` statements.
+
+For example:
+
+```sql
+EXPLAIN INSERT INTO users (id, name, age)
+VALUES (5, 'Test', 40);
+```
+
+is rejected during parsing with a terminal-visible error indicating that `EXPLAIN` currently supports `SELECT` statements only.
+
+### Terminal Validation
+
+Live terminal verification confirmed:
+
+```text
+EXPLAIN without WHERE                            PASS
+FULL_TABLE_SCAN without compatible index        PASS
+INDEX_SCAN after CREATE INDEX                    PASS
+Equality predicate index selection              PASS
+Access / residual predicate separation          PASS
+View-backed EXPLAIN                              PASS
+Invalid EXPLAIN INSERT rejection                 PASS
+DROP INDEX -> FULL_TABLE_SCAN fallback           PASS
+Query-result correctness with optimizer enabled PASS
+```
+
+The final live workflow also verified that removing `idx_users_age` immediately changes the same `age > 18` query plan from `INDEX_SCAN` back to `FULL_TABLE_SCAN` without changing query semantics.
+
+Current V1 notes:
+
+- `EXPLAIN` currently supports `SELECT` statements only.
+- The optimizer is rule-based; cost-based planning is a later roadmap item.
+- Complex logical expressions are functionally supported, while their human-readable pretty-printing can be improved further.
 
 
 The interactive terminal from Sprint 00-23 remains fully integrated with the query and storage layers.
@@ -1253,32 +1400,30 @@ The `\history` command itself is intentionally not added to history.
 
 YEKDB uses JUnit 5 with regression testing after every development phase.
 
-Current project status after Sprint 00-30:
+Current project status after Sprint 00-31:
 
 ```text
 Compile: SUCCESS
-Tests:   1830 / 1830 PASSED
-Sprint 00-30 terminal integration: PASSED
+Tests:   1870 / 1870 PASSED
+Sprint 00-31 terminal integration: PASSED
 ```
 
-Sprint 00-30 keeps the complete Sprint 00-29 regression suite green and adds coverage for:
+Sprint 00-31 keeps the complete Sprint 00-30 regression suite green and adds coverage for:
 
-- `CREATE VIEW`
-- view metadata lifecycle
-- view persistence and recovery
-- view resolution through `SELECT`
-- live view updates after base-table mutation
-- `CREATE TRIGGER`
-- `DROP TRIGGER`
-- trigger metadata lifecycle
-- trigger persistence and recovery
-- `BEFORE INSERT / UPDATE / DELETE`
-- `AFTER INSERT / UPDATE / DELETE`
-- `NEW.*` pseudo-row access
-- `OLD.*` pseudo-row access
-- trigger body DML execution
-- terminal-visible trigger execution behavior
-- live terminal verification across the complete view and trigger lifecycle
+- `EXPLAIN SELECT` parsing and execution
+- `FULL_TABLE_SCAN` planning without a compatible index
+- `INDEX_SCAN` planning with B+ Tree indexes
+- original / optimized WHERE tracing
+- access-predicate selection
+- residual-predicate preservation
+- optimizer rule reporting
+- index-selection behavior for equality and range-compatible predicates
+- view-backed `EXPLAIN`
+- rejection of unsupported `EXPLAIN INSERT`
+- `DROP INDEX` fallback to full table scan
+- query-result regression checks with optimization enabled
+- edge cases with missing WHERE conditions and unavailable indexes
+- live terminal verification across the complete Sprint 00-31 planning workflow
 
 The complete legacy regression suite remains green.
 
@@ -1315,6 +1460,7 @@ Recent completed sprints:
 - **00-28** — Scalar SQL Functions & Extended Data Types
 - **00-29** — B+ Tree Index Integration
 - **00-30** — Views & Triggers
+- **00-31** — Query Optimization V2 & EXPLAIN
 
 ---
 
@@ -1734,6 +1880,93 @@ Observed V1 limitation:
 - Trigger execution is not transaction-atomic yet. If an `AFTER` trigger fails, the main mutation and earlier `BEFORE` trigger side effects may remain applied instead of being rolled back as a single atomic statement.
 
 
+---
+
+## Sprint 00-31 Summary
+
+Sprint 00-31 completed YEKDB's Query Optimization V2 and first terminal-visible query-plan explanation workflow.
+
+Implemented areas:
+
+1. `EXPLAIN SELECT` SQL parsing
+2. EXPLAIN statement / command mapping
+3. Query-plan explanation pipeline
+4. Optimizer context integration
+5. Original WHERE tracing
+6. Optimized WHERE tracing
+7. Rule-based expression optimization reporting
+8. `FULL_TABLE_SCAN` plan reporting
+9. `INDEX_SCAN` plan reporting
+10. B+ Tree index selection reporting
+11. Access-predicate extraction
+12. Residual-predicate preservation
+13. Equality predicate index planning
+14. Range-compatible predicate index planning
+15. No-WHERE plan handling
+16. No-index fallback handling
+17. View source resolution for EXPLAIN
+18. View-backed index-plan reporting
+19. Unsupported EXPLAIN statement rejection
+20. DROP INDEX fallback regression
+21. Query-result correctness regression
+22. Edge-case and hardening tests
+23. Interactive terminal live verification
+24. Full unit / integration / regression verification
+
+Final verification:
+
+```text
+1870 / 1870 tests passed
+Compile successful
+Query Optimization V2 terminal live tests passed
+```
+
+Live terminal verification covered:
+
+```sql
+EXPLAIN SELECT id, name
+FROM users;
+
+EXPLAIN SELECT id, name
+FROM users
+WHERE age > 18;
+
+CREATE INDEX idx_users_age
+ON users(age);
+
+EXPLAIN SELECT id, name
+FROM users
+WHERE age > 18;
+
+CREATE INDEX idx_users_id
+ON users(id);
+
+EXPLAIN SELECT name
+FROM users
+WHERE id = 3;
+
+EXPLAIN SELECT id, name
+FROM users
+WHERE id = 3 AND age > 18;
+
+CREATE VIEW adult_users AS
+SELECT id, name, age
+FROM users
+WHERE age >= 18;
+
+EXPLAIN SELECT name
+FROM adult_users;
+
+DROP INDEX idx_users_age;
+
+EXPLAIN SELECT id, name
+FROM users
+WHERE age > 18;
+```
+
+The observed plans matched the expected access paths throughout the lifecycle: full scan without an index, B+ Tree index scan after index creation, access/residual predicate separation for compound conditions, view-aware planning, and automatic fallback after index removal.
+
+
 ## Roadmap
 
 ### Completed / Established
@@ -1805,7 +2038,7 @@ Observed V1 limitation:
 - Buffer pool
 - Concurrency control / MVCC
 - Client/server architecture
-- Query planning and cost-based optimization improvements
+- Cost-based query planning, statistics, and optimization improvements
 - Additional terminal commands and administration features
 
 ---
@@ -1835,7 +2068,7 @@ Development is documented sprint-by-sprint with technical developer notes coveri
 
 Latest documentation:
 
-**Developer Notes — Sprint 00-30: Views & Triggers**
+**Developer Notes — Sprint 00-31: Query Optimization V2 & EXPLAIN**
 
 ---
 

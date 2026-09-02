@@ -6,6 +6,7 @@ import com.yekdb.query.expression.ComparisonOperator;
 import com.yekdb.query.expression.Expression;
 import com.yekdb.query.expression.FunctionCallExpression;
 import com.yekdb.query.statement.DeleteStatement;
+import com.yekdb.query.statement.ExplainStatement;
 import com.yekdb.query.statement.FetchClause;
 import com.yekdb.query.statement.GroupByClause;
 import com.yekdb.query.statement.HavingClause;
@@ -121,6 +122,9 @@ public final class SqlParser {
                     case SELECT ->
                             parseSelect();
 
+                    case EXPLAIN ->
+                            parseExplain();
+
                     case UPDATE ->
                             parseUpdate();
 
@@ -143,6 +147,31 @@ public final class SqlParser {
         );
 
         return statement;
+    }
+
+    // ==================================================
+    // EXPLAIN
+    // ==================================================
+
+    private ExplainStatement parseExplain() {
+
+        tokenCursor.expect(
+                SqlTokenType.EXPLAIN,
+                "Expected EXPLAIN keyword."
+        );
+
+        if (!tokenCursor.check(
+                SqlTokenType.SELECT
+        )) {
+
+            throw tokenCursor.error(
+                    "EXPLAIN currently supports SELECT statements only."
+            );
+        }
+
+        return new ExplainStatement(
+                parseSelect()
+        );
     }
 
     // ==================================================

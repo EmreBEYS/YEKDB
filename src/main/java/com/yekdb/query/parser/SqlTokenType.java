@@ -23,6 +23,7 @@ public enum SqlTokenType {
     // ==================================================
 
     SELECT,
+    EXPLAIN,
     INSERT,
     UPDATE,
     DELETE,
@@ -155,6 +156,9 @@ public enum SqlTokenType {
     RIGHT_PARENTHESIS,
 
     ASTERISK,
+    PLUS,
+    MINUS,
+    SLASH,
     SEMICOLON,
 
     // ==================================================

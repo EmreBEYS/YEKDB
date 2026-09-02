@@ -956,4 +956,178 @@ class ExpressionParserTest {
         );
     }
 
+    @Test
+    void shouldFoldConstantAdditionInComparisonValue() {
+
+        Expression expression =
+                parser.parse(
+                        "salary > 10000 + 5000"
+                );
+
+        ComparisonExpression comparison =
+                assertInstanceOf(
+                        ComparisonExpression.class,
+                        expression
+                );
+
+        assertEquals(
+                15000,
+                comparison.expectedValue()
+        );
+    }
+
+    @Test
+    void shouldFoldConstantExpressionWithPrecedence() {
+
+        Expression expression =
+                parser.parse(
+                        "salary > 10000 + 5000 * 2"
+                );
+
+        ComparisonExpression comparison =
+                assertInstanceOf(
+                        ComparisonExpression.class,
+                        expression
+                );
+
+        assertEquals(
+                20000,
+                comparison.expectedValue()
+        );
+    }
+
+    @Test
+    void shouldFoldParenthesizedConstantExpression() {
+
+        Expression expression =
+                parser.parse(
+                        "salary > (10000 + 5000) * 2"
+                );
+
+        ComparisonExpression comparison =
+                assertInstanceOf(
+                        ComparisonExpression.class,
+                        expression
+                );
+
+        assertEquals(
+                30000,
+                comparison.expectedValue()
+        );
+    }
+
+    @Test
+    void shouldFoldConstantSubtractionInComparisonValue() {
+
+        Expression expression =
+                parser.parse(
+                        "salary > 20000 - 5000"
+                );
+
+        ComparisonExpression comparison =
+                assertInstanceOf(
+                        ComparisonExpression.class,
+                        expression
+                );
+
+        assertEquals(
+                15000,
+                comparison.expectedValue()
+        );
+    }
+
+    @Test
+    void shouldFoldConstantDivisionAsDoubleWhenNeeded() {
+
+        Expression expression =
+                parser.parse(
+                        "ratio > 5 / 2"
+                );
+
+        ComparisonExpression comparison =
+                assertInstanceOf(
+                        ComparisonExpression.class,
+                        expression
+                );
+
+        assertEquals(
+                2.5,
+                comparison.expectedValue()
+        );
+    }
+
+    @Test
+    void shouldFoldConstantBetweenBounds() {
+
+        Expression expression =
+                parser.parse(
+                        "age BETWEEN 10 + 8 AND 20 + 10"
+                );
+
+        BetweenExpression between =
+                assertInstanceOf(
+                        BetweenExpression.class,
+                        expression
+                );
+
+        assertEquals(
+                18,
+                between.getLowerBound()
+        );
+
+        assertEquals(
+                30,
+                between.getUpperBound()
+        );
+    }
+
+    @Test
+    void shouldRejectDivisionByZeroInConstantExpression() {
+
+        assertThrows(
+                ParserException.class,
+                () -> parser.parse(
+                        "ratio > 10 / 0"
+                )
+        );
+    }
+
+    @Test
+    void shouldParseConstantTruePredicate() {
+
+        Expression expression =
+                parser.parse(
+                        "1 = 1"
+                );
+
+        BooleanConstantExpression constant =
+                assertInstanceOf(
+                        BooleanConstantExpression.class,
+                        expression
+                );
+
+        assertTrue(
+                constant.value()
+        );
+    }
+
+    @Test
+    void shouldParseConstantFalsePredicate() {
+
+        Expression expression =
+                parser.parse(
+                        "1 = 0"
+                );
+
+        BooleanConstantExpression constant =
+                assertInstanceOf(
+                        BooleanConstantExpression.class,
+                        expression
+                );
+
+        assertFalse(
+                constant.value()
+        );
+    }
+
 }
