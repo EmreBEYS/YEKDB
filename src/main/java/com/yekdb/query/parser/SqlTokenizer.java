@@ -59,6 +59,46 @@ public final class SqlTokenizer {
                     ),
 
                     Map.entry(
+                            "BEGIN",
+                            SqlTokenType.BEGIN
+                    ),
+
+                    Map.entry(
+                            "START",
+                            SqlTokenType.START
+                    ),
+
+                    Map.entry(
+                            "TRANSACTION",
+                            SqlTokenType.TRANSACTION
+                    ),
+
+                    Map.entry(
+                            "COMMIT",
+                            SqlTokenType.COMMIT
+                    ),
+
+                    Map.entry(
+                            "ROLLBACK",
+                            SqlTokenType.ROLLBACK
+                    ),
+
+                    Map.entry(
+                            "SAVEPOINT",
+                            SqlTokenType.SAVEPOINT
+                    ),
+
+                    Map.entry(
+                            "RELEASE",
+                            SqlTokenType.RELEASE
+                    ),
+
+                    Map.entry(
+                            "TO",
+                            SqlTokenType.TO
+                    ),
+
+                    Map.entry(
                             "INSERT",
                             SqlTokenType.INSERT
                     ),

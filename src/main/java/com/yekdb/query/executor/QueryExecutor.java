@@ -8,6 +8,8 @@ import com.yekdb.index.IndexType;
 import com.yekdb.index.RecordPointer;
 import com.yekdb.query.command.Command;
 import com.yekdb.query.command.AlterTableCommand;
+import com.yekdb.query.command.BeginTransactionCommand;
+import com.yekdb.query.command.CommitTransactionCommand;
 import com.yekdb.query.command.CreateDatabaseCommand;
 import com.yekdb.query.command.CreateIndexCommand;
 import com.yekdb.query.command.CreateTableCommand;
@@ -21,7 +23,13 @@ import com.yekdb.query.command.DropTriggerCommand;
 import com.yekdb.query.command.DropViewCommand;
 import com.yekdb.query.command.ExplainCommand;
 import com.yekdb.query.command.InsertCommand;
+import com.yekdb.query.command.ReleaseSavepointCommand;
+import com.yekdb.query.command.RollbackTransactionCommand;
+import com.yekdb.query.command.RollbackToSavepointCommand;
+import com.yekdb.query.command.SavepointCommand;
 import com.yekdb.query.command.SelectCommand;
+import com.yekdb.query.command.ShowSavepointsCommand;
+import com.yekdb.query.command.ShowTransactionCommand;
 import com.yekdb.query.command.ShowTriggersCommand;
 import com.yekdb.query.command.ShowViewsCommand;
 import com.yekdb.query.command.UpdateCommand;
@@ -41,6 +49,9 @@ import com.yekdb.storage.table.DataType;
 import com.yekdb.storage.table.Table;
 import com.yekdb.storage.table.TableManager;
 import com.yekdb.storage.table.TableMetadata;
+import com.yekdb.transaction.TransactionContext;
+import com.yekdb.transaction.TransactionManager;
+import com.yekdb.transaction.TransactionSavepointInfo;
 import com.yekdb.trigger.TriggerDefinition;
 import com.yekdb.trigger.TriggerEvent;
 import com.yekdb.trigger.TriggerMetadata;
@@ -55,6 +66,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Supplier;
 
 /**
  * Parser veya istemci katmanı tarafından oluşturulan SQL komutlarını
@@ -150,6 +162,11 @@ public final class QueryExecutor implements AutoCloseable {
      * EXPLAIN SELECT plan satırlarını optimizer üzerinden üretir.
      */
     private final ExplainCommandExecutionSupport explainExecutionSupport;
+
+    /**
+     * Sprint 00-32 Phase 1 transaction yasam dongusunu yonetir.
+     */
+    private final TransactionManager transactionManager;
 
     /**
      * View çözümleme sırasında recursive referansları yakalar.
@@ -337,6 +354,9 @@ public final class QueryExecutor implements AutoCloseable {
         this.explainExecutionSupport =
                 new ExplainCommandExecutionSupport();
 
+        this.transactionManager =
+                new TransactionManager();
+
         this.activeViewStack =
                 new ArrayDeque<>();
 
@@ -396,6 +416,12 @@ public final class QueryExecutor implements AutoCloseable {
          */
         if (firstKeyword.equals("INSERT")
                 || firstKeyword.equals("EXPLAIN")
+                || firstKeyword.equals("BEGIN")
+                || firstKeyword.equals("START")
+                || firstKeyword.equals("COMMIT")
+                || firstKeyword.equals("ROLLBACK")
+                || firstKeyword.equals("SAVEPOINT")
+                || firstKeyword.equals("RELEASE")
                 || firstKeyword.equals("SELECT")
                 || firstKeyword.equals("UPDATE")
                 || firstKeyword.equals("DELETE")) {
@@ -478,6 +504,58 @@ public final class QueryExecutor implements AutoCloseable {
         }
 
         try {
+
+            enforceTransactionCommandBoundary(
+                    command
+            );
+
+            if (command
+                    instanceof BeginTransactionCommand value) {
+
+                return executeBeginTransaction(
+                        value
+                );
+            }
+
+            if (command
+                    instanceof CommitTransactionCommand value) {
+
+                return executeCommitTransaction(
+                        value
+                );
+            }
+
+            if (command
+                    instanceof RollbackTransactionCommand value) {
+
+                return executeRollbackTransaction(
+                        value
+                );
+            }
+
+            if (command
+                    instanceof SavepointCommand value) {
+
+                return executeSavepoint(
+                        value
+                );
+            }
+
+            if (command
+                    instanceof RollbackToSavepointCommand value) {
+
+                return executeRollbackToSavepoint(
+                        value
+                );
+            }
+
+            if (command
+                    instanceof ReleaseSavepointCommand value) {
+
+                return executeReleaseSavepoint(
+                        value
+                );
+            }
 
             if (command
                     instanceof CreateDatabaseCommand value) {
@@ -563,6 +641,22 @@ public final class QueryExecutor implements AutoCloseable {
                     instanceof ShowViewsCommand value) {
 
                 return executeShowViews(
+                        value
+                );
+            }
+
+            if (command
+                    instanceof ShowTransactionCommand value) {
+
+                return executeShowTransaction(
+                        value
+                );
+            }
+
+            if (command
+                    instanceof ShowSavepointsCommand value) {
+
+                return executeShowSavepoints(
                         value
                 );
             }
@@ -656,6 +750,46 @@ public final class QueryExecutor implements AutoCloseable {
     }
 
 
+    private void enforceTransactionCommandBoundary(
+            Command command
+    ) {
+
+        if (!transactionManager.hasActiveTransaction()) {
+            return;
+        }
+
+        if (!isTransactionUnsafeCommand(
+                command
+        )) {
+            return;
+        }
+
+        throw new QueryExecutionException(
+                resolveOperationName(
+                        command
+                )
+                        + " cannot run inside an active transaction."
+        );
+    }
+
+    private boolean isTransactionUnsafeCommand(
+            Command command
+    ) {
+
+        return command instanceof CreateDatabaseCommand
+                || command instanceof UseDatabaseCommand
+                || command instanceof DropDatabaseCommand
+                || command instanceof CreateTableCommand
+                || command instanceof DropTableCommand
+                || command instanceof AlterTableCommand
+                || command instanceof CreateIndexCommand
+                || command instanceof DropIndexCommand
+                || command instanceof CreateViewCommand
+                || command instanceof DropViewCommand
+                || command instanceof CreateTriggerCommand
+                || command instanceof DropTriggerCommand;
+    }
+
 
     /**
      * Alt execution katmanından gelen RuntimeException mesajını
@@ -722,6 +856,30 @@ public final class QueryExecutor implements AutoCloseable {
             return "SELECT";
         }
 
+        if (command instanceof BeginTransactionCommand) {
+            return "BEGIN";
+        }
+
+        if (command instanceof CommitTransactionCommand) {
+            return "COMMIT";
+        }
+
+        if (command instanceof RollbackTransactionCommand) {
+            return "ROLLBACK";
+        }
+
+        if (command instanceof SavepointCommand) {
+            return "SAVEPOINT";
+        }
+
+        if (command instanceof RollbackToSavepointCommand) {
+            return "ROLLBACK TO SAVEPOINT";
+        }
+
+        if (command instanceof ReleaseSavepointCommand) {
+            return "RELEASE SAVEPOINT";
+        }
+
         if (command instanceof ExplainCommand) {
             return "EXPLAIN";
         }
@@ -770,6 +928,14 @@ public final class QueryExecutor implements AutoCloseable {
             return "SHOW VIEWS";
         }
 
+        if (command instanceof ShowTransactionCommand) {
+            return "SHOW TRANSACTION";
+        }
+
+        if (command instanceof ShowSavepointsCommand) {
+            return "SHOW SAVEPOINTS";
+        }
+
         if (command instanceof CreateTriggerCommand) {
             return "CREATE TRIGGER";
         }
@@ -795,6 +961,237 @@ public final class QueryExecutor implements AutoCloseable {
         }
 
         return "Query";
+    }
+
+    /**
+     * BEGIN.
+     */
+    private ExecuteResult executeBeginTransaction(
+            BeginTransactionCommand command
+    ) {
+
+        TransactionContext transaction =
+                transactionManager.begin(
+                        command.getAccessMode(),
+                        command.getIsolationLevel()
+                );
+
+        return ExecuteResult.success(
+                "Transaction started successfully: "
+                        + transaction.getTransactionId()
+        );
+    }
+
+    /**
+     * COMMIT.
+     */
+    private ExecuteResult executeCommitTransaction(
+            CommitTransactionCommand command
+    ) {
+
+        TransactionContext transaction =
+                transactionManager.commit();
+
+        return ExecuteResult.success(
+                "Transaction committed successfully: "
+                        + transaction.getTransactionId()
+        );
+    }
+
+    /**
+     * ROLLBACK.
+     */
+    private ExecuteResult executeRollbackTransaction(
+            RollbackTransactionCommand command
+    ) {
+
+        TransactionContext transaction =
+                transactionManager.rollback();
+
+        return ExecuteResult.success(
+                "Transaction rolled back successfully: "
+                        + transaction.getTransactionId()
+        );
+    }
+
+    /**
+     * SAVEPOINT.
+     */
+    private ExecuteResult executeSavepoint(
+            SavepointCommand command
+    ) {
+
+        transactionManager.createSavepoint(
+                command.getSavepointName()
+        );
+
+        return ExecuteResult.success(
+                "Savepoint created successfully: "
+                        + command.getSavepointName()
+        );
+    }
+
+    /**
+     * ROLLBACK TO SAVEPOINT.
+     */
+    private ExecuteResult executeRollbackToSavepoint(
+            RollbackToSavepointCommand command
+    ) {
+
+        transactionManager.rollbackToSavepoint(
+                command.getSavepointName()
+        );
+
+        return ExecuteResult.success(
+                "Rolled back to savepoint successfully: "
+                        + command.getSavepointName()
+        );
+    }
+
+    /**
+     * SHOW TRANSACTION.
+     */
+    private ExecuteResult executeShowTransaction(
+            ShowTransactionCommand command
+    ) {
+
+        List<Column> columns =
+                List.of(
+                        new Column(
+                                "status",
+                                DataType.STRING
+                        ),
+                        new Column(
+                                "transaction_id",
+                                DataType.LONG
+                        ),
+                        new Column(
+                                "started_at",
+                                DataType.STRING
+                        ),
+                        new Column(
+                                "undo_actions",
+                                DataType.INT
+                        ),
+                        new Column(
+                                "savepoints",
+                                DataType.INT
+                        ),
+                        new Column(
+                                "access_mode",
+                                DataType.STRING
+                        ),
+                        new Column(
+                                "isolation_level",
+                                DataType.STRING
+                        )
+                );
+
+        Row row =
+                transactionManager
+                        .getActiveTransaction()
+                        .map(transaction ->
+                                new Row(
+                                        List.of(
+                                                transaction.getStatus()
+                                                        .name(),
+                                                transaction.getTransactionId(),
+                                                transaction.getStartedAt()
+                                                        .toString(),
+                                                transactionManager.getUndoActionCount(),
+                                                transactionManager.getSavepointCount(),
+                                                transaction.getAccessMode()
+                                                        .name(),
+                                                transaction.getIsolationLevel()
+                                                        .name()
+                                        )
+                                )
+                        )
+                        .orElseGet(() ->
+                                new Row(
+                                        java.util.Arrays.asList(
+                                                "INACTIVE",
+                                                null,
+                                                null,
+                                                0,
+                                                0,
+                                                null,
+                                                null
+                                        )
+                                )
+                        );
+
+        return ExecuteResult.selectSuccess(
+                "Transaction status",
+                columns,
+                List.of(
+                        row
+                )
+        );
+    }
+
+    /**
+     * SHOW SAVEPOINTS.
+     */
+    private ExecuteResult executeShowSavepoints(
+            ShowSavepointsCommand command
+    ) {
+
+        List<Column> columns =
+                List.of(
+                        new Column(
+                                "ordinal",
+                                DataType.INT
+                        ),
+                        new Column(
+                                "name",
+                                DataType.STRING
+                        ),
+                        new Column(
+                                "undo_actions",
+                                DataType.INT
+                        )
+                );
+
+        List<Row> rows =
+                new ArrayList<>();
+
+        for (TransactionSavepointInfo savepoint
+                : transactionManager.getSavepoints()) {
+
+            rows.add(
+                    new Row(
+                            List.of(
+                                    savepoint.ordinal(),
+                                    savepoint.name(),
+                                    savepoint.undoActionCount()
+                            )
+                    )
+            );
+        }
+
+        return ExecuteResult.selectSuccess(
+                "Savepoints",
+                columns,
+                rows
+        );
+    }
+
+    /**
+     * RELEASE SAVEPOINT.
+     */
+    private ExecuteResult executeReleaseSavepoint(
+            ReleaseSavepointCommand command
+    ) {
+
+        transactionManager.releaseSavepoint(
+                command.getSavepointName()
+        );
+
+        return ExecuteResult.success(
+                "Savepoint released successfully: "
+                        + command.getSavepointName()
+        );
     }
 
     /**
@@ -1274,6 +1671,17 @@ public final class QueryExecutor implements AutoCloseable {
             InsertCommand command
     ) {
 
+        return executeDmlStatement(
+                () -> executeInsertInternal(
+                        command
+                )
+        );
+    }
+
+    private ExecuteResult executeInsertInternal(
+            InsertCommand command
+    ) {
+
         Database database =
                 requireCurrentDatabase();
 
@@ -1298,7 +1706,8 @@ public final class QueryExecutor implements AutoCloseable {
                                 command,
                                 indexesForTable(
                                         command.getTableName()
-                                )
+                                ),
+                                transactionManager
                         );
 
         triggerExecutionSupport.executeInsertTriggers(
@@ -1316,6 +1725,17 @@ public final class QueryExecutor implements AutoCloseable {
      * UPDATE.
      */
     private ExecuteResult executeUpdate(
+            UpdateCommand command
+    ) {
+
+        return executeDmlStatement(
+                () -> executeUpdateInternal(
+                        command
+                )
+        );
+    }
+
+    private ExecuteResult executeUpdateInternal(
             UpdateCommand command
     ) {
 
@@ -1340,7 +1760,8 @@ public final class QueryExecutor implements AutoCloseable {
                             command,
                             indexesForTable(
                                     command.getTableName()
-                            )
+                            ),
+                            transactionManager
                     );
         }
 
@@ -1365,7 +1786,8 @@ public final class QueryExecutor implements AutoCloseable {
                                 command,
                                 indexesForTable(
                                         command.getTableName()
-                                )
+                                ),
+                                transactionManager
                         );
 
         triggerExecutionSupport.executeUpdateTriggers(
@@ -1383,6 +1805,17 @@ public final class QueryExecutor implements AutoCloseable {
      * DELETE.
      */
     private ExecuteResult executeDelete(
+            DeleteCommand command
+    ) {
+
+        return executeDmlStatement(
+                () -> executeDeleteInternal(
+                        command
+                )
+        );
+    }
+
+    private ExecuteResult executeDeleteInternal(
             DeleteCommand command
     ) {
 
@@ -1407,7 +1840,8 @@ public final class QueryExecutor implements AutoCloseable {
                             command,
                             indexesForTable(
                                     command.getTableName()
-                            )
+                            ),
+                            transactionManager
                     );
         }
 
@@ -1432,7 +1866,8 @@ public final class QueryExecutor implements AutoCloseable {
                                 command,
                                 indexesForTable(
                                         command.getTableName()
-                                )
+                                ),
+                                transactionManager
                         );
 
         triggerExecutionSupport.executeDeleteTriggers(
@@ -1444,6 +1879,86 @@ public final class QueryExecutor implements AutoCloseable {
         );
 
         return result;
+    }
+
+    /**
+     * DML statement'lerini transaction-aware calistirir.
+     *
+     * Acik transaction yoksa statement icin implicit transaction acilir.
+     * Acik transaction varsa hata durumunda sadece bu statement'in undo
+     * kayitlari savepoint seviyesine geri sarilir.
+     */
+    private ExecuteResult executeDmlStatement(
+            Supplier<ExecuteResult> operation
+    ) {
+
+        Objects.requireNonNull(
+                operation,
+                "Operation cannot be null."
+        );
+
+        boolean implicitTransaction =
+                !transactionManager.hasActiveTransaction();
+
+        if (!implicitTransaction
+                && transactionManager.isReadOnlyTransactionActive()) {
+
+            throw new QueryExecutionException(
+                    "DML cannot run inside a READ ONLY transaction."
+            );
+        }
+
+        if (implicitTransaction) {
+            transactionManager.begin();
+        }
+
+        int savepoint =
+                transactionManager.createSavepoint();
+
+        try {
+
+            ExecuteResult result =
+                    operation.get();
+
+            if (implicitTransaction) {
+                transactionManager.commit();
+            }
+
+            return result;
+
+        } catch (RuntimeException exception) {
+
+            rollbackFailedDmlStatement(
+                    implicitTransaction,
+                    savepoint,
+                    exception
+            );
+
+            throw exception;
+        }
+    }
+
+    private void rollbackFailedDmlStatement(
+            boolean implicitTransaction,
+            int savepoint,
+            RuntimeException originalException
+    ) {
+
+        try {
+
+            if (implicitTransaction) {
+                transactionManager.rollback();
+            } else {
+                transactionManager.rollbackToSavepoint(
+                        savepoint
+                );
+            }
+
+        } catch (RuntimeException rollbackException) {
+            originalException.addSuppressed(
+                    rollbackException
+            );
+        }
     }
 
     /**
@@ -2051,6 +2566,10 @@ public final class QueryExecutor implements AutoCloseable {
      */
     @Override
     public void close() {
+
+        if (transactionManager.hasActiveTransaction()) {
+            transactionManager.rollback();
+        }
 
         tableManager = null;
         indexManager = new IndexManager();

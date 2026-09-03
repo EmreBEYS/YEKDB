@@ -7,8 +7,8 @@
 ![Maven](https://img.shields.io/badge/Maven-3.x-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-green)
 ![Status](https://img.shields.io/badge/Status-Active%20Development-yellow)
-![Tests](https://img.shields.io/badge/JUnit-1870%20Tests%20Passed-brightgreen)
-![Sprint](https://img.shields.io/badge/Sprint-00--31-blueviolet)
+![Tests](https://img.shields.io/badge/JUnit-1936%20Tests%20Passed-brightgreen)
+![Sprint](https://img.shields.io/badge/Sprint-00--32-blueviolet)
 
 ---
 
@@ -129,6 +129,14 @@ The long-term goal is a complete page-oriented database engine with durable stor
 - Optimization-rule reporting
 - `EXPLAIN` support for view-backed queries
 - Full-table-scan fallback after index removal
+- Session-scope transaction lifecycle with `BEGIN`, `COMMIT`, and `ROLLBACK`
+- Statement-level atomicity for `INSERT`, `UPDATE`, and `DELETE`
+- Transaction-aware undo actions for committed rollback paths
+- Named savepoints with rollback and release support
+- Transaction metadata inspection through `SHOW TRANSACTION`
+- Savepoint inspection through `SHOW SAVEPOINTS`
+- Transaction access modes: `READ ONLY` and `READ WRITE`
+- Transaction isolation metadata: `READ COMMITTED`, `REPEATABLE READ`, and `SERIALIZABLE`
 
 ---
 
@@ -1461,6 +1469,7 @@ Recent completed sprints:
 - **00-29** — B+ Tree Index Integration
 - **00-30** — Views & Triggers
 - **00-31** — Query Optimization V2 & EXPLAIN
+- **00-32** — Transaction Management
 
 ---
 
@@ -1967,6 +1976,75 @@ WHERE age > 18;
 The observed plans matched the expected access paths throughout the lifecycle: full scan without an index, B+ Tree index scan after index creation, access/residual predicate separation for compound conditions, view-aware planning, and automatic fallback after index removal.
 
 
+## Sprint 00-32 Summary
+
+Sprint 00-32 added the first transaction management subsystem to YEKDB.
+
+Implemented areas:
+
+1. Session-scope transaction context
+2. Transaction status lifecycle
+3. `BEGIN`
+4. `START TRANSACTION`
+5. `COMMIT`
+6. `ROLLBACK`
+7. Long-form `COMMIT TRANSACTION`
+8. Long-form `ROLLBACK TRANSACTION`
+9. Transaction command parsing and command mapping
+10. DML undo registration for `INSERT`
+11. DML undo registration for `UPDATE`
+12. DML undo registration for `DELETE`
+13. Statement-level atomic rollback for failed DML
+14. Implicit single-statement transactions for DML outside explicit transactions
+15. Trigger failure rollback integration
+16. DDL and database-management boundary protection inside active transactions
+17. Executor close-time rollback for active transactions
+18. Named `SAVEPOINT`
+19. `ROLLBACK TO SAVEPOINT`
+20. `ROLLBACK TO`
+21. `RELEASE SAVEPOINT`
+22. `SHOW TRANSACTION`
+23. Transaction access mode metadata
+24. `READ ONLY` DML protection
+25. `READ WRITE` transaction mode
+26. Transaction isolation level metadata
+27. `READ COMMITTED`
+28. `REPEATABLE READ`
+29. `SERIALIZABLE`
+30. `SHOW SAVEPOINTS`
+31. Transaction manager unit coverage
+32. Query executor integration coverage
+
+Final verification:
+
+```text
+1936 / 1936 tests passed
+Compile successful
+```
+
+Supported transaction workflow examples:
+
+```sql
+BEGIN;
+INSERT INTO users (id, name) VALUES (1, 'Yunus');
+SAVEPOINT after_first_insert;
+UPDATE users SET name = 'YEKDB' WHERE id = 1;
+ROLLBACK TO SAVEPOINT after_first_insert;
+COMMIT;
+
+START TRANSACTION READ ONLY ISOLATION LEVEL SERIALIZABLE;
+SHOW TRANSACTION;
+SHOW SAVEPOINTS;
+ROLLBACK;
+```
+
+Known limitations:
+
+- Isolation levels are metadata-only in this sprint; concurrency and MVCC semantics are later roadmap work.
+- Transaction state is session-scope and in-memory.
+- Durability through WAL is not part of Sprint 00-32.
+
+
 ## Roadmap
 
 ### Completed / Established
@@ -2022,6 +2100,9 @@ The observed plans matched the expected access paths throughout the lifecycle: f
 - `INSERT / UPDATE / DELETE` trigger events
 - `NEW.*` and `OLD.*` pseudo-row support
 - Trigger body DML execution
+- Transaction manager
+- DML rollback through transaction undo actions
+- Named savepoints and savepoint inspection
 
 ### Upcoming
 
@@ -2033,7 +2114,6 @@ The observed plans matched the expected access paths throughout the lifecycle: f
 - Extended `ALTER COLUMN` operations such as type/default changes
 - Further physical storage and free-space management
 - Persistent index storage / recovery improvements
-- Transaction manager
 - Write Ahead Logging (WAL)
 - Buffer pool
 - Concurrency control / MVCC
@@ -2068,7 +2148,7 @@ Development is documented sprint-by-sprint with technical developer notes coveri
 
 Latest documentation:
 
-**Developer Notes — Sprint 00-31: Query Optimization V2 & EXPLAIN**
+**Developer Notes — Sprint 00-32: Transaction Management**
 
 ---
 

@@ -102,6 +102,16 @@ final class ManagementCommandParser {
             return new ShowViewsCommand();
         }
 
+        if (upperSql.equals("SHOW TRANSACTION")
+                || upperSql.equals("SHOW TRANSACTION;")) {
+            return new ShowTransactionCommand();
+        }
+
+        if (upperSql.equals("SHOW SAVEPOINTS")
+                || upperSql.equals("SHOW SAVEPOINTS;")) {
+            return new ShowSavepointsCommand();
+        }
+
         if (upperSql.equals("SHOW TRIGGERS")
                 || upperSql.startsWith("SHOW TRIGGERS ")) {
             return parseShowTriggersCommand(sql);

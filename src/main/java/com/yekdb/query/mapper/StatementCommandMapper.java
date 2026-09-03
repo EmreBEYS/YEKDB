@@ -1,15 +1,27 @@
 package com.yekdb.query.mapper;
 
 import com.yekdb.query.command.Command;
+import com.yekdb.query.command.BeginTransactionCommand;
+import com.yekdb.query.command.CommitTransactionCommand;
 import com.yekdb.query.command.DeleteCommand;
 import com.yekdb.query.command.ExplainCommand;
 import com.yekdb.query.command.InsertCommand;
+import com.yekdb.query.command.ReleaseSavepointCommand;
+import com.yekdb.query.command.RollbackTransactionCommand;
+import com.yekdb.query.command.RollbackToSavepointCommand;
+import com.yekdb.query.command.SavepointCommand;
 import com.yekdb.query.command.SelectCommand;
 import com.yekdb.query.command.UpdateCommand;
 import com.yekdb.query.executor.QueryExecutionException;
+import com.yekdb.query.statement.BeginTransactionStatement;
+import com.yekdb.query.statement.CommitTransactionStatement;
 import com.yekdb.query.statement.DeleteStatement;
 import com.yekdb.query.statement.ExplainStatement;
 import com.yekdb.query.statement.InsertStatement;
+import com.yekdb.query.statement.ReleaseSavepointStatement;
+import com.yekdb.query.statement.RollbackToSavepointStatement;
+import com.yekdb.query.statement.RollbackTransactionStatement;
+import com.yekdb.query.statement.SavepointStatement;
 import com.yekdb.query.statement.SelectStatement;
 import com.yekdb.query.statement.Statement;
 import com.yekdb.query.statement.UpdateStatement;
@@ -61,6 +73,51 @@ public final class StatementCommandMapper {
                 statement,
                 "Statement cannot be null."
         );
+
+        if (statement
+                instanceof BeginTransactionStatement beginTransactionStatement) {
+
+            return new BeginTransactionCommand(
+                    beginTransactionStatement.getAccessMode(),
+                    beginTransactionStatement.getIsolationLevel()
+            );
+        }
+
+        if (statement
+                instanceof CommitTransactionStatement) {
+
+            return new CommitTransactionCommand();
+        }
+
+        if (statement
+                instanceof RollbackTransactionStatement) {
+
+            return new RollbackTransactionCommand();
+        }
+
+        if (statement
+                instanceof SavepointStatement savepointStatement) {
+
+            return new SavepointCommand(
+                    savepointStatement.getSavepointName()
+            );
+        }
+
+        if (statement
+                instanceof RollbackToSavepointStatement rollbackToSavepointStatement) {
+
+            return new RollbackToSavepointCommand(
+                    rollbackToSavepointStatement.getSavepointName()
+            );
+        }
+
+        if (statement
+                instanceof ReleaseSavepointStatement releaseSavepointStatement) {
+
+            return new ReleaseSavepointCommand(
+                    releaseSavepointStatement.getSavepointName()
+            );
+        }
 
         if (statement
                 instanceof InsertStatement insertStatement) {

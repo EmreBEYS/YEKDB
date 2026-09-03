@@ -5,6 +5,8 @@ import com.yekdb.query.expression.ComparisonExpression;
 import com.yekdb.query.expression.ComparisonOperator;
 import com.yekdb.query.expression.Expression;
 import com.yekdb.query.expression.FunctionCallExpression;
+import com.yekdb.query.statement.BeginTransactionStatement;
+import com.yekdb.query.statement.CommitTransactionStatement;
 import com.yekdb.query.statement.DeleteStatement;
 import com.yekdb.query.statement.ExplainStatement;
 import com.yekdb.query.statement.FetchClause;
@@ -15,12 +17,18 @@ import com.yekdb.query.statement.JoinClause;
 import com.yekdb.query.statement.JoinType;
 import com.yekdb.query.statement.LimitClause;
 import com.yekdb.query.statement.OrderByItem;
+import com.yekdb.query.statement.ReleaseSavepointStatement;
+import com.yekdb.query.statement.RollbackToSavepointStatement;
+import com.yekdb.query.statement.RollbackTransactionStatement;
+import com.yekdb.query.statement.SavepointStatement;
 import com.yekdb.query.statement.SelectItem;
 import com.yekdb.query.statement.SelectStatement;
 import com.yekdb.query.statement.SortDirection;
 import com.yekdb.query.statement.Statement;
 import com.yekdb.query.statement.TableReference;
 import com.yekdb.query.statement.UpdateStatement;
+import com.yekdb.transaction.TransactionAccessMode;
+import com.yekdb.transaction.TransactionIsolationLevel;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -125,6 +133,24 @@ public final class SqlParser {
                     case EXPLAIN ->
                             parseExplain();
 
+                    case BEGIN ->
+                            parseBeginTransaction();
+
+                    case START ->
+                            parseStartTransaction();
+
+                    case COMMIT ->
+                            parseCommitTransaction();
+
+                    case ROLLBACK ->
+                            parseRollbackTransaction();
+
+                    case SAVEPOINT ->
+                            parseSavepoint();
+
+                    case RELEASE ->
+                            parseReleaseSavepoint();
+
                     case UPDATE ->
                             parseUpdate();
 
@@ -147,6 +173,278 @@ public final class SqlParser {
         );
 
         return statement;
+    }
+
+    // ==================================================
+    // TRANSACTION
+    // ==================================================
+
+    private BeginTransactionStatement parseBeginTransaction() {
+
+        tokenCursor.expect(
+                SqlTokenType.BEGIN,
+                "Expected BEGIN keyword."
+        );
+
+        tokenCursor.match(
+                SqlTokenType.TRANSACTION
+        );
+
+        TransactionOptions options =
+                parseOptionalTransactionOptions();
+
+        return new BeginTransactionStatement(
+                options.accessMode(),
+                options.isolationLevel()
+        );
+    }
+
+    private BeginTransactionStatement parseStartTransaction() {
+
+        tokenCursor.expect(
+                SqlTokenType.START,
+                "Expected START keyword."
+        );
+
+        tokenCursor.expect(
+                SqlTokenType.TRANSACTION,
+                "Expected TRANSACTION after START."
+        );
+
+        TransactionOptions options =
+                parseOptionalTransactionOptions();
+
+        return new BeginTransactionStatement(
+                options.accessMode(),
+                options.isolationLevel()
+        );
+    }
+
+    private TransactionOptions parseOptionalTransactionOptions() {
+
+        TransactionAccessMode accessMode =
+                TransactionAccessMode.READ_WRITE;
+
+        TransactionIsolationLevel isolationLevel =
+                TransactionIsolationLevel.READ_COMMITTED;
+
+        boolean parsedOption;
+
+        do {
+
+            parsedOption =
+                    false;
+
+            if (matchesTokenValue(
+                    "READ"
+            )) {
+                accessMode =
+                        parseTransactionAccessMode();
+                parsedOption =
+                        true;
+                continue;
+            }
+
+            if (matchesTokenValue(
+                    "ISOLATION"
+            )) {
+                isolationLevel =
+                        parseTransactionIsolationLevel();
+                parsedOption =
+                        true;
+            }
+
+        } while (parsedOption);
+
+        return new TransactionOptions(
+                accessMode,
+                isolationLevel
+        );
+    }
+
+    private TransactionAccessMode parseTransactionAccessMode() {
+
+        tokenCursor.advance();
+
+        if (matchTokenValue(
+                "ONLY"
+        )) {
+            return TransactionAccessMode.READ_ONLY;
+        }
+
+        if (matchTokenValue(
+                "WRITE"
+        )) {
+            return TransactionAccessMode.READ_WRITE;
+        }
+
+        throw tokenCursor.error(
+                "Expected ONLY or WRITE after READ."
+        );
+    }
+
+    private TransactionIsolationLevel parseTransactionIsolationLevel() {
+
+        tokenCursor.advance();
+
+        if (!matchTokenValue(
+                "LEVEL"
+        )) {
+            throw tokenCursor.error(
+                    "Expected LEVEL after ISOLATION."
+            );
+        }
+
+        if (matchTokenValue(
+                "READ"
+        )) {
+
+            if (!matchTokenValue(
+                    "COMMITTED"
+            )) {
+                throw tokenCursor.error(
+                        "Expected COMMITTED after ISOLATION LEVEL READ."
+                );
+            }
+
+            return TransactionIsolationLevel.READ_COMMITTED;
+        }
+
+        if (matchTokenValue(
+                "REPEATABLE"
+        )) {
+
+            if (!matchTokenValue(
+                    "READ"
+            )) {
+                throw tokenCursor.error(
+                        "Expected READ after ISOLATION LEVEL REPEATABLE."
+                );
+            }
+
+            return TransactionIsolationLevel.REPEATABLE_READ;
+        }
+
+        if (matchTokenValue(
+                "SERIALIZABLE"
+        )) {
+            return TransactionIsolationLevel.SERIALIZABLE;
+        }
+
+        throw tokenCursor.error(
+                "Unsupported transaction isolation level."
+        );
+    }
+
+    private boolean matchesTokenValue(
+            String value
+    ) {
+
+        return tokenCursor.current()
+                .getValue()
+                .equalsIgnoreCase(
+                        value
+                );
+    }
+
+    private boolean matchTokenValue(
+            String value
+    ) {
+
+        if (!tokenCursor.current()
+                .getValue()
+                .equalsIgnoreCase(
+                        value
+                )) {
+
+            return false;
+        }
+
+        tokenCursor.advance();
+
+        return true;
+    }
+
+    private record TransactionOptions(
+            TransactionAccessMode accessMode,
+            TransactionIsolationLevel isolationLevel
+    ) {
+    }
+
+    private CommitTransactionStatement parseCommitTransaction() {
+
+        tokenCursor.expect(
+                SqlTokenType.COMMIT,
+                "Expected COMMIT keyword."
+        );
+
+        tokenCursor.match(
+                SqlTokenType.TRANSACTION
+        );
+
+        return new CommitTransactionStatement();
+    }
+
+    private Statement parseRollbackTransaction() {
+
+        tokenCursor.expect(
+                SqlTokenType.ROLLBACK,
+                "Expected ROLLBACK keyword."
+        );
+
+        if (tokenCursor.match(
+                SqlTokenType.TO
+        )) {
+
+            tokenCursor.match(
+                    SqlTokenType.SAVEPOINT
+            );
+
+            return new RollbackToSavepointStatement(
+                    tokenCursor.consumeIdentifier(
+                            "Expected savepoint name after ROLLBACK TO SAVEPOINT."
+                    )
+            );
+        }
+
+        tokenCursor.match(
+                SqlTokenType.TRANSACTION
+        );
+
+        return new RollbackTransactionStatement();
+    }
+
+    private SavepointStatement parseSavepoint() {
+
+        tokenCursor.expect(
+                SqlTokenType.SAVEPOINT,
+                "Expected SAVEPOINT keyword."
+        );
+
+        return new SavepointStatement(
+                tokenCursor.consumeIdentifier(
+                        "Expected savepoint name after SAVEPOINT."
+                )
+        );
+    }
+
+    private ReleaseSavepointStatement parseReleaseSavepoint() {
+
+        tokenCursor.expect(
+                SqlTokenType.RELEASE,
+                "Expected RELEASE keyword."
+        );
+
+        tokenCursor.expect(
+                SqlTokenType.SAVEPOINT,
+                "Expected SAVEPOINT after RELEASE."
+        );
+
+        return new ReleaseSavepointStatement(
+                tokenCursor.consumeIdentifier(
+                        "Expected savepoint name after RELEASE SAVEPOINT."
+                )
+        );
     }
 
     // ==================================================

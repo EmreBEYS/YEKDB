@@ -498,6 +498,76 @@ public final class RecordManager {
     }
 
     /**
+     * Tombstone durumundaki kaydı verilen Row ile yeniden aktif hale getirir.
+     *
+     * Bu API transaction rollback tarafından DELETE işlemini geri almak için
+     * kullanılır. Normal UPDATE yolu silinmiş kayıtları reddettiği için ayrı
+     * ve daha dar kapsamlı tutulmuştur.
+     */
+    public synchronized void restoreDeleted(
+            long recordId,
+            Row row
+    ) throws IOException {
+
+        validateRecordId(recordId);
+        validateRow(row);
+
+        RecordLocation location =
+                findRecordLocation(recordId);
+
+        if (location == null) {
+            throw new IllegalArgumentException(
+                    "Record not found: " + recordId
+            );
+        }
+
+        if (!location.record().isDeleted()) {
+            throw new IllegalStateException(
+                    "Record is not deleted: " + recordId
+            );
+        }
+
+        byte[] rowBytes =
+                RowSerializer.serialize(row);
+
+        Record restoredRecord =
+                new Record(
+                        recordId,
+                        rowBytes
+                );
+
+        byte[] restoredRecordBytes =
+                RecordSerializer.serialize(
+                        restoredRecord
+                );
+
+        int newPageUsedBytes =
+                location.page().getHeader().getUsedBytes()
+                        - location.serializedSize()
+                        + restoredRecordBytes.length;
+
+        if (newPageUsedBytes > Page.PAYLOAD_SIZE) {
+            throw new IllegalStateException(
+                    "Restored record does not fit in its current page. " +
+                            "Record ID: " +
+                            recordId +
+                            "."
+            );
+        }
+
+        replaceRecordInPage(
+                location,
+                restoredRecordBytes
+        );
+
+        pageManager.writePage(
+                location.page()
+        );
+
+        pageManager.sync();
+    }
+
+    /**
      * Logical ve physical delete yollarının ortak tombstone uygulamasıdır.
      */
     private void deleteAtLocation(

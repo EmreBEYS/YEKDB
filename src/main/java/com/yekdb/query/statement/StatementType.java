@@ -6,6 +6,12 @@ package com.yekdb.query.statement;
  */
 public enum StatementType {
 
+    BEGIN_TRANSACTION,
+    COMMIT_TRANSACTION,
+    ROLLBACK_TRANSACTION,
+    SAVEPOINT,
+    ROLLBACK_TO_SAVEPOINT,
+    RELEASE_SAVEPOINT,
     INSERT,
     EXPLAIN,
     SELECT,
