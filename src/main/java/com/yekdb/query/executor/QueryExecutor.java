@@ -50,8 +50,12 @@ import com.yekdb.storage.table.Table;
 import com.yekdb.storage.table.TableManager;
 import com.yekdb.storage.table.TableMetadata;
 import com.yekdb.transaction.TransactionContext;
+import com.yekdb.transaction.TransactionDurabilityLog;
 import com.yekdb.transaction.TransactionManager;
+import com.yekdb.transaction.TransactionRecoveryManager;
 import com.yekdb.transaction.TransactionSavepointInfo;
+import com.yekdb.transaction.TransactionTableWriteLock;
+import com.yekdb.transaction.TransactionTableWriteLockManager;
 import com.yekdb.trigger.TriggerDefinition;
 import com.yekdb.trigger.TriggerEvent;
 import com.yekdb.trigger.TriggerMetadata;
@@ -62,10 +66,12 @@ import com.yekdb.view.ViewMetadata;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.function.Supplier;
 
 /**
@@ -167,6 +173,26 @@ public final class QueryExecutor implements AutoCloseable {
      * Sprint 00-32 Phase 1 transaction yasam dongusunu yonetir.
      */
     private final TransactionManager transactionManager;
+
+    /**
+     * Sprint 00-33 Phase 6 transaction kararlarini kalici log'a yazar.
+     */
+    private final TransactionDurabilityLog transactionDurabilityLog;
+
+    /**
+     * Sprint 00-33 Phase 10 database seciminde tamamlanmamis
+     * transaction kayitlarini kapatir.
+     */
+    private final TransactionRecoveryManager transactionRecoveryManager;
+
+    /**
+     * Sprint 00-33 Phase 5 tablo seviyesinde write izolasyonu saglar.
+     */
+    private final TransactionTableWriteLockManager writeLockManager;
+
+    private final Map<String, TransactionTableWriteLock> heldWriteLocks;
+
+    private final String transactionLockOwnerId;
 
     /**
      * View çözümleme sırasında recursive referansları yakalar.
@@ -356,6 +382,21 @@ public final class QueryExecutor implements AutoCloseable {
 
         this.transactionManager =
                 new TransactionManager();
+
+        this.transactionDurabilityLog =
+                new TransactionDurabilityLog();
+
+        this.transactionRecoveryManager =
+                new TransactionRecoveryManager();
+
+        this.writeLockManager =
+                new TransactionTableWriteLockManager();
+
+        this.heldWriteLocks =
+                new HashMap<>();
+
+        this.transactionLockOwnerId =
+                UUID.randomUUID().toString();
 
         this.activeViewStack =
                 new ArrayDeque<>();
@@ -976,6 +1017,10 @@ public final class QueryExecutor implements AutoCloseable {
                         command.getIsolationLevel()
                 );
 
+        appendTransactionBeginLog(
+                transaction
+        );
+
         return ExecuteResult.success(
                 "Transaction started successfully: "
                         + transaction.getTransactionId()
@@ -989,8 +1034,20 @@ public final class QueryExecutor implements AutoCloseable {
             CommitTransactionCommand command
     ) {
 
-        TransactionContext transaction =
-                transactionManager.commit();
+        TransactionContext transaction;
+
+        try {
+
+            transaction =
+                    transactionManager.commit();
+
+        } finally {
+            releaseAllWriteLocks();
+        }
+
+        appendTransactionCompletionLog(
+                transaction
+        );
 
         return ExecuteResult.success(
                 "Transaction committed successfully: "
@@ -1005,8 +1062,20 @@ public final class QueryExecutor implements AutoCloseable {
             RollbackTransactionCommand command
     ) {
 
-        TransactionContext transaction =
-                transactionManager.rollback();
+        TransactionContext transaction;
+
+        try {
+
+            transaction =
+                    transactionManager.rollback();
+
+        } finally {
+            releaseAllWriteLocks();
+        }
+
+        appendTransactionCompletionLog(
+                transaction
+        );
 
         return ExecuteResult.success(
                 "Transaction rolled back successfully: "
@@ -1228,6 +1297,12 @@ public final class QueryExecutor implements AutoCloseable {
                 new TableManager(
                         database.getDatabasePath()
                 );
+
+        tableManager.loadCatalog();
+
+        transactionRecoveryManager.recover(
+                database.getDatabasePath()
+        );
 
         indexManager =
                 new IndexManager();
@@ -1672,6 +1747,7 @@ public final class QueryExecutor implements AutoCloseable {
     ) {
 
         return executeDmlStatement(
+                command.getTableName(),
                 () -> executeInsertInternal(
                         command
                 )
@@ -1729,6 +1805,7 @@ public final class QueryExecutor implements AutoCloseable {
     ) {
 
         return executeDmlStatement(
+                command.getTableName(),
                 () -> executeUpdateInternal(
                         command
                 )
@@ -1809,6 +1886,7 @@ public final class QueryExecutor implements AutoCloseable {
     ) {
 
         return executeDmlStatement(
+                command.getTableName(),
                 () -> executeDeleteInternal(
                         command
                 )
@@ -1889,8 +1967,14 @@ public final class QueryExecutor implements AutoCloseable {
      * kayitlari savepoint seviyesine geri sarilir.
      */
     private ExecuteResult executeDmlStatement(
+            String tableName,
             Supplier<ExecuteResult> operation
     ) {
+
+        Objects.requireNonNull(
+                tableName,
+                "TableName cannot be null."
+        );
 
         Objects.requireNonNull(
                 operation,
@@ -1909,7 +1993,11 @@ public final class QueryExecutor implements AutoCloseable {
         }
 
         if (implicitTransaction) {
-            transactionManager.begin();
+            TransactionContext transaction =
+                    transactionManager.begin();
+            appendTransactionBeginLog(
+                    transaction
+            );
         }
 
         int savepoint =
@@ -1917,11 +2005,20 @@ public final class QueryExecutor implements AutoCloseable {
 
         try {
 
+            acquireWriteLock(
+                    tableName
+            );
+
             ExecuteResult result =
                     operation.get();
 
             if (implicitTransaction) {
-                transactionManager.commit();
+                TransactionContext transaction =
+                        transactionManager.commit();
+                appendTransactionCompletionLog(
+                        transaction
+                );
+                releaseAllWriteLocks();
             }
 
             return result;
@@ -1938,6 +2035,73 @@ public final class QueryExecutor implements AutoCloseable {
         }
     }
 
+    private void appendTransactionBeginLog(
+            TransactionContext transaction
+    ) {
+
+        Database database =
+                databaseManager.getCurrentDatabase();
+
+        if (database == null) {
+            return;
+        }
+
+        transactionDurabilityLog.appendBegin(
+                database.getDatabasePath(),
+                transaction
+        );
+    }
+    private void appendTransactionCompletionLog(
+            TransactionContext transaction
+    ) {
+
+        Database database =
+                databaseManager.getCurrentDatabase();
+
+        if (database == null) {
+            return;
+        }
+
+        transactionDurabilityLog.appendCompletion(
+                database.getDatabasePath(),
+                transaction
+        );
+    }
+    private TransactionTableWriteLock acquireWriteLock(
+            String tableName
+    ) {
+
+        Database database =
+                requireCurrentDatabase();
+
+        TransactionTableWriteLock lock =
+                writeLockManager.acquire(
+                        database.getDatabasePath(),
+                        tableName,
+                        transactionLockOwnerId
+                );
+
+        heldWriteLocks.putIfAbsent(
+                lock.getLockKey(),
+                lock
+        );
+
+        return lock;
+    }
+
+    private void releaseAllWriteLocks() {
+
+        List<TransactionTableWriteLock> locks =
+                new ArrayList<>(
+                        heldWriteLocks.values()
+                );
+
+        heldWriteLocks.clear();
+
+        for (TransactionTableWriteLock lock : locks) {
+            lock.close();
+        }
+    }
     private void rollbackFailedDmlStatement(
             boolean implicitTransaction,
             int savepoint,
@@ -1947,7 +2111,12 @@ public final class QueryExecutor implements AutoCloseable {
         try {
 
             if (implicitTransaction) {
-                transactionManager.rollback();
+                TransactionContext transaction =
+                        transactionManager.rollback();
+                appendTransactionCompletionLog(
+                        transaction
+                );
+                releaseAllWriteLocks();
             } else {
                 transactionManager.rollbackToSavepoint(
                         savepoint
@@ -2567,8 +2736,18 @@ public final class QueryExecutor implements AutoCloseable {
     @Override
     public void close() {
 
-        if (transactionManager.hasActiveTransaction()) {
-            transactionManager.rollback();
+        try {
+
+            if (transactionManager.hasActiveTransaction()) {
+                TransactionContext transaction =
+                        transactionManager.rollback();
+                appendTransactionCompletionLog(
+                        transaction
+                );
+            }
+
+        } finally {
+            releaseAllWriteLocks();
         }
 
         tableManager = null;

@@ -7,8 +7,8 @@
 ![Maven](https://img.shields.io/badge/Maven-3.x-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-green)
 ![Status](https://img.shields.io/badge/Status-Active%20Development-yellow)
-![Tests](https://img.shields.io/badge/JUnit-1936%20Tests%20Passed-brightgreen)
-![Sprint](https://img.shields.io/badge/Sprint-00--32-blueviolet)
+![Tests](https://img.shields.io/badge/JUnit-1950%20Tests%20Passed-brightgreen)
+![Sprint](https://img.shields.io/badge/Sprint-00--33-blueviolet)
 
 ---
 
@@ -137,6 +137,11 @@ The long-term goal is a complete page-oriented database engine with durable stor
 - Savepoint inspection through `SHOW SAVEPOINTS`
 - Transaction access modes: `READ ONLY` and `READ WRITE`
 - Transaction isolation metadata: `READ COMMITTED`, `REPEATABLE READ`, and `SERIALIZABLE`
+- ACID durability log with transaction begin and completion records
+- Table-level write isolation for concurrent DML protection
+- Recovery log parsing for incomplete transaction detection
+- Automatic recovery rollback decision logging on database selection
+- End-to-end ACID integration regression coverage
 
 ---
 
@@ -1470,6 +1475,7 @@ Recent completed sprints:
 - **00-30** — Views & Triggers
 - **00-31** — Query Optimization V2 & EXPLAIN
 - **00-32** — Transaction Management
+- **00-33** — ACID Durability, Write Isolation, and Recovery Hooks
 
 ---
 
@@ -2045,6 +2051,69 @@ Known limitations:
 - Durability through WAL is not part of Sprint 00-32.
 
 
+## Sprint 00-33 Summary
+
+Sprint 00-33 strengthened YEKDB's transaction layer with ACID-oriented durability, table-level write isolation, and recovery-ready transaction logging.
+
+Implemented areas:
+
+1. Table-level write lock manager
+2. Per-executor write lock ownership
+3. Concurrent write rejection for locked tables
+4. Lock release after explicit commit
+5. Lock release after explicit rollback
+6. Lock release after implicit transaction completion
+7. Transaction durability exception model
+8. Persistent `transaction.log` file per database
+9. Transaction `ACTIVE` begin log records
+10. Transaction `COMMITTED` completion log records
+11. Transaction `ROLLED_BACK` completion log records
+12. Implicit DML transaction durability logging
+13. Explicit transaction durability logging
+14. Close-time rollback durability logging
+15. Transaction log entry parsing
+16. Recovery detection for incomplete `ACTIVE` transactions
+17. Idempotent recovery rollback decision logging
+18. Automatic recovery hook during `USE DATABASE`
+19. ACID integration regression coverage
+20. Full compile and Maven regression verification
+
+Final verification:
+
+```text
+1950 / 1950 tests passed
+Compile successful
+```
+
+Supported ACID workflow examples:
+
+```sql
+USE DATABASE acid_db;
+
+BEGIN;
+INSERT INTO users (id, name) VALUES (1, 'Yunus');
+COMMIT;
+
+BEGIN;
+INSERT INTO users (id, name) VALUES (2, 'Ali');
+ROLLBACK;
+```
+
+Recovery-oriented behavior:
+
+- each database can keep a `transaction.log` durability file
+- transaction begin records are written as `ACTIVE`
+- completed transactions are closed as `COMMITTED` or `ROLLED_BACK`
+- incomplete active records are detected during recovery
+- database selection runs recovery and appends rollback decisions for incomplete transactions
+- recovery is idempotent and does not repeatedly close the same transaction
+
+Known limitations:
+
+- Recovery currently records rollback decisions for incomplete transactions; physical redo/undo WAL replay is future work.
+- Isolation levels beyond write-lock protection remain metadata foundations for later concurrency/MVCC work.
+- Durability logging is transaction-decision oriented and is not yet a full WAL implementation.
+
 ## Roadmap
 
 ### Completed / Established
@@ -2103,6 +2172,10 @@ Known limitations:
 - Transaction manager
 - DML rollback through transaction undo actions
 - Named savepoints and savepoint inspection
+- Transaction durability logging
+- Table-level write isolation for DML
+- Recovery-ready transaction log parsing
+- Automatic rollback decision logging for incomplete transactions
 
 ### Upcoming
 
@@ -2114,7 +2187,7 @@ Known limitations:
 - Extended `ALTER COLUMN` operations such as type/default changes
 - Further physical storage and free-space management
 - Persistent index storage / recovery improvements
-- Write Ahead Logging (WAL)
+- Full physical Write Ahead Logging (WAL) with redo/undo replay
 - Buffer pool
 - Concurrency control / MVCC
 - Client/server architecture
@@ -2148,7 +2221,7 @@ Development is documented sprint-by-sprint with technical developer notes coveri
 
 Latest documentation:
 
-**Developer Notes — Sprint 00-32: Transaction Management**
+**Developer Notes — Sprint 00-33: ACID Durability, Write Isolation, and Recovery Hooks**
 
 ---
 
