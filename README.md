@@ -7,8 +7,8 @@
 ![Maven](https://img.shields.io/badge/Maven-3.x-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-green)
 ![Status](https://img.shields.io/badge/Status-Active%20Development-yellow)
-![Tests](https://img.shields.io/badge/JUnit-1950%20Tests%20Passed-brightgreen)
-![Sprint](https://img.shields.io/badge/Sprint-00--33-blueviolet)
+![Tests](https://img.shields.io/badge/JUnit-1991%20Tests%20Passed-brightgreen)
+![Sprint](https://img.shields.io/badge/Sprint-00--34-blueviolet)
 
 ---
 
@@ -142,6 +142,14 @@ The long-term goal is a complete page-oriented database engine with durable stor
 - Recovery log parsing for incomplete transaction detection
 - Automatic recovery rollback decision logging on database selection
 - End-to-end ACID integration regression coverage
+- Stored procedure catalog and metadata registry
+- SQL `CREATE PROCEDURE` / `DROP PROCEDURE` / `SHOW PROCEDURES` / `SHOW PROCEDURE` / `CALL` integration
+- `CREATE OR REPLACE PROCEDURE` and `CREATE PROCEDURE IF NOT EXISTS`
+- `DROP PROCEDURE IF EXISTS`
+- Procedure parameters with positional and named argument binding
+- Procedure body parameter substitution through `:parameter` references
+- Non-recursive nested procedure execution
+- Procedure lifecycle and execution regression coverage
 
 ---
 
@@ -1476,6 +1484,7 @@ Recent completed sprints:
 - **00-31** — Query Optimization V2 & EXPLAIN
 - **00-32** — Transaction Management
 - **00-33** — ACID Durability, Write Isolation, and Recovery Hooks
+- **00-34** — Stored Procedure Foundation
 
 ---
 
@@ -2114,6 +2123,83 @@ Known limitations:
 - Isolation levels beyond write-lock protection remain metadata foundations for later concurrency/MVCC work.
 - Durability logging is transaction-decision oriented and is not yet a full WAL implementation.
 
+## Sprint 00-34 Summary
+
+Sprint 00-34 added the first stored procedure subsystem to YEKDB with procedure cataloging, SQL lifecycle commands, procedure execution, parameter binding, metadata inspection, and regression hardening.
+
+Implemented areas:
+
+1. Procedure domain model
+2. Procedure name validation
+3. Procedure parameter model and value validation
+4. In-memory procedure catalog per active database
+5. Procedure metadata with creation timestamp and version
+6. `CREATE PROCEDURE ... BEGIN ... END` parsing
+7. Multi-statement procedure body support
+8. `DROP PROCEDURE` parsing and execution
+9. `SHOW PROCEDURES` catalog listing
+10. `SHOW PROCEDURE procedure_name` detail inspection
+11. `CALL procedure_name(...)` execution
+12. Positional argument binding
+13. Named argument binding with `param => value`
+14. SQL literal rendering for procedure argument substitution
+15. `CREATE OR REPLACE PROCEDURE` replacement flow
+16. `CREATE PROCEDURE IF NOT EXISTS` idempotent create flow
+17. `DROP PROCEDURE IF EXISTS` idempotent drop flow
+18. `SHOW PROCEDURES LIKE 'pattern'` filtering
+19. Non-recursive nested procedure calls
+20. Procedure execution depth and recursion protection
+21. Transaction-boundary validation for DDL inside procedure bodies
+22. Parser, catalog, executor, and final lifecycle regression coverage
+23. Full compile and Maven regression verification
+
+Final verification:
+
+```text
+1991 / 1991 tests passed
+Compile successful
+```
+
+Supported stored procedure workflow examples:
+
+```sql
+CREATE PROCEDURE create_user(user_id INT, user_name STRING)
+BEGIN
+    INSERT INTO users (id, name) VALUES (:user_id, :user_name)
+END;
+
+CALL create_user(1, 'Ada');
+CALL create_user(user_name => 'Ada', user_id => 1);
+
+SHOW PROCEDURES;
+SHOW PROCEDURES LIKE 'create_%';
+SHOW PROCEDURE create_user;
+
+CREATE OR REPLACE PROCEDURE create_user(user_id INT, user_name STRING)
+BEGIN
+    INSERT INTO users (id, name) VALUES (:user_id, :user_name)
+END;
+
+DROP PROCEDURE IF EXISTS create_user;
+```
+
+Runtime behavior:
+
+- procedure definitions are scoped to the selected database instance
+- procedure names are normalized through the procedure validator
+- duplicate procedure creation is rejected unless `OR REPLACE` or `IF NOT EXISTS` changes the lifecycle semantics
+- named arguments are matched by parameter name and may be passed in any order
+- procedure body placeholders use `:parameter_name` and are converted to SQL literals before statement execution
+- nested procedure calls are allowed when they are not recursive
+- direct recursive procedure execution is rejected before the body runs
+
+Known limitations:
+
+- Procedure definitions are in-memory for this sprint; persistent procedure catalog storage is future work.
+- Procedure bodies currently execute SQL text after parameter substitution; richer procedural language constructs are not part of this foundation.
+- Procedure-level transaction semantics reuse the existing statement execution boundaries and do not yet provide autonomous transactions.
+- OUT parameters, return values, variables, conditional blocks, and loops are future extensions.
+
 ## Roadmap
 
 ### Completed / Established
@@ -2176,10 +2262,15 @@ Known limitations:
 - Table-level write isolation for DML
 - Recovery-ready transaction log parsing
 - Automatic rollback decision logging for incomplete transactions
+- Stored procedure catalog and metadata foundation
+- Stored procedure lifecycle commands
+- Procedure execution with positional and named arguments
 
 ### Upcoming
 
 - Positional `INSERT INTO table VALUES (...)` syntax without an explicit column list
+- Persistent stored procedure metadata and recovery
+- Richer procedural language constructs for stored procedures
 - Full SQL `CREATE TYPE / ALTER TYPE / DROP TYPE` support
 - Multi-dimensional ARRAY support and extended structured-type operators
 - JSON operators and richer structured-type query support
@@ -2221,7 +2312,7 @@ Development is documented sprint-by-sprint with technical developer notes coveri
 
 Latest documentation:
 
-**Developer Notes — Sprint 00-33: ACID Durability, Write Isolation, and Recovery Hooks**
+**Developer Notes — Sprint 00-34: Stored Procedure Foundation**
 
 ---
 

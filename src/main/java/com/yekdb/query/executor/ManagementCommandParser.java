@@ -6,6 +6,7 @@ import com.yekdb.constraint.NotNullConstraint;
 import com.yekdb.constraint.PrimaryKeyConstraint;
 import com.yekdb.constraint.ReferentialAction;
 import com.yekdb.constraint.UniqueConstraint;
+import com.yekdb.procedure.ProcedureParameter;
 import com.yekdb.query.command.*;
 import com.yekdb.query.parser.SqlParser;
 import com.yekdb.query.statement.SelectStatement;
@@ -19,6 +20,7 @@ import com.yekdb.trigger.TriggerTiming;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * QueryExecutor'ın yönetim SQL parser yolu.
@@ -51,6 +53,17 @@ import java.util.Locale;
  * Sprint 00-30 Phase 11:
  *
  * SHOW VIEWS
+ *
+ * Sprint 00-34 Phase 2:
+ *
+ * CREATE [OR REPLACE] PROCEDURE procedure_name([param TYPE, ...]) BEGIN ... END
+ * CREATE PROCEDURE IF NOT EXISTS procedure_name([param TYPE, ...]) BEGIN ... END
+ * DROP PROCEDURE [IF EXISTS] procedure_name
+ * SHOW PROCEDURES
+ * SHOW PROCEDURES LIKE 'pattern'
+ * SHOW PROCEDURE procedure_name
+ * CALL procedure_name([literal, ...])
+ * CALL procedure_name([param => literal, ...])
  */
 final class ManagementCommandParser {
 
@@ -97,9 +110,51 @@ final class ManagementCommandParser {
             return parseCreateTriggerCommand(sql);
         }
 
+        if (upperSql.startsWith("CREATE OR REPLACE PROCEDURE ")) {
+            return parseCreateProcedureCommand(
+                    sql,
+                    "CREATE OR REPLACE PROCEDURE",
+                    true,
+                    false
+            );
+        }
+
+        if (upperSql.startsWith("CREATE PROCEDURE IF NOT EXISTS ")) {
+            return parseCreateProcedureCommand(
+                    sql,
+                    "CREATE PROCEDURE IF NOT EXISTS",
+                    false,
+                    true
+            );
+        }
+
+        if (upperSql.startsWith("CREATE PROCEDURE ")) {
+            return parseCreateProcedureCommand(
+                    sql,
+                    "CREATE PROCEDURE",
+                    false,
+                    false
+            );
+        }
+
         if (upperSql.equals("SHOW VIEWS")
                 || upperSql.equals("SHOW VIEWS;")) {
             return new ShowViewsCommand();
+        }
+
+        if (upperSql.equals("SHOW PROCEDURES")
+                || upperSql.equals("SHOW PROCEDURES;")
+                || upperSql.startsWith("SHOW PROCEDURES ")) {
+            return parseShowProceduresCommand(sql);
+        }
+
+        if (upperSql.startsWith("SHOW PROCEDURE ")) {
+            return new ShowProcedureCommand(
+                    extractValueAfterKeyword(
+                            stripOptionalSemicolon(sql),
+                            "SHOW PROCEDURE"
+                    )
+            );
         }
 
         if (upperSql.equals("SHOW TRANSACTION")
@@ -139,6 +194,16 @@ final class ManagementCommandParser {
                             "DROP TRIGGER"
                     )
             );
+        }
+
+        if (upperSql.startsWith("DROP PROCEDURE ")) {
+            return parseDropProcedureCommand(
+                    sql
+            );
+        }
+
+        if (upperSql.startsWith("CALL ")) {
+            return parseCallProcedureCommand(sql);
         }
 
         if (upperSql.startsWith("CREATE TABLE ")) {
@@ -245,6 +310,556 @@ final class ManagementCommandParser {
                 parseTriggerEvent(tokens[2]),
                 body
         );
+    }
+
+    /**
+     * CREATE PROCEDURE syntax'ini ayrıştırır.
+     *
+     * Desteklenen biçim:
+     * CREATE [OR REPLACE] PROCEDURE name([param TYPE, ...]) BEGIN ... END
+     */
+    private CreateProcedureCommand parseCreateProcedureCommand(
+            String sql,
+            String keyword,
+            boolean replaceExisting,
+            boolean ifNotExists
+    ) {
+        String remaining =
+                stripOptionalSemicolon(
+                        sql.substring(
+                                keyword.length()
+                        ).trim()
+                );
+
+        List<String> headerParts =
+                splitProcedureHeaderAndBody(
+                        remaining
+                );
+
+        String header =
+                headerParts.get(0);
+
+        String body =
+                headerParts.get(1);
+
+        int openIndex =
+                header.indexOf('(');
+
+        int closeIndex =
+                header.lastIndexOf(')');
+
+        if (openIndex <= 0
+                || closeIndex <= openIndex
+                || closeIndex != header.length() - 1) {
+            throw new QueryExecutionException(
+                    "CREATE PROCEDURE must use 'CREATE PROCEDURE name([param TYPE, ...]) BEGIN ... END' syntax."
+            );
+        }
+
+        String procedureName =
+                header.substring(
+                        0,
+                        openIndex
+                ).trim();
+
+        String parameterSection =
+                header.substring(
+                        openIndex + 1,
+                        closeIndex
+                ).trim();
+
+        if (procedureName.isBlank()
+                || procedureName.chars()
+                .anyMatch(Character::isWhitespace)) {
+            throw new QueryExecutionException(
+                    "CREATE PROCEDURE statement must contain one procedure name."
+            );
+        }
+
+        return new CreateProcedureCommand(
+                procedureName,
+                parseProcedureParameters(
+                        parameterSection
+                ),
+                body,
+                replaceExisting,
+                ifNotExists
+        );
+    }
+
+    private ShowProceduresCommand parseShowProceduresCommand(String sql) {
+        String normalizedSql =
+                stripOptionalSemicolon(sql)
+                        .trim();
+
+        String remaining =
+                normalizedSql.substring(
+                        "SHOW PROCEDURES".length()
+                ).trim();
+
+        if (remaining.isEmpty()) {
+            return new ShowProceduresCommand();
+        }
+
+        if (!remaining.toUpperCase(Locale.ROOT)
+                .startsWith("LIKE ")) {
+            throw new QueryExecutionException(
+                    "SHOW PROCEDURES must use 'SHOW PROCEDURES' or 'SHOW PROCEDURES LIKE 'pattern'' syntax."
+            );
+        }
+
+        String patternLiteral =
+                remaining.substring(
+                        "LIKE".length()
+                ).trim();
+
+        if (!isSingleQuotedLiteral(patternLiteral)) {
+            throw new QueryExecutionException(
+                    "SHOW PROCEDURES LIKE requires a quoted pattern."
+            );
+        }
+
+        return new ShowProceduresCommand(
+                unquoteSingleQuotedLiteral(
+                        patternLiteral
+                )
+        );
+    }
+
+    private boolean isSingleQuotedLiteral(String value) {
+        return value.length() >= 2
+                && value.startsWith("'")
+                && value.endsWith("'");
+    }
+
+    private String unquoteSingleQuotedLiteral(String value) {
+        return value.substring(
+                1,
+                value.length() - 1
+        ).replace("''", "'");
+    }
+
+    private List<String> splitProcedureHeaderAndBody(
+            String remaining
+    ) {
+        int beginIndex =
+                findKeywordOutsideQuotes(
+                        remaining,
+                        "BEGIN"
+                );
+
+        if (beginIndex < 0) {
+            throw new QueryExecutionException(
+                    "CREATE PROCEDURE must contain BEGIN."
+            );
+        }
+
+        String header =
+                remaining.substring(
+                        0,
+                        beginIndex
+                ).trim();
+
+        String bodyWithEnd =
+                remaining.substring(
+                        beginIndex + "BEGIN".length()
+                ).trim();
+
+        int endIndex =
+                findLastKeywordOutsideQuotes(
+                        bodyWithEnd,
+                        "END"
+                );
+
+        if (endIndex < 0) {
+            throw new QueryExecutionException(
+                    "CREATE PROCEDURE must end with END."
+            );
+        }
+
+        String body =
+                bodyWithEnd.substring(
+                        0,
+                        endIndex
+                ).trim();
+
+        String trailing =
+                bodyWithEnd.substring(
+                        endIndex + "END".length()
+                ).trim();
+
+        if (!trailing.isBlank()) {
+            throw new QueryExecutionException(
+                    "Unexpected text after CREATE PROCEDURE END: "
+                            + trailing
+            );
+        }
+
+        if (header.isBlank()) {
+            throw new QueryExecutionException(
+                    "CREATE PROCEDURE header cannot be empty."
+            );
+        }
+
+        if (body.isBlank()) {
+            throw new QueryExecutionException(
+                    "CREATE PROCEDURE body cannot be empty."
+            );
+        }
+
+        return List.of(
+                header,
+                body
+        );
+    }
+
+    private List<ProcedureParameter> parseProcedureParameters(
+            String parameterSection
+    ) {
+        if (parameterSection.isBlank()) {
+            return List.of();
+        }
+
+        List<ProcedureParameter> parameters =
+                new ArrayList<>();
+
+        for (String definition : splitTopLevelDefinitions(
+                parameterSection
+        )) {
+            String[] parts =
+                    definition.trim()
+                            .split("\\s+", 2);
+
+            if (parts.length != 2
+                    || parts[0].isBlank()
+                    || parts[1].isBlank()) {
+                throw new QueryExecutionException(
+                        "Invalid procedure parameter definition: "
+                                + definition
+                );
+            }
+
+            try {
+                parameters.add(
+                        new ProcedureParameter(
+                                parts[0],
+                                ColumnTypeDefinition.parse(
+                                        parts[1].trim()
+                                )
+                        )
+                );
+
+            } catch (RuntimeException exception) {
+                throw new QueryExecutionException(
+                        "Invalid procedure parameter definition: "
+                                + definition,
+                        exception
+                );
+            }
+        }
+
+        return List.copyOf(parameters);
+    }
+
+    private CallProcedureCommand parseCallProcedureCommand(String sql) {
+        String remaining =
+                stripOptionalSemicolon(
+                        sql.substring(
+                                "CALL".length()
+                        ).trim()
+                );
+
+        int openIndex =
+                remaining.indexOf('(');
+
+        int closeIndex =
+                remaining.lastIndexOf(')');
+
+        if (openIndex <= 0
+                || closeIndex < openIndex
+                || closeIndex != remaining.length() - 1) {
+            throw new QueryExecutionException(
+                    "CALL must use 'CALL procedure_name([literal, ...])' syntax."
+            );
+        }
+
+        String procedureName =
+                remaining.substring(
+                        0,
+                        openIndex
+                ).trim();
+
+        if (procedureName.isBlank()
+                || procedureName.chars()
+                .anyMatch(Character::isWhitespace)) {
+            throw new QueryExecutionException(
+                    "CALL statement must contain one procedure name."
+            );
+        }
+
+        String argumentSection =
+                remaining.substring(
+                        openIndex + 1,
+                        closeIndex
+                ).trim();
+
+        if (containsNamedCallArgument(argumentSection)) {
+            return new CallProcedureCommand(
+                    procedureName,
+                    parseNamedCallArguments(
+                            argumentSection
+                    )
+            );
+        }
+
+        return new CallProcedureCommand(
+                procedureName,
+                parseCallArguments(
+                        argumentSection
+                )
+        );
+    }
+
+    private DropProcedureCommand parseDropProcedureCommand(String sql) {
+        String remaining =
+                stripOptionalSemicolon(sql)
+                        .substring(
+                                "DROP PROCEDURE".length()
+                        )
+                        .trim();
+
+        if (remaining.isBlank()) {
+            throw new QueryExecutionException(
+                    "DROP PROCEDURE statement requires a name."
+            );
+        }
+
+        String upperRemaining =
+                remaining.toUpperCase(Locale.ROOT);
+
+        if (upperRemaining.startsWith("IF EXISTS ")) {
+            String procedureName =
+                    remaining.substring(
+                            "IF EXISTS".length()
+                    ).trim();
+
+            if (procedureName.isBlank()
+                    || procedureName.contains(" ")) {
+                throw new QueryExecutionException(
+                        "DROP PROCEDURE IF EXISTS requires exactly one procedure name."
+                );
+            }
+
+            return new DropProcedureCommand(
+                    procedureName,
+                    true
+            );
+        }
+
+        return new DropProcedureCommand(
+                remaining
+        );
+    }
+
+    private List<Object> parseCallArguments(
+            String argumentSection
+    ) {
+        if (argumentSection.isBlank()) {
+            return List.of();
+        }
+
+        List<Object> arguments =
+                new ArrayList<>();
+
+        for (String argument : splitTopLevelSqlList(
+                argumentSection
+        )) {
+            arguments.add(
+                    parseProcedureLiteral(
+                            argument
+                    )
+            );
+        }
+
+        return java.util.Collections.unmodifiableList(
+                arguments
+        );
+    }
+
+    private boolean containsNamedCallArgument(
+            String argumentSection
+    ) {
+        if (argumentSection.isBlank()) {
+            return false;
+        }
+
+        return splitTopLevelSqlList(argumentSection)
+                .stream()
+                .anyMatch(argument ->
+                        findNamedArgumentSeparator(argument) >= 0
+                );
+    }
+
+    private Map<String, Object> parseNamedCallArguments(
+            String argumentSection
+    ) {
+        if (argumentSection.isBlank()) {
+            return Map.of();
+        }
+
+        Map<String, Object> arguments =
+                new java.util.LinkedHashMap<>();
+
+        for (String argument : splitTopLevelSqlList(
+                argumentSection
+        )) {
+            int separatorIndex =
+                    findNamedArgumentSeparator(
+                            argument
+                    );
+
+            if (separatorIndex < 0) {
+                throw new QueryExecutionException(
+                        "CALL cannot mix positional and named arguments."
+                );
+            }
+
+            String parameterName =
+                    argument.substring(
+                            0,
+                            separatorIndex
+                    ).trim();
+
+            String literal =
+                    argument.substring(
+                            separatorIndex + 2
+                    ).trim();
+
+            if (parameterName.isBlank()
+                    || parameterName.chars()
+                    .anyMatch(Character::isWhitespace)) {
+                throw new QueryExecutionException(
+                        "CALL named argument must contain one parameter name."
+                );
+            }
+
+            String normalizedParameterName =
+                    parameterName.toLowerCase(Locale.ROOT);
+
+            if (arguments.containsKey(normalizedParameterName)) {
+                throw new QueryExecutionException(
+                        "Duplicate CALL named argument: "
+                                + normalizedParameterName
+                );
+            }
+
+            arguments.put(
+                    normalizedParameterName,
+                    parseProcedureLiteral(
+                            literal
+                    )
+            );
+        }
+
+        return java.util.Collections.unmodifiableMap(
+                arguments
+        );
+    }
+
+    private int findNamedArgumentSeparator(String value) {
+        boolean insideSingleQuote = false;
+        boolean insideDoubleQuote = false;
+
+        for (int index = 0;
+             index < value.length() - 1;
+             index++) {
+
+            char character =
+                    value.charAt(index);
+
+            if (character == '\''
+                    && !insideDoubleQuote) {
+                insideSingleQuote = !insideSingleQuote;
+                continue;
+            }
+
+            if (character == '"'
+                    && !insideSingleQuote) {
+                insideDoubleQuote = !insideDoubleQuote;
+                continue;
+            }
+
+            if (!insideSingleQuote
+                    && !insideDoubleQuote
+                    && character == '='
+                    && value.charAt(index + 1) == '>') {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private Object parseProcedureLiteral(String rawValue) {
+        String value =
+                rawValue.trim();
+
+        if (value.isBlank()) {
+            throw new QueryExecutionException(
+                    "CALL argument cannot be empty."
+            );
+        }
+
+        if ((value.startsWith("'") && value.endsWith("'"))
+                || (value.startsWith("\"") && value.endsWith("\""))) {
+            return value.substring(
+                    1,
+                    value.length() - 1
+            ).replace("''", "'");
+        }
+
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        }
+
+        if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+
+        if (value.equalsIgnoreCase("null")) {
+            return null;
+        }
+
+        if (value.contains(".")) {
+            try {
+                return Double.parseDouble(value);
+            } catch (NumberFormatException exception) {
+                throw new QueryExecutionException(
+                        "Invalid CALL numeric argument: "
+                                + rawValue,
+                        exception
+                );
+            }
+        }
+
+        try {
+            long longValue =
+                    Long.parseLong(value);
+
+            if (longValue >= Integer.MIN_VALUE
+                    && longValue <= Integer.MAX_VALUE) {
+                return (int) longValue;
+            }
+
+            return longValue;
+
+        } catch (NumberFormatException exception) {
+            throw new QueryExecutionException(
+                    "CALL arguments must be SQL literals: "
+                            + rawValue,
+                    exception
+            );
+        }
     }
 
     private List<String> splitTriggerHeaderAndBody(
@@ -956,6 +1571,80 @@ final class ManagementCommandParser {
 
         addDefinition(definitions, current);
         return List.copyOf(definitions);
+    }
+
+    private List<String> splitTopLevelSqlList(String section) {
+        List<String> values = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        int depth = 0;
+        boolean insideSingleQuote = false;
+        boolean insideDoubleQuote = false;
+
+        for (int index = 0;
+             index < section.length();
+             index++) {
+
+            char character = section.charAt(index);
+
+            if (character == '\''
+                    && !insideDoubleQuote) {
+                insideSingleQuote = !insideSingleQuote;
+                current.append(character);
+                continue;
+            }
+
+            if (character == '"'
+                    && !insideSingleQuote) {
+                insideDoubleQuote = !insideDoubleQuote;
+                current.append(character);
+                continue;
+            }
+
+            if (!insideSingleQuote
+                    && !insideDoubleQuote
+                    && character == '(') {
+                depth++;
+                current.append(character);
+                continue;
+            }
+
+            if (!insideSingleQuote
+                    && !insideDoubleQuote
+                    && character == ')') {
+                depth--;
+
+                if (depth < 0) {
+                    throw new QueryExecutionException(
+                            "Unbalanced parentheses in SQL list."
+                    );
+                }
+
+                current.append(character);
+                continue;
+            }
+
+            if (character == ','
+                    && !insideSingleQuote
+                    && !insideDoubleQuote
+                    && depth == 0) {
+                addDefinition(values, current);
+                current.setLength(0);
+                continue;
+            }
+
+            current.append(character);
+        }
+
+        if (depth != 0
+                || insideSingleQuote
+                || insideDoubleQuote) {
+            throw new QueryExecutionException(
+                    "Unbalanced SQL list."
+            );
+        }
+
+        addDefinition(values, current);
+        return List.copyOf(values);
     }
 
     private void addDefinition(

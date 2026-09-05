@@ -1,6 +1,7 @@
 package com.yekdb.database;
 
 import com.yekdb.trigger.TriggerCatalog;
+import com.yekdb.procedure.ProcedureCatalog;
 import com.yekdb.view.ViewCatalog;
 
 import java.nio.file.Path;
@@ -19,6 +20,7 @@ public class Database {
     private final DatabaseMetadata metadata;
     private final ViewCatalog viewCatalog;
     private final TriggerCatalog triggerCatalog;
+    private final ProcedureCatalog procedureCatalog;
 
     public Database(
             String name,
@@ -30,7 +32,8 @@ public class Database {
                 databasePath,
                 metadata,
                 new ViewCatalog(),
-                new TriggerCatalog()
+                new TriggerCatalog(),
+                new ProcedureCatalog()
         );
     }
 
@@ -45,7 +48,8 @@ public class Database {
                 databasePath,
                 metadata,
                 viewCatalog,
-                new TriggerCatalog()
+                new TriggerCatalog(),
+                new ProcedureCatalog()
         );
     }
 
@@ -55,6 +59,24 @@ public class Database {
             DatabaseMetadata metadata,
             ViewCatalog viewCatalog,
             TriggerCatalog triggerCatalog
+    ) {
+        this(
+                name,
+                databasePath,
+                metadata,
+                viewCatalog,
+                triggerCatalog,
+                new ProcedureCatalog()
+        );
+    }
+
+    public Database(
+            String name,
+            Path databasePath,
+            DatabaseMetadata metadata,
+            ViewCatalog viewCatalog,
+            TriggerCatalog triggerCatalog,
+            ProcedureCatalog procedureCatalog
     ) {
         this.name = DatabaseNameValidator.validate(name);
 
@@ -78,6 +100,11 @@ public class Database {
                 "Trigger catalog cannot be null."
         );
 
+        this.procedureCatalog = Objects.requireNonNull(
+                procedureCatalog,
+                "Procedure catalog cannot be null."
+        );
+
         validateMetadataConsistency();
     }
 
@@ -99,6 +126,10 @@ public class Database {
 
     public TriggerCatalog getTriggerCatalog() {
         return triggerCatalog;
+    }
+
+    public ProcedureCatalog getProcedureCatalog() {
+        return procedureCatalog;
     }
 
     /**
@@ -125,6 +156,7 @@ public class Database {
                 ", metadata=" + metadata +
                 ", viewCatalog=" + viewCatalog +
                 ", triggerCatalog=" + triggerCatalog +
+                ", procedureCatalog=" + procedureCatalog +
                 '}';
     }
 }

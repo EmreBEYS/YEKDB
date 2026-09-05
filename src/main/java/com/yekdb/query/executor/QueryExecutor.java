@@ -12,23 +12,28 @@ import com.yekdb.query.command.BeginTransactionCommand;
 import com.yekdb.query.command.CommitTransactionCommand;
 import com.yekdb.query.command.CreateDatabaseCommand;
 import com.yekdb.query.command.CreateIndexCommand;
+import com.yekdb.query.command.CreateProcedureCommand;
 import com.yekdb.query.command.CreateTableCommand;
 import com.yekdb.query.command.CreateTriggerCommand;
 import com.yekdb.query.command.CreateViewCommand;
 import com.yekdb.query.command.DeleteCommand;
 import com.yekdb.query.command.DropDatabaseCommand;
 import com.yekdb.query.command.DropIndexCommand;
+import com.yekdb.query.command.DropProcedureCommand;
 import com.yekdb.query.command.DropTableCommand;
 import com.yekdb.query.command.DropTriggerCommand;
 import com.yekdb.query.command.DropViewCommand;
 import com.yekdb.query.command.ExplainCommand;
 import com.yekdb.query.command.InsertCommand;
+import com.yekdb.query.command.CallProcedureCommand;
 import com.yekdb.query.command.ReleaseSavepointCommand;
 import com.yekdb.query.command.RollbackTransactionCommand;
 import com.yekdb.query.command.RollbackToSavepointCommand;
 import com.yekdb.query.command.SavepointCommand;
 import com.yekdb.query.command.SelectCommand;
 import com.yekdb.query.command.ShowSavepointsCommand;
+import com.yekdb.query.command.ShowProcedureCommand;
+import com.yekdb.query.command.ShowProceduresCommand;
 import com.yekdb.query.command.ShowTransactionCommand;
 import com.yekdb.query.command.ShowTriggersCommand;
 import com.yekdb.query.command.ShowViewsCommand;
@@ -43,6 +48,10 @@ import com.yekdb.query.parser.SqlParser;
 import com.yekdb.query.statement.SelectStatement;
 import com.yekdb.query.statement.Statement;
 import com.yekdb.query.statement.TableReference;
+import com.yekdb.procedure.ProcedureDefinition;
+import com.yekdb.procedure.ProcedureMetadata;
+import com.yekdb.procedure.ProcedureCatalog;
+import com.yekdb.procedure.exception.ProcedureNotFoundException;
 import com.yekdb.storage.record.Row;
 import com.yekdb.storage.table.Column;
 import com.yekdb.storage.table.DataType;
@@ -163,6 +172,11 @@ public final class QueryExecutor implements AutoCloseable {
      * Trigger body çalıştırma ve OLD / NEW bağlamını yönetir.
      */
     private final TriggerExecutionSupport triggerExecutionSupport;
+
+    /**
+     * Stored procedure body çalıştırma ve parametre bağlamını yönetir.
+     */
+    private final ProcedureExecutionSupport procedureExecutionSupport;
 
     /**
      * EXPLAIN SELECT plan satırlarını optimizer üzerinden üretir.
@@ -376,6 +390,9 @@ public final class QueryExecutor implements AutoCloseable {
 
         this.triggerExecutionSupport =
                 new TriggerExecutionSupport();
+
+        this.procedureExecutionSupport =
+                new ProcedureExecutionSupport();
 
         this.explainExecutionSupport =
                 new ExplainCommandExecutionSupport();
@@ -727,6 +744,46 @@ public final class QueryExecutor implements AutoCloseable {
             }
 
             if (command
+                    instanceof CreateProcedureCommand value) {
+
+                return executeCreateProcedure(
+                        value
+                );
+            }
+
+            if (command
+                    instanceof DropProcedureCommand value) {
+
+                return executeDropProcedure(
+                        value
+                );
+            }
+
+            if (command
+                    instanceof ShowProceduresCommand value) {
+
+                return executeShowProcedures(
+                        value
+                );
+            }
+
+            if (command
+                    instanceof ShowProcedureCommand value) {
+
+                return executeShowProcedure(
+                        value
+                );
+            }
+
+            if (command
+                    instanceof CallProcedureCommand value) {
+
+                return executeCallProcedure(
+                        value
+                );
+            }
+
+            if (command
                     instanceof InsertCommand value) {
 
                 return executeInsert(
@@ -828,7 +885,9 @@ public final class QueryExecutor implements AutoCloseable {
                 || command instanceof CreateViewCommand
                 || command instanceof DropViewCommand
                 || command instanceof CreateTriggerCommand
-                || command instanceof DropTriggerCommand;
+                || command instanceof DropTriggerCommand
+                || command instanceof CreateProcedureCommand
+                || command instanceof DropProcedureCommand;
     }
 
 
@@ -987,6 +1046,26 @@ public final class QueryExecutor implements AutoCloseable {
 
         if (command instanceof ShowTriggersCommand) {
             return "SHOW TRIGGERS";
+        }
+
+        if (command instanceof CreateProcedureCommand) {
+            return "CREATE PROCEDURE";
+        }
+
+        if (command instanceof DropProcedureCommand) {
+            return "DROP PROCEDURE";
+        }
+
+        if (command instanceof ShowProceduresCommand) {
+            return "SHOW PROCEDURES";
+        }
+
+        if (command instanceof ShowProcedureCommand) {
+            return "SHOW PROCEDURE";
+        }
+
+        if (command instanceof CallProcedureCommand) {
+            return "CALL";
         }
 
         if (command instanceof CreateDatabaseCommand) {
@@ -1606,6 +1685,315 @@ public final class QueryExecutor implements AutoCloseable {
                         new Column("created_at", DataType.STRING)
                 ),
                 rows
+        );
+    }
+
+    /**
+     * CREATE PROCEDURE.
+     */
+    private ExecuteResult executeCreateProcedure(
+            CreateProcedureCommand command
+    ) {
+
+        Database database =
+                requireCurrentDatabase();
+
+        ProcedureDefinition definition =
+                new ProcedureDefinition(
+                        command.getProcedureName(),
+                        command.getParameters(),
+                        command.getBody()
+                );
+
+        ProcedureMetadata metadata =
+                createProcedureMetadata(
+                        database,
+                        definition,
+                        command.isReplaceExisting()
+                );
+
+        ProcedureCatalog catalog =
+                database.getProcedureCatalog();
+
+        if (command.isIfNotExists()
+                && catalog.containsProcedure(
+                definition.getProcedureName()
+        )) {
+            return ExecuteResult.success(
+                    "Procedure already exists: "
+                            + definition.getProcedureName()
+            );
+        }
+
+        if (command.isReplaceExisting()
+                && catalog.containsProcedure(
+                definition.getProcedureName()
+        )) {
+            catalog.replaceProcedure(
+                    definition,
+                    metadata
+            );
+
+            return ExecuteResult.success(
+                    "Procedure replaced successfully: "
+                            + definition.getProcedureName()
+            );
+        }
+
+        catalog.registerProcedure(
+                        definition,
+                        metadata
+                );
+
+        return ExecuteResult.success(
+                "Procedure created successfully: "
+                        + definition.getProcedureName()
+        );
+    }
+
+    private ProcedureMetadata createProcedureMetadata(
+            Database database,
+            ProcedureDefinition definition,
+            boolean replaceExisting
+    ) {
+
+        if (!replaceExisting
+                || !database.getProcedureCatalog()
+                .containsProcedure(
+                        definition.getProcedureName()
+                )) {
+
+            return new ProcedureMetadata(
+                    definition.getProcedureName(),
+                    definition.getParameterCount()
+            );
+        }
+
+        ProcedureMetadata currentMetadata =
+                database.getProcedureCatalog()
+                        .getMetadata(
+                                definition.getProcedureName()
+                        );
+
+        return new ProcedureMetadata(
+                definition.getProcedureName(),
+                definition.getParameterCount(),
+                currentMetadata.getCreatedAt(),
+                currentMetadata.getVersion() + 1
+        );
+    }
+
+    /**
+     * DROP PROCEDURE.
+     */
+    private ExecuteResult executeDropProcedure(
+            DropProcedureCommand command
+    ) {
+
+        try {
+            requireCurrentDatabase()
+                    .getProcedureCatalog()
+                    .unregisterProcedure(
+                            command.getProcedureName()
+                    );
+
+        } catch (ProcedureNotFoundException exception) {
+            if (!command.isIfExists()) {
+                throw exception;
+            }
+
+            return ExecuteResult.success(
+                    "Procedure did not exist: "
+                            + command.getProcedureName()
+            );
+        }
+
+        return ExecuteResult.success(
+                "Procedure dropped successfully: "
+                        + command.getProcedureName()
+        );
+    }
+
+    /**
+     * SHOW PROCEDURES.
+     */
+    private ExecuteResult executeShowProcedures(
+            ShowProceduresCommand command
+    ) {
+
+        Database database =
+                requireCurrentDatabase();
+
+        List<Row> rows =
+                database.getProcedureCatalog()
+                        .listProcedures()
+                        .stream()
+                        .filter(procedure ->
+                                matchesProcedureFilter(
+                                        procedure.getProcedureName(),
+                                        command
+                                )
+                        )
+                        .map(procedure -> {
+                            ProcedureMetadata metadata =
+                                    database.getProcedureCatalog()
+                                            .getMetadata(
+                                                    procedure.getProcedureName()
+                                            );
+
+                            return new Row(
+                                    List.of(
+                                            procedure.getProcedureName(),
+                                            procedure.getSignature(),
+                                            procedure.getParameterCount(),
+                                            metadata.getVersion(),
+                                            metadata.getCreatedAt()
+                                                    .toString()
+                                    )
+                            );
+                        })
+                        .toList();
+
+        return ExecuteResult.selectSuccess(
+                "Procedures listed successfully.",
+                List.of(
+                        new Column("procedure_name", DataType.STRING),
+                        new Column("signature", DataType.STRING),
+                        new Column("parameter_count", DataType.INT),
+                        new Column("version", DataType.INT),
+                        new Column("created_at", DataType.STRING)
+                ),
+                rows
+        );
+    }
+
+    private boolean matchesProcedureFilter(
+            String procedureName,
+            ShowProceduresCommand command
+    ) {
+        if (!command.hasLikePattern()) {
+            return true;
+        }
+
+        return procedureName
+                .toLowerCase(Locale.ROOT)
+                .matches(
+                        toLikeRegex(
+                                command.getLikePattern()
+                                        .toLowerCase(Locale.ROOT)
+                        )
+                );
+    }
+
+    private String toLikeRegex(String pattern) {
+        StringBuilder regex =
+                new StringBuilder("^");
+
+        for (int index = 0;
+             index < pattern.length();
+             index++) {
+
+            char character =
+                    pattern.charAt(index);
+
+            if (character == '%') {
+                regex.append(".*");
+                continue;
+            }
+
+            if (character == '_') {
+                regex.append('.');
+                continue;
+            }
+
+            if ("\\.[]{}()*+-?^$|".indexOf(character) >= 0) {
+                regex.append('\\');
+            }
+
+            regex.append(character);
+        }
+
+        regex.append('$');
+
+        return regex.toString();
+    }
+
+    /**
+     * SHOW PROCEDURE.
+     */
+    private ExecuteResult executeShowProcedure(
+            ShowProcedureCommand command
+    ) {
+
+        Database database =
+                requireCurrentDatabase();
+
+        ProcedureDefinition procedure =
+                database.getProcedureCatalog()
+                        .getProcedure(
+                                command.getProcedureName()
+                        );
+
+        ProcedureMetadata metadata =
+                database.getProcedureCatalog()
+                        .getMetadata(
+                                procedure.getProcedureName()
+                        );
+
+        return ExecuteResult.selectSuccess(
+                "Procedure listed successfully.",
+                List.of(
+                        new Column("procedure_name", DataType.STRING),
+                        new Column("signature", DataType.STRING),
+                        new Column("parameter_count", DataType.INT),
+                        new Column("body", DataType.STRING),
+                        new Column("version", DataType.INT),
+                        new Column("created_at", DataType.STRING)
+                ),
+                List.of(
+                        new Row(
+                                List.of(
+                                        procedure.getProcedureName(),
+                                        procedure.getSignature(),
+                                        procedure.getParameterCount(),
+                                        procedure.getBody(),
+                                        metadata.getVersion(),
+                                        metadata.getCreatedAt()
+                                                .toString()
+                                )
+                        )
+                )
+        );
+    }
+
+    /**
+     * CALL PROCEDURE.
+     */
+    private ExecuteResult executeCallProcedure(
+            CallProcedureCommand command
+    ) {
+
+        Database database =
+                requireCurrentDatabase();
+
+        ProcedureDefinition procedure =
+                database.getProcedureCatalog()
+                        .getProcedure(
+                                command.getProcedureName()
+                        );
+
+        if (command.hasNamedArguments()) {
+            return procedureExecutionSupport.execute(
+                    procedure,
+                    command.getNamedArguments(),
+                    this::execute
+            );
+        }
+
+        return procedureExecutionSupport.execute(
+                procedure,
+                command.getArguments(),
+                this::execute
         );
     }
 
