@@ -1,10 +1,18 @@
 package com.yekdb.transaction;
 
+import com.yekdb.concurrency.LockAcquisitionInterruptedException;
+import com.yekdb.concurrency.DeadlockDetectedException;
+import com.yekdb.concurrency.LockConflictException;
+import com.yekdb.concurrency.LockHandle;
+import com.yekdb.concurrency.LockManager;
+import com.yekdb.concurrency.LockManagerRegistry;
+import com.yekdb.concurrency.LockMode;
+import com.yekdb.concurrency.LockResource;
+import com.yekdb.concurrency.LockTimeoutException;
+
 import java.nio.file.Path;
-import java.util.Locale;
-import java.util.Map;
+import java.time.Duration;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Ayni JVM icindeki QueryExecutor oturumlari arasinda tablo bazli
@@ -12,13 +20,48 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class TransactionTableWriteLockManager {
 
-    private static final Map<String, LockOwner> LOCKS =
-            new ConcurrentHashMap<>();
+    private static final LockManager LOCK_MANAGER =
+            LockManagerRegistry.global();
 
     public TransactionTableWriteLock acquire(
             Path databasePath,
             String tableName,
             String ownerId
+    ) {
+
+        return acquireInternal(
+                databasePath,
+                tableName,
+                ownerId,
+                null
+        );
+    }
+
+    public TransactionTableWriteLock acquire(
+            Path databasePath,
+            String tableName,
+            String ownerId,
+            Duration timeout
+    ) {
+
+        Objects.requireNonNull(
+                timeout,
+                "Timeout cannot be null."
+        );
+
+        return acquireInternal(
+                databasePath,
+                tableName,
+                ownerId,
+                timeout
+        );
+    }
+
+    private TransactionTableWriteLock acquireInternal(
+            Path databasePath,
+            String tableName,
+            String ownerId,
+            Duration timeout
     ) {
 
         Objects.requireNonNull(
@@ -36,81 +79,90 @@ public final class TransactionTableWriteLockManager {
                 "OwnerId cannot be null."
         );
 
-        String lockKey =
-                createLockKey(
+        LockResource resource =
+                LockResource.table(
                         databasePath,
                         tableName
                 );
 
-        synchronized (LOCKS) {
+        LockHandle lockHandle;
 
-            LockOwner currentOwner =
-                    LOCKS.get(lockKey);
+        try {
 
-            if (currentOwner != null
-                    && !currentOwner.ownerId()
-                    .equals(ownerId)) {
+            lockHandle =
+                    acquireLock(
+                            resource,
+                            ownerId,
+                            timeout
+                    );
 
-                throw new TransactionLockException(
-                        "Table is locked by another active transaction: "
-                                + tableName
-                );
-            }
+        } catch (DeadlockDetectedException exception) {
 
-            LOCKS.put(
-                    lockKey,
-                    new LockOwner(
-                            ownerId
-                    )
+            throw new TransactionDeadlockException(
+                    tableName,
+                    LockMode.EXCLUSIVE,
+                    exception
+            );
+
+        } catch (LockConflictException exception) {
+
+            throw new TransactionLockException(
+                    "Table is locked by another active transaction: "
+                            + tableName
+            );
+
+        } catch (LockTimeoutException exception) {
+
+            throw new TransactionLockTimeoutException(
+                    tableName,
+                    LockMode.EXCLUSIVE,
+                    exception.getTimeout(),
+                    exception
+            );
+
+        } catch (LockAcquisitionInterruptedException exception) {
+
+            throw new TransactionLockInterruptedException(
+                    tableName,
+                    LockMode.EXCLUSIVE,
+                    exception
             );
         }
 
         return new TransactionTableWriteLock(
-                lockKey,
-                () -> release(
-                        lockKey,
-                        ownerId
-                )
+                createLockKey(resource),
+                lockHandle::close
         );
     }
 
-    private void release(
-            String lockKey,
-            String ownerId
+    private LockHandle acquireLock(
+            LockResource resource,
+            String ownerId,
+            Duration timeout
     ) {
 
-        synchronized (LOCKS) {
-
-            LockOwner currentOwner =
-                    LOCKS.get(lockKey);
-
-            if (currentOwner == null) {
-                return;
-            }
-
-            if (currentOwner.ownerId()
-                    .equals(ownerId)) {
-                LOCKS.remove(lockKey);
-            }
+        if (timeout == null) {
+            return LOCK_MANAGER.acquire(
+                    resource,
+                    LockMode.EXCLUSIVE,
+                    ownerId
+            );
         }
+
+        return LOCK_MANAGER.acquire(
+                resource,
+                LockMode.EXCLUSIVE,
+                ownerId,
+                timeout
+        );
     }
 
     private String createLockKey(
-            Path databasePath,
-            String tableName
+            LockResource resource
     ) {
 
-        return databasePath
-                .toAbsolutePath()
-                .normalize()
-                .toString()
-                .toLowerCase(Locale.ROOT)
+        return resource.databaseIdentity()
                 + "::"
-                + tableName.toLowerCase(Locale.ROOT);
-    }
-
-    private record LockOwner(
-            String ownerId
-    ) {
+                + resource.resourceName();
     }
 }

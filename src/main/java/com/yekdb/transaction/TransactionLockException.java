@@ -13,4 +13,12 @@ public class TransactionLockException extends TransactionException {
 
         super(message);
     }
+
+    public TransactionLockException(
+            String message,
+            Throwable cause
+    ) {
+
+        super(message, cause);
+    }
 }

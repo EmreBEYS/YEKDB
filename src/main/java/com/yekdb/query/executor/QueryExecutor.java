@@ -59,10 +59,14 @@ import com.yekdb.storage.table.Table;
 import com.yekdb.storage.table.TableManager;
 import com.yekdb.storage.table.TableMetadata;
 import com.yekdb.transaction.TransactionContext;
+import com.yekdb.transaction.TransactionDeadlockException;
 import com.yekdb.transaction.TransactionDurabilityLog;
+import com.yekdb.transaction.TransactionIsolationLevel;
 import com.yekdb.transaction.TransactionManager;
 import com.yekdb.transaction.TransactionRecoveryManager;
 import com.yekdb.transaction.TransactionSavepointInfo;
+import com.yekdb.transaction.TransactionTableReadLock;
+import com.yekdb.transaction.TransactionTableReadLockManager;
 import com.yekdb.transaction.TransactionTableWriteLock;
 import com.yekdb.transaction.TransactionTableWriteLockManager;
 import com.yekdb.trigger.TriggerDefinition;
@@ -72,6 +76,7 @@ import com.yekdb.trigger.TriggerTiming;
 import com.yekdb.view.ViewDefinition;
 import com.yekdb.view.ViewMetadata;
 
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -206,7 +211,16 @@ public final class QueryExecutor implements AutoCloseable {
 
     private final Map<String, TransactionTableWriteLock> heldWriteLocks;
 
+    /**
+     * Sprint 00-35 Phase 4 SELECT shared lock'larini yonetir.
+     */
+    private final TransactionTableReadLockManager readLockManager;
+
+    private final Map<String, TransactionTableReadLock> heldReadLocks;
+
     private final String transactionLockOwnerId;
+
+    private final Duration transactionLockTimeout;
 
     /**
      * View çözümleme sırasında recursive referansları yakalar.
@@ -258,6 +272,26 @@ public final class QueryExecutor implements AutoCloseable {
                 new InsertExecutor(),
                 new UpdateExecutor(),
                 new DeleteExecutor()
+        );
+    }
+
+    /**
+     * Lock bekleme suresi yapilandirilabilen QueryExecutor olusturur.
+     */
+    public QueryExecutor(
+            DatabaseManager databaseManager,
+            QueryDataSource queryDataSource,
+            Duration transactionLockTimeout
+    ) {
+
+        this(
+                databaseManager,
+                queryDataSource,
+                new SelectExecutor(),
+                new InsertExecutor(),
+                new UpdateExecutor(),
+                new DeleteExecutor(),
+                transactionLockTimeout
         );
     }
 
@@ -332,6 +366,27 @@ public final class QueryExecutor implements AutoCloseable {
             InsertExecutor insertExecutor,
             UpdateExecutor updateExecutor,
             DeleteExecutor deleteExecutor
+    ) {
+
+        this(
+                databaseManager,
+                queryDataSource,
+                selectExecutor,
+                insertExecutor,
+                updateExecutor,
+                deleteExecutor,
+                Duration.ZERO
+        );
+    }
+
+    public QueryExecutor(
+            DatabaseManager databaseManager,
+            QueryDataSource queryDataSource,
+            SelectExecutor selectExecutor,
+            InsertExecutor insertExecutor,
+            UpdateExecutor updateExecutor,
+            DeleteExecutor deleteExecutor,
+            Duration transactionLockTimeout
     ) {
 
         this.databaseManager =
@@ -412,8 +467,19 @@ public final class QueryExecutor implements AutoCloseable {
         this.heldWriteLocks =
                 new HashMap<>();
 
+        this.readLockManager =
+                new TransactionTableReadLockManager();
+
+        this.heldReadLocks =
+                new HashMap<>();
+
         this.transactionLockOwnerId =
                 UUID.randomUUID().toString();
+
+        this.transactionLockTimeout =
+                validateTransactionLockTimeout(
+                        transactionLockTimeout
+                );
 
         this.activeViewStack =
                 new ArrayDeque<>();
@@ -422,6 +488,24 @@ public final class QueryExecutor implements AutoCloseable {
                 new IndexManager();
 
         initializeTableManager();
+    }
+
+    private Duration validateTransactionLockTimeout(
+            Duration timeout
+    ) {
+
+        Objects.requireNonNull(
+                timeout,
+                "TransactionLockTimeout cannot be null."
+        );
+
+        if (timeout.isNegative()) {
+            throw new IllegalArgumentException(
+                    "TransactionLockTimeout cannot be negative."
+            );
+        }
+
+        return timeout;
     }
 
     /**
@@ -831,6 +915,19 @@ public final class QueryExecutor implements AutoCloseable {
             );
 
         } catch (
+                TransactionDeadlockException exception
+        ) {
+
+            rollbackDeadlockVictim(
+                    exception
+            );
+
+            throw createExecutionException(
+                    command,
+                    exception
+            );
+
+        } catch (
                 QueryExecutionException exception
         ) {
 
@@ -1121,7 +1218,7 @@ public final class QueryExecutor implements AutoCloseable {
                     transactionManager.commit();
 
         } finally {
-            releaseAllWriteLocks();
+            releaseAllTransactionLocks();
         }
 
         appendTransactionCompletionLog(
@@ -1149,7 +1246,7 @@ public final class QueryExecutor implements AutoCloseable {
                     transactionManager.rollback();
 
         } finally {
-            releaseAllWriteLocks();
+            releaseAllTransactionLocks();
         }
 
         appendTransactionCompletionLog(
@@ -2406,7 +2503,7 @@ public final class QueryExecutor implements AutoCloseable {
                 appendTransactionCompletionLog(
                         transaction
                 );
-                releaseAllWriteLocks();
+                releaseAllTransactionLocks();
             }
 
             return result;
@@ -2462,17 +2559,33 @@ public final class QueryExecutor implements AutoCloseable {
         Database database =
                 requireCurrentDatabase();
 
-        TransactionTableWriteLock lock =
-                writeLockManager.acquire(
-                        database.getDatabasePath(),
-                        tableName,
-                        transactionLockOwnerId
+        TransactionTableWriteLock lock;
+
+        if (transactionLockTimeout.isZero()) {
+            lock = writeLockManager.acquire(
+                    database.getDatabasePath(),
+                    tableName,
+                    transactionLockOwnerId
+            );
+        } else {
+            lock = writeLockManager.acquire(
+                    database.getDatabasePath(),
+                    tableName,
+                    transactionLockOwnerId,
+                    transactionLockTimeout
+            );
+        }
+
+        TransactionTableWriteLock existingLock =
+                heldWriteLocks.putIfAbsent(
+                        lock.getLockKey(),
+                        lock
                 );
 
-        heldWriteLocks.putIfAbsent(
-                lock.getLockKey(),
-                lock
-        );
+        if (existingLock != null) {
+            lock.close();
+            return existingLock;
+        }
 
         return lock;
     }
@@ -2490,6 +2603,26 @@ public final class QueryExecutor implements AutoCloseable {
             lock.close();
         }
     }
+
+    private void releaseAllReadLocks() {
+
+        List<TransactionTableReadLock> locks =
+                new ArrayList<>(
+                        heldReadLocks.values()
+                );
+
+        heldReadLocks.clear();
+
+        for (TransactionTableReadLock lock : locks) {
+            lock.close();
+        }
+    }
+
+    private void releaseAllTransactionLocks() {
+
+        releaseAllReadLocks();
+        releaseAllWriteLocks();
+    }
     private void rollbackFailedDmlStatement(
             boolean implicitTransaction,
             int savepoint,
@@ -2504,7 +2637,7 @@ public final class QueryExecutor implements AutoCloseable {
                 appendTransactionCompletionLog(
                         transaction
                 );
-                releaseAllWriteLocks();
+                releaseAllTransactionLocks();
             } else {
                 transactionManager.rollbackToSavepoint(
                         savepoint
@@ -2545,8 +2678,13 @@ public final class QueryExecutor implements AutoCloseable {
         Database database =
                 databaseManager.getCurrentDatabase();
 
-        if (database != null
-                && database.getViewCatalog()
+        if (database == null) {
+            return executeUnlockedSelect(
+                    command
+            );
+        }
+
+        if (database.getViewCatalog()
                 .containsView(
                         command.getTableName()
                 )) {
@@ -2556,6 +2694,88 @@ public final class QueryExecutor implements AutoCloseable {
                     command
             );
         }
+
+        return executeSelectWithReadLocks(
+                command
+        );
+    }
+
+    private ExecuteResult executeSelectWithReadLocks(
+            SelectCommand command
+    ) {
+
+        boolean transactionScoped =
+                shouldHoldReadLocksUntilTransactionCompletion();
+
+        List<TransactionTableReadLock> statementLocks =
+                new ArrayList<>();
+
+        try {
+
+            for (String tableName : selectTableNames(command)) {
+
+                TransactionTableReadLock lock =
+                        acquireReadLock(
+                                tableName,
+                                transactionScoped
+                        );
+
+                if (!transactionScoped) {
+                    statementLocks.add(lock);
+                }
+            }
+
+            return executeUnlockedSelect(
+                    command
+            );
+
+        } finally {
+
+            for (int index = statementLocks.size() - 1;
+                 index >= 0;
+                 index--) {
+
+                statementLocks.get(index)
+                        .close();
+            }
+        }
+    }
+
+    private void rollbackDeadlockVictim(
+            TransactionDeadlockException originalException
+    ) {
+
+        if (!transactionManager.hasActiveTransaction()) {
+            return;
+        }
+
+        try {
+
+            TransactionContext transaction =
+                    transactionManager.rollback();
+
+            try {
+                appendTransactionCompletionLog(
+                        transaction
+                );
+            } catch (RuntimeException logException) {
+                originalException.addSuppressed(
+                        logException
+                );
+            }
+
+        } catch (RuntimeException rollbackException) {
+            originalException.addSuppressed(
+                    rollbackException
+            );
+        } finally {
+            releaseAllTransactionLocks();
+        }
+    }
+
+    private ExecuteResult executeUnlockedSelect(
+            SelectCommand command
+    ) {
 
         QueryDataSource dataSource =
                 requireQueryDataSource();
@@ -2586,6 +2806,107 @@ public final class QueryExecutor implements AutoCloseable {
                 indexes,
                 rowsByPointer::get
         );
+    }
+
+    private TransactionTableReadLock acquireReadLock(
+            String tableName,
+            boolean transactionScoped
+    ) {
+
+        Database database =
+                requireCurrentDatabase();
+
+        TransactionTableReadLock lock;
+
+        if (transactionLockTimeout.isZero()) {
+            lock = readLockManager.acquire(
+                    database.getDatabasePath(),
+                    tableName,
+                    transactionLockOwnerId
+            );
+        } else {
+            lock = readLockManager.acquire(
+                    database.getDatabasePath(),
+                    tableName,
+                    transactionLockOwnerId,
+                    transactionLockTimeout
+            );
+        }
+
+        if (!transactionScoped) {
+            return lock;
+        }
+
+        TransactionTableReadLock existingLock =
+                heldReadLocks.putIfAbsent(
+                        lock.getLockKey(),
+                        lock
+                );
+
+        if (existingLock != null) {
+            lock.close();
+            return existingLock;
+        }
+
+        return lock;
+    }
+
+    private boolean shouldHoldReadLocksUntilTransactionCompletion() {
+
+        return transactionManager.getActiveTransaction()
+                .map(TransactionContext::getIsolationLevel)
+                .map(isolationLevel ->
+                        isolationLevel
+                                != TransactionIsolationLevel.READ_COMMITTED
+                )
+                .orElse(false);
+    }
+
+    private List<String> selectTableNames(
+            SelectCommand command
+    ) {
+
+        List<String> tableNames =
+                new ArrayList<>();
+
+        addTableNameIfMissing(
+                tableNames,
+                command.getTableName()
+        );
+
+        command.getJoins()
+                .forEach(join ->
+                        addTableNameIfMissing(
+                                tableNames,
+                                join.getTableName()
+                        )
+                );
+
+        tableNames.sort(
+                String.CASE_INSENSITIVE_ORDER
+        );
+
+        return List.copyOf(
+                tableNames
+        );
+    }
+
+    private void addTableNameIfMissing(
+            List<String> tableNames,
+            String tableName
+    ) {
+
+        boolean alreadyExists =
+                tableNames.stream()
+                        .anyMatch(existing ->
+                                existing.equalsIgnoreCase(
+                                        tableName
+                                )
+                        );
+
+        if (!alreadyExists) {
+            tableNames.add(tableName);
+        }
     }
 
     /**
@@ -3135,7 +3456,7 @@ public final class QueryExecutor implements AutoCloseable {
             }
 
         } finally {
-            releaseAllWriteLocks();
+            releaseAllTransactionLocks();
         }
 
         tableManager = null;

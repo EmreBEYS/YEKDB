@@ -7,8 +7,8 @@
 ![Maven](https://img.shields.io/badge/Maven-3.x-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-green)
 ![Status](https://img.shields.io/badge/Status-Active%20Development-yellow)
-![Tests](https://img.shields.io/badge/JUnit-1991%20Tests%20Passed-brightgreen)
-![Sprint](https://img.shields.io/badge/Sprint-00--34-blueviolet)
+![Tests](https://img.shields.io/badge/JUnit-2030%20Tests%20Passed-brightgreen)
+![Sprint](https://img.shields.io/badge/Sprint-00--35-blueviolet)
 
 ---
 
@@ -150,6 +150,16 @@ The long-term goal is a complete page-oriented database engine with durable stor
 - Procedure body parameter substitution through `:parameter` references
 - Non-recursive nested procedure execution
 - Procedure lifecycle and execution regression coverage
+- Shared and exclusive table-level locking across concurrent sessions
+- Reentrant lock acquisition with owner-level hold counts
+- Statement-scoped and transaction-scoped read-lock lifecycles
+- Configurable lock timeout and interrupt-aware waiting
+- Fair lock wait queues with writer-starvation protection
+- Wait-for graph based deadlock detection
+- Automatic rollback and lock release for deadlock-victim transactions
+- Shared-to-exclusive lock upgrade and exclusive-to-shared downgrade
+- Immutable concurrency diagnostics with lock, queue, and dependency snapshots
+- Multi-threaded concurrency stress and resource-leak regression coverage
 
 ---
 
@@ -1421,30 +1431,26 @@ The `\history` command itself is intentionally not added to history.
 
 YEKDB uses JUnit 5 with regression testing after every development phase.
 
-Current project status after Sprint 00-31:
+Current project status after Sprint 00-35:
 
 ```text
 Compile: SUCCESS
-Tests:   1870 / 1870 PASSED
-Sprint 00-31 terminal integration: PASSED
+Tests:   2030 / 2030 PASSED
+Sprint 00-35 concurrency integration: PASSED
 ```
 
-Sprint 00-31 keeps the complete Sprint 00-30 regression suite green and adds coverage for:
+Sprint 00-35 keeps the complete Sprint 00-34 regression suite green and adds coverage for:
 
-- `EXPLAIN SELECT` parsing and execution
-- `FULL_TABLE_SCAN` planning without a compatible index
-- `INDEX_SCAN` planning with B+ Tree indexes
-- original / optimized WHERE tracing
-- access-predicate selection
-- residual-predicate preservation
-- optimizer rule reporting
-- index-selection behavior for equality and range-compatible predicates
-- view-backed `EXPLAIN`
-- rejection of unsupported `EXPLAIN INSERT`
-- `DROP INDEX` fallback to full table scan
-- query-result regression checks with optimization enabled
-- edge cases with missing WHERE conditions and unavailable indexes
-- live terminal verification across the complete Sprint 00-31 planning workflow
+- shared/exclusive compatibility and reentrant hold counting
+- concurrent DML write isolation and SELECT read locks
+- `READ COMMITTED`, `REPEATABLE READ`, and `SERIALIZABLE` lock lifecycles
+- timeout and interrupt propagation through query and transaction layers
+- fair wait queues and writer-starvation protection
+- wait-for graph cycle detection and cleanup
+- automatic rollback of deadlock-victim transactions
+- lock upgrade/downgrade and concurrent upgrade deadlocks
+- immutable lock-manager snapshots
+- high-contention reader/writer stress and resource-leak checks
 
 The complete legacy regression suite remains green.
 
@@ -1485,6 +1491,7 @@ Recent completed sprints:
 - **00-32** — Transaction Management
 - **00-33** — ACID Durability, Write Isolation, and Recovery Hooks
 - **00-34** — Stored Procedure Foundation
+- **00-35** — Concurrency Control, Deadlock Detection, and Lock Diagnostics
 
 ---
 
@@ -2200,6 +2207,54 @@ Known limitations:
 - Procedure-level transaction semantics reuse the existing statement execution boundaries and do not yet provide autonomous transactions.
 - OUT parameters, return values, variables, conditional blocks, and loops are future extensions.
 
+## Sprint 00-35 Summary
+
+Sprint 00-35 added JVM-local table-level concurrency control to YEKDB while preserving the existing transaction, query execution, and storage architecture.
+
+Implemented areas:
+
+1. Generic lock resource and lock-mode model
+2. Shared and exclusive lock compatibility
+3. Reentrant owner-level hold counting
+4. Global lock-manager registry shared by query sessions
+5. Transaction table read-lock and write-lock adapters
+6. DML write locking and isolation-aware SELECT read locking
+7. Statement-scoped `READ COMMITTED` read locks
+8. Transaction-scoped `REPEATABLE READ` and `SERIALIZABLE` read locks
+9. Configurable timeout and interrupt-aware acquisition
+10. Wait-for graph based deadlock detection
+11. Automatic rollback and lock release for deadlock-victim transactions
+12. Fair FIFO-oriented wait queues and writer-starvation protection
+13. Shared/exclusive lock conversion with upgrade and downgrade support
+14. Immutable lock, owner, queue, and dependency diagnostics
+15. Concurrent reader/writer stress and resource-leak regression coverage
+
+Final verification:
+
+```text
+2030 / 2030 tests passed
+Compile successful
+```
+
+Concurrency behavior:
+
+- compatible shared locks may be held by different owners at the same time
+- exclusive locks conflict with locks held by other owners
+- lock requests can fail immediately or wait for a configured timeout
+- interrupted waiters preserve the thread interrupt flag and leave no queue entry behind
+- waiting writers prevent newly arriving readers from repeatedly bypassing the queue
+- wait-for graph cycles select the request that closes the cycle as the deadlock victim
+- an active victim transaction is rolled back and releases all transaction-scoped locks
+- failed lock upgrades preserve the original shared lock
+- diagnostic snapshots are detached from the live lock table and cannot be mutated
+
+Known limitations:
+
+- Locking is JVM-local and is not distributed across processes or machines.
+- Lock granularity is table-level; row-level and page-level locking are future extensions.
+- MVCC and snapshot isolation are not part of Sprint 00-35.
+- Locks are runtime state and are not persisted across process restarts.
+
 ## Roadmap
 
 ### Completed / Established
@@ -2265,6 +2320,11 @@ Known limitations:
 - Stored procedure catalog and metadata foundation
 - Stored procedure lifecycle commands
 - Procedure execution with positional and named arguments
+- JVM-local table-level concurrency control
+- Shared/exclusive locking and isolation-aware read-lock lifecycles
+- Fair lock wait queues and writer-starvation protection
+- Deadlock detection with automatic victim rollback
+- Lock upgrade/downgrade and immutable concurrency diagnostics
 
 ### Upcoming
 
@@ -2280,7 +2340,7 @@ Known limitations:
 - Persistent index storage / recovery improvements
 - Full physical Write Ahead Logging (WAL) with redo/undo replay
 - Buffer pool
-- Concurrency control / MVCC
+- Row/page-level locking and MVCC
 - Client/server architecture
 - Cost-based query planning, statistics, and optimization improvements
 - Additional terminal commands and administration features
@@ -2312,7 +2372,7 @@ Development is documented sprint-by-sprint with technical developer notes coveri
 
 Latest documentation:
 
-**Developer Notes — Sprint 00-34: Stored Procedure Foundation**
+**Developer Notes — Sprint 00-35: Concurrency Control and Deadlock Handling**
 
 ---
 

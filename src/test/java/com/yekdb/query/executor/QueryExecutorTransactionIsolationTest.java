@@ -124,6 +124,59 @@ class QueryExecutorTransactionIsolationTest {
     }
 
     @Test
+    void shouldReleaseReentrantWriteLockAfterCommit() {
+
+        DatabaseManager firstDatabaseManager =
+                new DatabaseManager(
+                        dataDirectory
+                );
+
+        DatabaseManager secondDatabaseManager =
+                new DatabaseManager(
+                        dataDirectory
+                );
+
+        try (QueryExecutor firstExecutor = newExecutor(firstDatabaseManager);
+             QueryExecutor secondExecutor = newExecutor(secondDatabaseManager)) {
+
+            createDatabaseAndTable(
+                    firstExecutor
+            );
+
+            secondExecutor.execute(
+                    "USE DATABASE isolation_db;"
+            );
+
+            firstExecutor.execute(
+                    "BEGIN;"
+            );
+
+            firstExecutor.execute(
+                    "INSERT INTO users (id, name) VALUES (1, 'Yunus');"
+            );
+
+            firstExecutor.execute(
+                    "INSERT INTO users (id, name) VALUES (2, 'Ada');"
+            );
+
+            firstExecutor.execute(
+                    "COMMIT;"
+            );
+
+            secondExecutor.execute(
+                    "INSERT INTO users (id, name) VALUES (3, 'Ali');"
+            );
+
+            assertEquals(
+                    3,
+                    secondExecutor.execute(
+                            "SELECT * FROM users;"
+                    ).getRowCount()
+            );
+        }
+    }
+
+    @Test
     void shouldReleaseWriteLockAfterRollback() {
 
         DatabaseManager firstDatabaseManager =

@@ -1,0 +1,3 @@
+"C:/Users/Yunus Emre KUL/Desktop/YekDB/YEKDB/src/test/java/com/yekdb/procedure/ProcedureCatalogTest.java"
+"C:/Users/Yunus Emre KUL/Desktop/YekDB/YEKDB/src/test/java/com/yekdb/query/executor/ManagementCommandParserProcedureTest.java"
+"C:/Users/Yunus Emre KUL/Desktop/YekDB/YEKDB/src/test/java/com/yekdb/query/executor/QueryExecutorProcedureTest.java"

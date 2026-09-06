@@ -15,4 +15,15 @@ public class TransactionException extends YekdbException {
                 message
         );
     }
+
+    public TransactionException(
+            String message,
+            Throwable cause
+    ) {
+
+        super(
+                message,
+                cause
+        );
+    }
 }
