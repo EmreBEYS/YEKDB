@@ -24,11 +24,18 @@ import java.util.concurrent.TimeUnit;
 public final class InMemoryLockManager
         implements LockManager {
 
+    private static final int DEADLOCK_HISTORY_LIMIT = 16;
+
     private final Map<LockResource, ResourceLockState> locks =
             new HashMap<>();
 
     private final WaitForGraph waitForGraph =
             new WaitForGraph();
+
+    private final Deque<LockManagerSnapshot.DeadlockState> recentDeadlocks =
+            new ArrayDeque<>();
+
+    private long detectedDeadlockCount;
 
     @Override
     public LockHandle acquire(
@@ -232,15 +239,24 @@ public final class InMemoryLockManager
 
                     rebuildWaitForGraph();
 
-                    waitForGraph.findCycleFrom(
-                                    request.ownerId()
-                            )
-                            .ifPresent(cycleOwners -> {
-                                throw new DeadlockDetectedException(
-                                        request.ownerId(),
-                                        cycleOwners
-                                );
-                            });
+                    List<String> cycleOwners =
+                            waitForGraph.findCycleFrom(
+                                            request.ownerId()
+                                    )
+                                    .orElse(null);
+
+                    if (cycleOwners != null) {
+
+                        recordDeadlock(
+                                request,
+                                cycleOwners
+                        );
+
+                        throw new DeadlockDetectedException(
+                                request.ownerId(),
+                                cycleOwners
+                        );
+                    }
 
                     try {
 
@@ -449,8 +465,33 @@ public final class InMemoryLockManager
 
             return new LockManagerSnapshot(
                     resources,
-                    waitForGraph.snapshotDependencies()
+                    waitForGraph.snapshotDependencies(),
+                    detectedDeadlockCount,
+                    List.copyOf(recentDeadlocks)
             );
+        }
+    }
+
+    private void recordDeadlock(
+            AcquisitionRequest request,
+            List<String> cycleOwners
+    ) {
+
+        detectedDeadlockCount++;
+
+        recentDeadlocks.addLast(
+                new LockManagerSnapshot.DeadlockState(
+                        detectedDeadlockCount,
+                        request.ownerId(),
+                        request.resource(),
+                        request.mode(),
+                        cycleOwners
+                )
+        );
+
+        while (recentDeadlocks.size()
+                > DEADLOCK_HISTORY_LIMIT) {
+            recentDeadlocks.removeFirst();
         }
     }
 

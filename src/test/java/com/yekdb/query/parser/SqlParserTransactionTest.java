@@ -27,6 +27,26 @@ class SqlParserTransactionTest {
     }
 
     @Test
+    void shouldParseReadUncommittedIsolationLevel() {
+
+        Statement statement =
+                parser.parse(
+                        "START TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;"
+                );
+
+        BeginTransactionStatement beginStatement =
+                assertInstanceOf(
+                        BeginTransactionStatement.class,
+                        statement
+                );
+
+        assertEquals(
+                TransactionIsolationLevel.READ_UNCOMMITTED,
+                beginStatement.getIsolationLevel()
+        );
+    }
+
+    @Test
     void shouldParseBeginTransaction() {
 
         Statement statement =

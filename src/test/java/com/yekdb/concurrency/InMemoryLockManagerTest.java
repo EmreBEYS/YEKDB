@@ -449,6 +449,38 @@ class InMemoryLockManagerTest {
                 exception.getCycleOwners().getLast()
         );
 
+        LockManagerSnapshot diagnosticSnapshot =
+                lockManager.snapshot();
+
+        assertEquals(
+                1,
+                diagnosticSnapshot.detectedDeadlockCount()
+        );
+
+        LockManagerSnapshot.DeadlockState deadlockState =
+                diagnosticSnapshot.recentDeadlocks()
+                        .getFirst();
+
+        assertEquals(
+                "session-b",
+                deadlockState.victimOwnerId()
+        );
+
+        assertEquals(
+                users,
+                deadlockState.waitingResource()
+        );
+
+        assertEquals(
+                LockMode.EXCLUSIVE,
+                deadlockState.requestedMode()
+        );
+
+        assertEquals(
+                exception.getCycleOwners(),
+                deadlockState.cycleOwners()
+        );
+
         ordersBySecondOwner.close();
 
         try (LockHandle ignored = firstOwnerWaiting.get(

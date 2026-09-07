@@ -2704,8 +2704,18 @@ public final class QueryExecutor implements AutoCloseable {
             SelectCommand command
     ) {
 
+        TransactionIsolationLevel isolationLevel =
+                activeIsolationLevel();
+
+        if (!isolationLevel.requiresReadLock()) {
+            return executeUnlockedSelect(
+                    command
+            );
+        }
+
         boolean transactionScoped =
-                shouldHoldReadLocksUntilTransactionCompletion();
+                isolationLevel
+                        .holdsReadLockUntilTransactionCompletion();
 
         List<TransactionTableReadLock> statementLocks =
                 new ArrayList<>();
@@ -2851,15 +2861,13 @@ public final class QueryExecutor implements AutoCloseable {
         return lock;
     }
 
-    private boolean shouldHoldReadLocksUntilTransactionCompletion() {
+    private TransactionIsolationLevel activeIsolationLevel() {
 
         return transactionManager.getActiveTransaction()
                 .map(TransactionContext::getIsolationLevel)
-                .map(isolationLevel ->
-                        isolationLevel
-                                != TransactionIsolationLevel.READ_COMMITTED
-                )
-                .orElse(false);
+                .orElse(
+                        TransactionIsolationLevel.READ_COMMITTED
+                );
     }
 
     private List<String> selectTableNames(

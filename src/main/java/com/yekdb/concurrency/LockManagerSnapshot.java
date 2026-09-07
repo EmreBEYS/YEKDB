@@ -11,10 +11,18 @@ import java.util.TreeMap;
  */
 public record LockManagerSnapshot(
         List<ResourceState> resources,
-        Map<String, List<String>> waitForDependencies
+        Map<String, List<String>> waitForDependencies,
+        long detectedDeadlockCount,
+        List<DeadlockState> recentDeadlocks
 ) {
 
     public LockManagerSnapshot {
+
+        if (detectedDeadlockCount < 0) {
+            throw new IllegalArgumentException(
+                    "DetectedDeadlockCount cannot be negative."
+            );
+        }
 
         resources = List.copyOf(
                 Objects.requireNonNull(
@@ -42,6 +50,28 @@ public record LockManagerSnapshot(
                 Collections.unmodifiableMap(
                         dependencyCopy
                 );
+
+        recentDeadlocks = List.copyOf(
+                Objects.requireNonNull(
+                        recentDeadlocks,
+                        "RecentDeadlocks cannot be null."
+                )
+        );
+    }
+
+    /**
+     * Sprint 00-35 source compatibility constructor.
+     */
+    public LockManagerSnapshot(
+            List<ResourceState> resources,
+            Map<String, List<String>> waitForDependencies
+    ) {
+        this(
+                resources,
+                waitForDependencies,
+                0,
+                List.of()
+        );
     }
 
     public int getActiveResourceCount() {
@@ -60,6 +90,46 @@ public record LockManagerSnapshot(
 
     public int getWaitingOwnerCount() {
         return waitForDependencies.size();
+    }
+
+    public record DeadlockState(
+            long detectionSequence,
+            String victimOwnerId,
+            LockResource waitingResource,
+            LockMode requestedMode,
+            List<String> cycleOwners
+    ) {
+
+        public DeadlockState {
+
+            if (detectionSequence <= 0) {
+                throw new IllegalArgumentException(
+                        "DetectionSequence must be positive."
+                );
+            }
+
+            Objects.requireNonNull(
+                    victimOwnerId,
+                    "VictimOwnerId cannot be null."
+            );
+
+            Objects.requireNonNull(
+                    waitingResource,
+                    "WaitingResource cannot be null."
+            );
+
+            Objects.requireNonNull(
+                    requestedMode,
+                    "RequestedMode cannot be null."
+            );
+
+            cycleOwners = List.copyOf(
+                    Objects.requireNonNull(
+                            cycleOwners,
+                            "CycleOwners cannot be null."
+                    )
+            );
+        }
     }
 
     public record ResourceState(

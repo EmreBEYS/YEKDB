@@ -299,15 +299,21 @@ public final class SqlParser {
                 "READ"
         )) {
 
-            if (!matchTokenValue(
-                    "COMMITTED"
+            if (matchTokenValue(
+                    "UNCOMMITTED"
             )) {
-                throw tokenCursor.error(
-                        "Expected COMMITTED after ISOLATION LEVEL READ."
-                );
+                return TransactionIsolationLevel.READ_UNCOMMITTED;
             }
 
-            return TransactionIsolationLevel.READ_COMMITTED;
+            if (matchTokenValue(
+                    "COMMITTED"
+            )) {
+                return TransactionIsolationLevel.READ_COMMITTED;
+            }
+
+            throw tokenCursor.error(
+                    "Expected UNCOMMITTED or COMMITTED after ISOLATION LEVEL READ."
+            );
         }
 
         if (matchTokenValue(

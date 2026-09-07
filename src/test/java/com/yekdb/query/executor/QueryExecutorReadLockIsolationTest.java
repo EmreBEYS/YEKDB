@@ -16,6 +16,36 @@ class QueryExecutorReadLockIsolationTest {
     Path dataDirectory;
 
     @Test
+    void shouldAllowDirtyReadAtReadUncommitted() {
+
+        try (QueryExecutor writer = newExecutor();
+             QueryExecutor reader = newExecutor()) {
+
+            createDatabaseAndTable(writer);
+            useDatabase(reader);
+
+            writer.execute("BEGIN;");
+            writer.execute(
+                    "INSERT INTO users (id, name) VALUES (1, 'Ada');"
+            );
+
+            reader.execute(
+                    "START TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;"
+            );
+
+            assertEquals(
+                    1,
+                    reader.execute(
+                            "SELECT * FROM users;"
+                    ).getRowCount()
+            );
+
+            reader.execute("ROLLBACK;");
+            writer.execute("ROLLBACK;");
+        }
+    }
+
+    @Test
     void shouldRejectReadCommittedSelectWhileAnotherTransactionWrites() {
 
         try (QueryExecutor writer = newExecutor();
