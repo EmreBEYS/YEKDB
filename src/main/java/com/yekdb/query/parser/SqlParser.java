@@ -9,6 +9,7 @@ import com.yekdb.query.statement.BeginTransactionStatement;
 import com.yekdb.query.statement.CommitTransactionStatement;
 import com.yekdb.query.statement.DeleteStatement;
 import com.yekdb.query.statement.ExplainStatement;
+import com.yekdb.query.statement.ExplainMode;
 import com.yekdb.query.statement.FetchClause;
 import com.yekdb.query.statement.GroupByClause;
 import com.yekdb.query.statement.HavingClause;
@@ -464,6 +465,9 @@ public final class SqlParser {
                 "Expected EXPLAIN keyword."
         );
 
+        ExplainMode mode =
+                parseOptionalExplainMode();
+
         if (!tokenCursor.check(
                 SqlTokenType.SELECT
         )) {
@@ -474,8 +478,23 @@ public final class SqlParser {
         }
 
         return new ExplainStatement(
-                parseSelect()
+                parseSelect(),
+                mode
         );
+    }
+
+    private ExplainMode parseOptionalExplainMode() {
+
+        if (tokenCursor.check(SqlTokenType.IDENTIFIER)
+                && "ANALYZE".equalsIgnoreCase(
+                        tokenCursor.current().getValue()
+                )) {
+
+            tokenCursor.advance();
+            return ExplainMode.ANALYZE;
+        }
+
+        return ExplainMode.PLAN;
     }
 
     // ==================================================

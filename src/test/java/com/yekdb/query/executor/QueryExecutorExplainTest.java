@@ -284,6 +284,71 @@ class QueryExecutorExplainTest {
         }
     }
 
+    @Test
+    void explainAnalyzeShouldExecuteSelectAndAppendRuntimeMetrics() {
+
+        InMemoryQueryDataSource dataSource =
+                createUsersDataSource();
+
+        try (QueryExecutor queryExecutor =
+                     new QueryExecutor(
+                             new DatabaseManager(
+                                     temporaryDirectory
+                             ),
+                             dataSource
+                     )) {
+
+            ExecuteResult result =
+                    queryExecutor.execute(
+                            "EXPLAIN ANALYZE SELECT id FROM users WHERE age >= 18;"
+                    );
+
+            assertTrue(result.isSuccess());
+            assertEquals(
+                    "EXPLAIN ANALYZE query executed successfully.",
+                    result.getMessage()
+            );
+            assertTrue(containsPlanLine(result, "PLAN: FULL_TABLE_SCAN"));
+            assertTrue(containsPlanLine(result, "ANALYZE: TRUE"));
+            assertTrue(containsPlanLine(result, "ACTUAL_ROWS: 2"));
+            assertTrue(
+                    containsPlanLineStartingWith(
+                            result,
+                            "EXECUTION_TIME_NANOS: "
+                    )
+            );
+        }
+    }
+
+    @Test
+    void plainExplainShouldRemainPlanOnly() {
+
+        try (QueryExecutor queryExecutor =
+                     new QueryExecutor(
+                             new DatabaseManager(
+                                     temporaryDirectory
+                             ),
+                             createUsersDataSource()
+                     )) {
+
+            ExecuteResult result =
+                    queryExecutor.execute(
+                            "EXPLAIN SELECT id FROM users;"
+                    );
+
+            assertTrue(result.isSuccess());
+            assertEquals(
+                    "EXPLAIN query executed successfully.",
+                    result.getMessage()
+            );
+            assertTrue(
+                    result.getRows().stream()
+                            .map(row -> row.getValue(0).toString())
+                            .noneMatch(line -> line.startsWith("ANALYZE:"))
+            );
+        }
+    }
+
     private InMemoryQueryDataSource createUsersDataSource() {
 
         InMemoryQueryDataSource dataSource =
@@ -338,6 +403,21 @@ class QueryExecutorExplainTest {
                 .anyMatch(row ->
                         expected.equals(
                                 row.getValue(0)
+                        )
+                );
+    }
+
+    private boolean containsPlanLineStartingWith(
+            ExecuteResult result,
+            String expectedPrefix
+    ) {
+
+        return result.getRows()
+                .stream()
+                .map(row -> row.getValue(0).toString())
+                .anyMatch(line ->
+                        line.startsWith(
+                                expectedPrefix
                         )
                 );
     }

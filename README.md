@@ -1497,6 +1497,7 @@ Recent completed sprints:
 - **00-34** — Stored Procedure Foundation
 - **00-35** — Concurrency Control, Deadlock Detection, and Lock Diagnostics
 - **00-36** — Isolation Policies and Deadlock Hardening
+- **00-37** — EXPLAIN ANALYZE Runtime Query Inspection
 
 ---
 
@@ -2291,6 +2292,50 @@ Known limitations:
 - Locking and deadlock history remain JVM-local and in-memory.
 - Isolation is table-granular; row/page locks, MVCC and snapshot isolation are future work.
 
+## Sprint 00-37 Summary
+
+Sprint 00-37 extends the existing plan-only `EXPLAIN SELECT` support with
+runtime-aware `EXPLAIN ANALYZE SELECT` inspection.
+
+Implemented areas:
+
+1. Backward-compatible `ExplainMode` model
+2. `EXPLAIN ANALYZE SELECT` parsing
+3. Statement-to-command mode preservation
+4. Execution through the normal SELECT pipeline
+5. Actual result-row count reporting
+6. Nanosecond execution-time reporting
+7. View-aware runtime analysis
+8. Isolation-aware read-lock reuse
+9. Plan-only EXPLAIN compatibility coverage
+10. Phase-oriented compile and test boundaries
+
+Example:
+
+```sql
+EXPLAIN ANALYZE SELECT id, name
+FROM users
+WHERE age >= 18;
+```
+
+Runtime rows are appended to the existing optimizer plan:
+
+```text
+ANALYZE: TRUE
+ACTUAL_ROWS: 2
+EXECUTION_TIME_NANOS: 123456
+```
+
+See `docs/Design/YEKDB_00-37_Explain_Analyze.md` for the phase plan,
+compatibility contract, and focused verification commands.
+
+Final verification:
+
+```text
+2042 / 2042 tests passed
+Compile successful
+```
+
 ## Roadmap
 
 ### Completed / Established
@@ -2363,6 +2408,7 @@ Known limitations:
 - Lock upgrade/downgrade and immutable concurrency diagnostics
 - Runtime `READ UNCOMMITTED` support and centralized isolation policies
 - Bounded post-cleanup deadlock incident diagnostics
+- Runtime `EXPLAIN ANALYZE` query inspection
 
 ### Upcoming
 
@@ -2410,7 +2456,7 @@ Development is documented sprint-by-sprint with technical developer notes coveri
 
 Latest documentation:
 
-**Developer Notes — Sprint 00-36: Isolation and Deadlock Hardening**
+**Design Notes — Sprint 00-37: EXPLAIN ANALYZE**
 
 ---
 

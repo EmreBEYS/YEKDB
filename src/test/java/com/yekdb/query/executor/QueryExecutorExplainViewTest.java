@@ -87,6 +87,57 @@ class QueryExecutorExplainViewTest {
         }
     }
 
+    @Test
+    void explainAnalyzeFromViewShouldMeasureMaterializedViewResult() {
+
+        DatabaseManager databaseManager =
+                new DatabaseManager(
+                        temporaryDirectory
+                );
+
+        InMemoryQueryDataSource dataSource =
+                new InMemoryQueryDataSource();
+
+        dataSource.register(
+                new Table(
+                        "users",
+                        List.of(
+                                new Column("id", DataType.INT),
+                                new Column("name", DataType.STRING),
+                                new Column("age", DataType.INT)
+                        )
+                ),
+                List.of(
+                        new Row(List.of(1, "Emre", 21)),
+                        new Row(List.of(2, "Ada", 17))
+                )
+        );
+
+        try (QueryExecutor queryExecutor =
+                     new QueryExecutor(
+                             databaseManager,
+                             dataSource
+                     )) {
+
+            queryExecutor.execute("CREATE DATABASE explain_analyze_view_db;");
+            queryExecutor.execute("USE DATABASE explain_analyze_view_db;");
+            queryExecutor.execute(
+                    "CREATE VIEW adult_users AS "
+                            + "SELECT id, name FROM users WHERE age >= 18;"
+            );
+
+            ExecuteResult result =
+                    queryExecutor.execute(
+                            "EXPLAIN ANALYZE SELECT name FROM adult_users;"
+                    );
+
+            assertTrue(result.isSuccess());
+            assertTrue(containsPlanLine(result, "VIEW: adult_users"));
+            assertTrue(containsPlanLine(result, "ANALYZE: TRUE"));
+            assertTrue(containsPlanLine(result, "ACTUAL_ROWS: 1"));
+        }
+    }
+
     private boolean containsPlanLine(
             ExecuteResult result,
             String expected

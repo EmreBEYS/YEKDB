@@ -2988,6 +2988,8 @@ public final class QueryExecutor implements AutoCloseable {
         Database database =
                 databaseManager.getCurrentDatabase();
 
+        ExecuteResult planResult;
+
         if (database != null
                 && database.getViewCatalog()
                 .containsView(
@@ -2995,19 +2997,51 @@ public final class QueryExecutor implements AutoCloseable {
                                 .getTableName()
                 )) {
 
-            return executeExplainFromView(
+            planResult = executeExplainFromView(
                     database,
                     command
             );
+        } else {
+
+            planResult = explainExecutionSupport.execute(
+                    command,
+                    requireQueryDataSource(),
+                    indexesForTable(
+                            command.getSelectStatement()
+                                    .getTableName()
+                    )
+            );
         }
 
-        return explainExecutionSupport.execute(
-                command,
-                requireQueryDataSource(),
-                indexesForTable(
-                        command.getSelectStatement()
-                                .getTableName()
-                )
+        if (!command.isAnalyze()) {
+            return planResult;
+        }
+
+        long executionStartedAt =
+                System.nanoTime();
+
+        ExecuteResult queryResult =
+                executeSelect(
+                        SelectCommand.fromStatement(
+                                command.getSelectStatement()
+                        )
+                );
+
+        long executionTimeNanos =
+                Math.max(
+                        0L,
+                        System.nanoTime()
+                                - executionStartedAt
+                );
+
+        if (!queryResult.isSuccess()) {
+            return queryResult;
+        }
+
+        return explainExecutionSupport.attachAnalysis(
+                planResult,
+                queryResult,
+                executionTimeNanos
         );
     }
 

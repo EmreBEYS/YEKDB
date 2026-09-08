@@ -11,6 +11,7 @@ import com.yekdb.storage.table.Column;
 import com.yekdb.storage.table.DataType;
 import com.yekdb.storage.table.Table;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -105,6 +106,66 @@ final class ExplainCommandExecutionSupport {
                                 DataType.STRING
                         )
                 ),
+                rows
+        );
+    }
+
+    ExecuteResult attachAnalysis(
+            ExecuteResult planResult,
+            ExecuteResult queryResult,
+            long executionTimeNanos
+    ) {
+
+        Objects.requireNonNull(
+                planResult,
+                "Plan result cannot be null."
+        );
+
+        Objects.requireNonNull(
+                queryResult,
+                "Query result cannot be null."
+        );
+
+        if (executionTimeNanos < 0) {
+            throw new IllegalArgumentException(
+                    "Execution time cannot be negative."
+            );
+        }
+
+        List<Row> rows =
+                new ArrayList<>(
+                        planResult.getRows()
+                );
+
+        rows.add(
+                new Row(
+                        List.of(
+                                "ANALYZE: TRUE"
+                        )
+                )
+        );
+
+        rows.add(
+                new Row(
+                        List.of(
+                                "ACTUAL_ROWS: "
+                                        + queryResult.getRowCount()
+                        )
+                )
+        );
+
+        rows.add(
+                new Row(
+                        List.of(
+                                "EXECUTION_TIME_NANOS: "
+                                        + executionTimeNanos
+                        )
+                )
+        );
+
+        return ExecuteResult.selectSuccess(
+                "EXPLAIN ANALYZE query executed successfully.",
+                planResult.getColumns(),
                 rows
         );
     }

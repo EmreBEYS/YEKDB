@@ -191,7 +191,8 @@ public final class StatementCommandMapper {
     ) {
 
         return new ExplainCommand(
-                statement.getSelectStatement()
+                statement.getSelectStatement(),
+                statement.getMode()
         );
     }
 

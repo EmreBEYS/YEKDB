@@ -3,6 +3,7 @@ package com.yekdb.query.parser;
 import com.yekdb.query.expression.ComparisonExpression;
 import com.yekdb.query.expression.ComparisonOperator;
 import com.yekdb.query.statement.ExplainStatement;
+import com.yekdb.query.statement.ExplainMode;
 import com.yekdb.query.statement.SelectStatement;
 import com.yekdb.query.statement.Statement;
 import com.yekdb.query.statement.StatementType;
@@ -11,7 +12,9 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SqlParserExplainTest {
 
@@ -40,6 +43,15 @@ class SqlParserExplainTest {
         assertEquals(
                 StatementType.EXPLAIN,
                 explainStatement.getType()
+        );
+
+        assertEquals(
+                ExplainMode.PLAN,
+                explainStatement.getMode()
+        );
+
+        assertFalse(
+                explainStatement.isAnalyze()
         );
 
         SelectStatement selectStatement =
@@ -75,6 +87,44 @@ class SqlParserExplainTest {
         assertEquals(
                 10,
                 whereExpression.expectedValue()
+        );
+    }
+
+    @Test
+    void shouldParseExplainAnalyzeSelectStatement() {
+
+        ExplainStatement statement =
+                assertInstanceOf(
+                        ExplainStatement.class,
+                        parser.parse(
+                                "EXPLAIN ANALYZE SELECT id FROM users WHERE id = 10;"
+                        )
+                );
+
+        assertEquals(
+                ExplainMode.ANALYZE,
+                statement.getMode()
+        );
+
+        assertTrue(
+                statement.isAnalyze()
+        );
+
+        assertEquals(
+                "users",
+                statement.getSelectStatement()
+                        .getTableName()
+        );
+    }
+
+    @Test
+    void shouldRejectExplainAnalyzeForNonSelectStatement() {
+
+        assertThrows(
+                ParserException.class,
+                () -> parser.parse(
+                        "EXPLAIN ANALYZE UPDATE users SET name = 'x';"
+                )
         );
     }
 
