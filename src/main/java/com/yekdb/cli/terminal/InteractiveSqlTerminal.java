@@ -3,6 +3,7 @@ package com.yekdb.cli.terminal;
 import com.yekdb.cli.command.TerminalCommand;
 import com.yekdb.cli.command.TerminalCommandParser;
 import com.yekdb.cli.command.TerminalCommandType;
+import com.yekdb.cli.command.VersionCommand;
 import com.yekdb.cli.executor.SqlTerminalExecutor;
 import com.yekdb.cli.metadata.TerminalMetadataService;
 import com.yekdb.cli.output.QueryResultFormatter;
@@ -862,7 +863,8 @@ public final class InteractiveSqlTerminal {
     private void printWelcome() {
 
         output.println(
-                "YEKDB Interactive SQL Terminal"
+                "YEKDB Interactive SQL Terminal "
+                        + VersionCommand.VERSION
         );
 
         output.println(

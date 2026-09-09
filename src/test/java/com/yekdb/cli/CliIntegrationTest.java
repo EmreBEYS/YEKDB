@@ -25,7 +25,7 @@ class CliIntegrationTest {
                 application.execute("version");
 
         assertTrue(versionResult.isSuccess());
-        assertTrue(versionResult.getMessage().contains("00-22"));
+        assertTrue(versionResult.getMessage().contains("1.0.0"));
 
         CliCommandResult statusResult =
                 application.execute("status");

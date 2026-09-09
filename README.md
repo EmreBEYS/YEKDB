@@ -6,9 +6,9 @@
 ![Java](https://img.shields.io/badge/Java-21-orange)
 ![Maven](https://img.shields.io/badge/Maven-3.x-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-green)
-![Status](https://img.shields.io/badge/Status-Active%20Development-yellow)
-![Tests](https://img.shields.io/badge/JUnit-2034%20Tests%20Passed-brightgreen)
-![Sprint](https://img.shields.io/badge/Sprint-00--36-blueviolet)
+![Status](https://img.shields.io/badge/Status-V1%20Completed-brightgreen)
+![Tests](https://img.shields.io/badge/JUnit-2042%20Tests%20Passed-brightgreen)
+![Sprint](https://img.shields.io/badge/Sprint-00--38-blueviolet)
 
 ---
 
@@ -19,6 +19,8 @@ YEKDB (Yet Another Embedded Key Database) is an educational and research-oriente
 The project is not based on PostgreSQL, MySQL, SQLite, or another database codebase. Storage, record management, metadata, SQL processing, query execution, indexing, recovery-oriented structures, and the command-line interface are developed independently to understand how modern database systems are structured internally.
 
 The long-term goal is a complete page-oriented database engine with durable storage, relational query execution, transactions, indexing, recovery, concurrency control, and client/server support.
+
+YEKDB V1 is complete as of Sprint 00-38. The V1 baseline is a Java 21 terminal application with persistent storage, relational SQL execution, indexes, views, triggers, transactions, stored procedures, concurrency control, and runtime query inspection. Items in the roadmap below are post-V1 directions rather than V1 release blockers.
 
 ---
 
@@ -1269,16 +1271,21 @@ The exact package tree continues to evolve as the engine is refactored, but subs
 
 ## Running the Terminal
 
-Compile the project:
+Requirements:
+
+- JDK 21
+- Maven 3.9 or newer
+
+Build the tested, runnable V1 package:
 
 ```bash
-mvn clean compile
+mvn clean package
 ```
 
-Run the terminal through the project's configured Java entry point using:
+Start the terminal:
 
-```text
-com.yekdb.cli.terminal.TerminalLauncher
+```bash
+java -jar target/yekdb-1.0.0.jar
 ```
 
 The default data directory is:
@@ -1297,9 +1304,10 @@ Example:
 
 ```bash
 java -Dyekdb.data.dir=/path/to/yekdb/data \
-     -cp target/classes \
-     com.yekdb.cli.terminal.TerminalLauncher
+     -jar target/yekdb-1.0.0.jar
 ```
+
+For a repeatable V1 walkthrough, start with an empty data directory and pipe or paste `demo/YEKDB_V1_Demo.sql` into the terminal.
 
 ---
 
@@ -1432,15 +1440,16 @@ The `\history` command itself is intentionally not added to history.
 
 YEKDB uses JUnit 5 with regression testing after every development phase.
 
-Current project status after Sprint 00-36:
+Current V1 status after Sprint 00-38:
 
 ```text
 Compile: SUCCESS
-Tests:   2034 / 2034 PASSED
-Sprint 00-36 isolation and deadlock hardening: PASSED
+Package: SUCCESS (runnable JAR)
+Tests:   2042 / 2042 PASSED
+V1 final integration: PASSED
 ```
 
-Sprint 00-36 keeps the complete Sprint 00-35 regression suite green and adds coverage for:
+The complete regression suite covers:
 
 - shared/exclusive compatibility and reentrant hold counting
 - concurrent DML write isolation and SELECT read locks
@@ -1498,6 +1507,7 @@ Recent completed sprints:
 - **00-35** — Concurrency Control, Deadlock Detection, and Lock Diagnostics
 - **00-36** — Isolation Policies and Deadlock Hardening
 - **00-37** — EXPLAIN ANALYZE Runtime Query Inspection
+- **00-38** — Final Integration & Cleanup / V1 Closure
 
 ---
 
@@ -2336,6 +2346,30 @@ Final verification:
 Compile successful
 ```
 
+## Sprint 00-38 Summary
+
+Sprint 00-38 closes the YEKDB V1 baseline without changing database behavior.
+
+Completed areas:
+
+1. Clean Java 21 compile and complete regression verification
+2. Stable `1.0.0` Maven version and executable terminal JAR manifest
+3. README release, build, run, test, and roadmap alignment
+4. Repeatable end-to-end SQL demonstration script
+5. V1 closure notes with scope and known limitations
+6. Generated build/log artifact exclusion from future commits
+
+Final verification:
+
+```text
+2042 / 2042 tests passed
+Runnable JAR package successful
+V1 demo workflow passed
+```
+
+See `docs/Design/YEKDB_00-38_Final_Integration.md` for the closure record and
+`demo/YEKDB_V1_Demo.sql` for the final terminal walkthrough.
+
 ## Roadmap
 
 ### Completed / Established
@@ -2410,7 +2444,7 @@ Compile successful
 - Bounded post-cleanup deadlock incident diagnostics
 - Runtime `EXPLAIN ANALYZE` query inspection
 
-### Upcoming
+### Post-V1 Directions
 
 - Positional `INSERT INTO table VALUES (...)` syntax without an explicit column list
 - Persistent stored procedure metadata and recovery
@@ -2456,7 +2490,7 @@ Development is documented sprint-by-sprint with technical developer notes coveri
 
 Latest documentation:
 
-**Design Notes — Sprint 00-37: EXPLAIN ANALYZE**
+**Release Notes — Sprint 00-38: Final Integration & Cleanup**
 
 ---
 
