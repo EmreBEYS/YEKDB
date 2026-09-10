@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.image.*?>
+<?import javafx.scene.layout.*?>
+
+<BorderPane xmlns:fx="http://javafx.com/fxml" fx:controller="com.yekdb.launcher.controller.LauncherController" styleClass="app-shell">
+    <left>
+        <VBox prefWidth="222" styleClass="sidebar">
+            <padding><Insets top="28" right="20" bottom="24" left="20"/></padding>
+            <HBox alignment="CENTER_LEFT" spacing="12" styleClass="brand-row">
+                <ImageView fitWidth="44" fitHeight="44" preserveRatio="true" smooth="true">
+                    <image><Image url="@../assets/yekdb-logo.png"/></image>
+                </ImageView>
+                <VBox spacing="-2"><Label text="YEKDB" styleClass="brand-name"/><Label text="LAUNCHER" styleClass="brand-caption"/></VBox>
+            </HBox>
+            <Label text="YÖNETİM" styleClass="nav-caption"/>
+            <Button text="⌂   Ana Sayfa" onAction="#showHome" maxWidth="Infinity" styleClass="nav-button"/>
+            <Button text="↻   Sürümler" onAction="#showReleases" maxWidth="Infinity" styleClass="nav-button"/>
+            <Button text="⚙   Ayarlar" onAction="#showSettings" maxWidth="Infinity" styleClass="nav-button"/>
+            <Button text="☷   Loglar" onAction="#showLogs" maxWidth="Infinity" styleClass="nav-button"/>
+            <Region VBox.vgrow="ALWAYS"/>
+            <VBox spacing="6" styleClass="sidebar-footer">
+                <Label text="YEKDB 00—39" styleClass="footer-version"/>
+                <Label text="Java database platform" styleClass="muted"/>
+            </VBox>
+        </VBox>
+    </left>
+    <center>
+        <StackPane styleClass="content-host">
+            <VBox fx:id="homePage" spacing="22">
+                <HBox alignment="CENTER_LEFT" spacing="10">
+                    <VBox spacing="4"><Label text="Ana Sayfa" styleClass="page-title"/><Label text="Veritabanı ortamını tek noktadan yönet." styleClass="page-subtitle"/></VBox>
+                    <Region HBox.hgrow="ALWAYS"/>
+                    <Button fx:id="checkButton" text="Güncellemeleri Kontrol Et" onAction="#checkForUpdates" styleClass="ghost-button"/>
+                </HBox>
+                <VBox spacing="18" styleClass="hero-card">
+                    <HBox alignment="CENTER_LEFT"><Label text="YEKDB DATABASE ENGINE" styleClass="eyebrow"/><Region HBox.hgrow="ALWAYS"/><Label fx:id="updateBadge" text="KONTROL EDİLİYOR" styleClass="status-badge"/></HBox>
+                    <Label text="Veritabanın. Kuralların. Kontrol sende." wrapText="true" styleClass="hero-title"/>
+                    <Label text="YEKDB çekirdeğini başlat, yeni sürümleri GitHub Releases üzerinden güvenle indir ve kurulumunu güncel tut." wrapText="true" styleClass="hero-copy"/>
+                    <HBox spacing="12">
+                        <Button fx:id="launchButton" text="YEKDB'Yİ BAŞLAT" onAction="#launchYekdb" styleClass="primary-button"/>
+                        <Button fx:id="updateButton" text="GÜNCELLEMEYİ KUR" onAction="#downloadAndInstall" disable="true" styleClass="secondary-button"/>
+                    </HBox>
+                </VBox>
+                <HBox spacing="16">
+                    <VBox HBox.hgrow="ALWAYS" spacing="8" styleClass="metric-card"><Label text="DURUM" styleClass="card-label"/><Label fx:id="statusLabel" text="Kontrol ediliyor" wrapText="true" styleClass="metric-value"/></VBox>
+                    <VBox HBox.hgrow="ALWAYS" spacing="8" styleClass="metric-card"><Label text="KURULU SÜRÜM" styleClass="card-label"/><Label fx:id="currentVersionLabel" text="—" styleClass="metric-value"/></VBox>
+                    <VBox HBox.hgrow="ALWAYS" spacing="8" styleClass="metric-card"><Label text="SON SÜRÜM" styleClass="card-label"/><Label fx:id="latestVersionLabel" text="—" styleClass="metric-value"/></VBox>
+                </HBox>
+                <VBox spacing="9" styleClass="activity-card"><Label text="İŞLEM DURUMU" styleClass="card-label"/><Label fx:id="activityLabel" text="Hazır" styleClass="activity-text"/><ProgressBar fx:id="progressBar" visible="false" maxWidth="Infinity" progress="0"/></VBox>
+            </VBox>
+
+            <VBox fx:id="releasesPage" visible="false" managed="false" spacing="22">
+                <VBox spacing="4"><Label text="Sürümler" styleClass="page-title"/><Label text="En yeni YEKDB paketi ve sürüm notları." styleClass="page-subtitle"/></VBox>
+                <VBox spacing="14" styleClass="panel-card">
+                    <HBox alignment="CENTER_LEFT"><VBox spacing="4"><Label text="SON GITHUB RELEASE" styleClass="card-label"/><Label fx:id="releaseDateLabel" text="—" styleClass="release-date"/></VBox><Region HBox.hgrow="ALWAYS"/><Button text="Yenile" onAction="#checkForUpdates" styleClass="ghost-button"/></HBox>
+                    <Separator/>
+                    <Label text="Sürüm Notları" styleClass="section-title"/>
+                    <TextArea fx:id="releaseNotes" editable="false" wrapText="true" VBox.vgrow="ALWAYS" promptText="Sürüm notları yükleniyor…"/>
+                </VBox>
+            </VBox>
+
+            <VBox fx:id="settingsPage" visible="false" managed="false" spacing="22">
+                <VBox spacing="4"><Label text="Ayarlar" styleClass="page-title"/><Label text="Launcher çalışma bilgileri." styleClass="page-subtitle"/></VBox>
+                <VBox spacing="18" styleClass="panel-card">
+                    <Label text="Güncelleme Kaynağı" styleClass="section-title"/>
+                    <Label text="github.com/EmreBEYS/YEKDB • Latest Release" styleClass="setting-value"/>
+                    <Separator/>
+                    <Label text="Paket Doğrulama" styleClass="section-title"/>
+                    <Label text="Windows yükleyicisi geçici alana indirilir; dosya boyutu ve varsa GitHub SHA-256 özeti doğrulandıktan sonra güvenli kurulum başlatılır." wrapText="true" styleClass="setting-copy"/>
+                    <Separator/>
+                    <Label text="Launcher Sürümü" styleClass="section-title"/>
+                    <Label text="Windows • Güvenli tam paket güncellemesi • Sprint 00—39" styleClass="setting-value"/>
+                </VBox>
+            </VBox>
+
+            <VBox fx:id="logsPage" visible="false" managed="false" spacing="22">
+                <HBox alignment="CENTER_LEFT" spacing="10">
+                    <VBox spacing="4"><Label text="Loglar" styleClass="page-title"/><Label text="Launcher işlemleri ve hata kayıtları." styleClass="page-subtitle"/></VBox>
+                    <Region HBox.hgrow="ALWAYS"/>
+                    <Button text="Klasörü Aç" onAction="#openLogFolder" styleClass="ghost-button"/>
+                    <Button text="Yenile" onAction="#refreshLogs" styleClass="ghost-button"/>
+                </HBox>
+                <VBox spacing="12" styleClass="panel-card">
+                    <Label text="LAUNCHER.LOG" styleClass="card-label"/>
+                    <TextArea fx:id="logArea" editable="false" wrapText="false" VBox.vgrow="ALWAYS" promptText="Henüz log kaydı bulunmuyor."/>
+                </VBox>
+            </VBox>
+        </StackPane>
+    </center>
+</BorderPane>
