@@ -1,6 +1,8 @@
 target/
 work/
 logs/
+.m2/
+.toolchains/
 *.log
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/

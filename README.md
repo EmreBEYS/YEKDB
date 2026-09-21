@@ -8,7 +8,7 @@
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-green)
 ![Status](https://img.shields.io/badge/Status-V1%20Completed-brightgreen)
 ![Tests](https://img.shields.io/badge/JUnit-2042%20Tests%20Passed-brightgreen)
-![Sprint](https://img.shields.io/badge/Sprint-00--38-blueviolet)
+![Sprint](https://img.shields.io/badge/Sprint-00--40-blueviolet)
 
 ---
 
@@ -20,7 +20,7 @@ The project is not based on PostgreSQL, MySQL, SQLite, or another database codeb
 
 The long-term goal is a complete page-oriented database engine with durable storage, relational query execution, transactions, indexing, recovery, concurrency control, and client/server support.
 
-YEKDB V1 is complete as of Sprint 00-38. The V1 baseline is a Java 21 terminal application with persistent storage, relational SQL execution, indexes, views, triggers, transactions, stored procedures, concurrency control, and runtime query inspection. Items in the roadmap below are post-V1 directions rather than V1 release blockers.
+YEKDB V1 is complete as of Sprint 00-40. The V1 baseline is a Java 21 terminal application with persistent storage, relational SQL execution, indexes, views, triggers, transactions, stored procedures, concurrency control, runtime query inspection, and a self-contained Apple Silicon macOS application/DMG. Items in the roadmap below are post-V1 directions rather than V1 release blockers.
 
 ---
 

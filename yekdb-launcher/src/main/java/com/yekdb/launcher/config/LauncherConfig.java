@@ -27,10 +27,7 @@ public record LauncherConfig(
             throw new IllegalStateException("Launcher ayarları okunamadı", exception);
         }
 
-        String appData = System.getenv("LOCALAPPDATA");
-        Path defaultHome = appData == null || appData.isBlank()
-                ? Path.of(System.getProperty("user.home"), ".yekdb", "runtime")
-                : Path.of(appData, "YEKDB", "runtime");
+        Path defaultHome = stateDirectory().resolve("runtime");
         String configuredHome = System.getProperty("yekdb.launcher.install-dir");
 
         return new LauncherConfig(
@@ -43,6 +40,21 @@ public record LauncherConfig(
                 required(properties, "launch.jar"),
                 configuredHome == null || configuredHome.isBlank() ? defaultHome : Path.of(configuredHome)
         );
+    }
+
+    public static Path stateDirectory() {
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        String userHome = System.getProperty("user.home");
+        if (os.contains("win")) {
+            String appData = System.getenv("LOCALAPPDATA");
+            return appData == null || appData.isBlank()
+                    ? Path.of(userHome, "AppData", "Local", "YEKDB")
+                    : Path.of(appData, "YEKDB");
+        }
+        if (os.contains("mac")) {
+            return Path.of(userHome, "Library", "Application Support", "YEKDB");
+        }
+        return Path.of(userHome, ".local", "share", "YEKDB");
     }
 
     public String assetPatternForCurrentOs() {

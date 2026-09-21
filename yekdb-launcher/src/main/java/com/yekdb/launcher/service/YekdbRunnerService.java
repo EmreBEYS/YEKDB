@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.List;
 import java.util.Locale;
 
@@ -34,8 +35,8 @@ public final class YekdbRunnerService {
     public Process launch() throws IOException {
         Path target = resolveLaunchTarget();
         if (!Files.exists(target)) throw new IOException("YEKDB çalıştırma dosyası bulunamadı: " + target);
-        List<String> command = launchCommand(target);
         Path workingDirectory = prepareWorkingDirectory();
+        List<String> command = launchCommand(target, workingDirectory);
         return new ProcessBuilder(command)
                 .directory(workingDirectory.toFile())
                 .inheritIO()
@@ -67,16 +68,14 @@ public final class YekdbRunnerService {
         }
     }
 
-    List<String> launchCommand(Path target) {
+    List<String> launchCommand(Path target, Path workingDirectory) throws IOException {
         String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         boolean jar = target.toString().toLowerCase(Locale.ROOT).endsWith(".jar");
         if (!jar && os.contains("win")) {
             return List.of("cmd.exe", "/c", "start", "YEKDB SQL Terminal", target.toString());
         }
         if (!jar && os.contains("mac")) {
-            String appleScript = "tell application \"Terminal\" to do script "
-                    + appleScriptQuote(shellQuote(target.toString()));
-            return List.of("osascript", "-e", appleScript);
+            return macTerminalCommand(shellQuote(target.toString()), workingDirectory);
         }
         if (!jar) return List.of(target.toString());
 
@@ -86,13 +85,26 @@ public final class YekdbRunnerService {
         }
         if (os.contains("mac")) {
             String shellCommand = shellQuote(java) + " -jar " + shellQuote(target.toString());
-            String appleScript = "tell application \"Terminal\" to do script " + appleScriptQuote(shellCommand);
-            return List.of("osascript", "-e", appleScript);
+            return macTerminalCommand(shellCommand, workingDirectory);
         }
         if (Files.isExecutable(Path.of("/usr/bin/x-terminal-emulator"))) {
             return List.of("/usr/bin/x-terminal-emulator", "-e", java, "-jar", target.toString());
         }
         return List.of(java, "-jar", target.toString());
+    }
+
+    private List<String> macTerminalCommand(String shellCommand, Path workingDirectory) throws IOException {
+        Path script = config.installDirectory().resolveSibling("run-yekdb.command");
+        Files.createDirectories(script.getParent());
+        String content = "#!/bin/zsh\ncd " + shellQuote(workingDirectory.toString())
+                + "\nexec " + shellCommand + "\n";
+        Files.writeString(script, content);
+        try {
+            Files.setPosixFilePermissions(script, PosixFilePermissions.fromString("rwx------"));
+        } catch (UnsupportedOperationException ignored) {
+            script.toFile().setExecutable(true, true);
+        }
+        return List.of("/usr/bin/open", "-a", "Terminal", script.toString());
     }
 
     public Path resolveLaunchTarget() {
@@ -123,7 +135,4 @@ public final class YekdbRunnerService {
         return "'" + value.replace("'", "'\\''") + "'";
     }
 
-    private String appleScriptQuote(String value) {
-        return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
-    }
 }
