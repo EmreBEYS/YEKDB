@@ -6,9 +6,9 @@
 ![Java](https://img.shields.io/badge/Java-21-orange)
 ![Maven](https://img.shields.io/badge/Maven-3.x-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-green)
-![Status](https://img.shields.io/badge/Status-V1%20Completed-brightgreen)
-![Tests](https://img.shields.io/badge/JUnit-2042%20Tests%20Passed-brightgreen)
-![Sprint](https://img.shields.io/badge/Sprint-00--38-blueviolet)
+![Status](https://img.shields.io/badge/Status-V2%20Preparation-blue)
+![Tests](https://img.shields.io/badge/JUnit-2045%20Tests%20Passed-brightgreen)
+![Sprint](https://img.shields.io/badge/Sprint-01--00-blueviolet)
 
 ---
 
@@ -20,7 +20,14 @@ The project is not based on PostgreSQL, MySQL, SQLite, or another database codeb
 
 The long-term goal is a complete page-oriented database engine with durable storage, relational query execution, transactions, indexing, recovery, concurrency control, and client/server support.
 
-YEKDB V1 is complete as of Sprint 00-38. The V1 baseline is a Java 21 terminal application with persistent storage, relational SQL execution, indexes, views, triggers, transactions, stored procedures, concurrency control, and runtime query inspection. Items in the roadmap below are post-V1 directions rather than V1 release blockers.
+YEKDB V1 is complete as of Sprint 00-38. Sprint 01-00 opens the V2 preparation line at
+`1.0.13` while keeping every V1 disk format and SQL behavior compatible. The `2.0.0` version
+number is reserved for the point at which the complete V2 scope and release gates are satisfied.
+The V1 baseline
+remains a Java 21 terminal application with persistent storage, relational SQL execution, indexes,
+views, triggers, transactions, stored procedures, concurrency control, and runtime query
+inspection. V2 begins with an explicit architecture and compatibility contract before storage or
+query behavior changes.
 
 ---
 
@@ -1285,7 +1292,7 @@ mvn clean package
 Start the terminal:
 
 ```bash
-java -jar target/yekdb-1.0.0.jar
+java -jar target/yekdb-1.0.13.jar
 ```
 
 The default data directory is:
@@ -1304,7 +1311,7 @@ Example:
 
 ```bash
 java -Dyekdb.data.dir=/path/to/yekdb/data \
-     -jar target/yekdb-1.0.0.jar
+     -jar target/yekdb-1.0.13.jar
 ```
 
 For a repeatable V1 walkthrough, start with an empty data directory and pipe or paste `demo/YEKDB_V1_Demo.sql` into the terminal.
@@ -2369,6 +2376,32 @@ V1 demo workflow passed
 
 See `docs/Design/YEKDB_00-38_Final_Integration.md` for the closure record and
 `demo/YEKDB_V1_Demo.sql` for the final terminal walkthrough.
+
+## Sprint 01-00 Summary
+
+Sprint 01-00 opens the V2 preparation line without changing database behavior or V1 storage
+formats.
+
+Completed areas:
+
+1. Maven and CLI development version advanced to `1.0.13`
+2. V1 baseline anchored to tag `v1.0.12` and commit `8a1b7a7`
+3. Database header version 1 compatibility locked by an automated binary-layout test
+4. Table header version 1 and database metadata `0.0.6` retained
+5. Module boundaries and V2 dependency order documented
+6. Storage migration rules and sprint completion gates established
+7. Full V1 regression suite preserved
+
+Final verification target:
+
+```text
+2045 / 2045 tests passed
+Clean package successful
+Runnable 1.0.13 JAR successful
+```
+
+See `docs/Design/YEKDB_01-00_V2_Architecture.md` for the complete architecture and compatibility
+contract.
 
 ## Roadmap
 

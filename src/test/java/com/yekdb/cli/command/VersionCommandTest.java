@@ -25,7 +25,7 @@ class VersionCommandTest {
 
         assertTrue(
                 result.getMessage()
-                        .contains("1.0.0")
+                        .contains("1.0.13")
         );
     }
 }
