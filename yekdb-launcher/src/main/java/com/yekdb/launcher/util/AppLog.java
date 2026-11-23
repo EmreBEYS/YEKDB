@@ -1,5 +1,7 @@
 package com.yekdb.launcher.util;
 
+import com.yekdb.launcher.config.LauncherConfig;
+
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
@@ -71,10 +73,6 @@ public final class AppLog {
     private static Path resolveDirectory() {
         String override = System.getProperty("yekdb.launcher.state-dir");
         if (override != null && !override.isBlank()) return Path.of(override).resolve("logs");
-        String localAppData = System.getenv("LOCALAPPDATA");
-        Path root = localAppData == null || localAppData.isBlank()
-                ? Path.of(System.getProperty("user.home"), ".yekdb")
-                : Path.of(localAppData, "YEKDB");
-        return root.resolve("logs");
+        return LauncherConfig.stateDirectory().resolve("logs");
     }
 }

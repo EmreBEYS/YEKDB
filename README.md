@@ -20,14 +20,14 @@ The project is not based on PostgreSQL, MySQL, SQLite, or another database codeb
 
 The long-term goal is a complete page-oriented database engine with durable storage, relational query execution, transactions, indexing, recovery, concurrency control, and client/server support.
 
-YEKDB V1 is complete as of Sprint 00-38. Sprint 01-00 opens the V2 preparation line at
+YEKDB V1 is complete as of Sprint 00-40. Sprint 01-00 opens the V2 preparation line at
 `1.0.13` while keeping every V1 disk format and SQL behavior compatible. The `2.0.0` version
 number is reserved for the point at which the complete V2 scope and release gates are satisfied.
 The V1 baseline
 remains a Java 21 terminal application with persistent storage, relational SQL execution, indexes,
-views, triggers, transactions, stored procedures, concurrency control, and runtime query
-inspection. V2 begins with an explicit architecture and compatibility contract before storage or
-query behavior changes.
+views, triggers, transactions, stored procedures, concurrency control, runtime query inspection,
+and a self-contained Apple Silicon macOS application/DMG. V2 begins with an explicit architecture
+and compatibility contract before storage or query behavior changes.
 
 ---
 

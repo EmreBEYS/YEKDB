@@ -10,9 +10,10 @@ in which V2 infrastructure will be introduced.
 ## Verified V1 Baseline
 
 - Git tag: `v1.0.12`
-- Baseline commit: `8a1b7a7`
+- Baseline main commit: `a8783e7`
 - Java: 21
-- Maven application version before this sprint: `1.0.0`
+- V1 completion sprint: `00-40`
+- Maven application version before this sprint: `1.0.12`
 - Production sources: 374
 - Test sources before this sprint: 240
 - Tests: 2,042 passed, 0 failed, 0 errors, 0 skipped

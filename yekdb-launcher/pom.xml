@@ -6,7 +6,7 @@
 
     <groupId>com.yekdb</groupId>
     <artifactId>yekdb-launcher</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.12</version>
     <name>YEKDB Launcher</name>
 
     <properties>
@@ -88,6 +88,11 @@
                             <mainClass>com.yekdb.launcher.LauncherMain</mainClass>
                             <addClasspath>true</addClasspath>
                         </manifest>
+                        <manifestEntries>
+                            <Implementation-Title>YEKDB Launcher</Implementation-Title>
+                            <Implementation-Version>${project.version}</Implementation-Version>
+                            <Implementation-Vendor>YEKDB</Implementation-Vendor>
+                        </manifestEntries>
                     </archive>
                 </configuration>
             </plugin>

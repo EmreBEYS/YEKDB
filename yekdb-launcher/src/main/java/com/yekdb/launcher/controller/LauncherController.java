@@ -18,6 +18,7 @@ import javafx.scene.control.TextArea;
 import javafx.scene.layout.VBox;
 
 import java.nio.file.Path;
+import java.awt.Desktop;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.concurrent.CompletableFuture;
@@ -75,7 +76,10 @@ public final class LauncherController {
     private void openLogFolder() {
         try {
             java.nio.file.Files.createDirectories(AppLog.directory());
-            new ProcessBuilder("explorer.exe", AppLog.directory().toString()).start();
+            if (!Desktop.isDesktopSupported()) {
+                throw new IllegalStateException("Dosya yöneticisi bu sistemde kullanılamıyor.");
+            }
+            Desktop.getDesktop().open(AppLog.directory().toFile());
             AppLog.info("Log klasörü açıldı");
         } catch (Exception exception) {
             AppLog.error("Log klasörü açılamadı", exception);
@@ -107,8 +111,11 @@ public final class LauncherController {
             boolean newer = versions.isNewer(release.version(), runner.installedVersion());
             updateBadge.setText(newer ? "GÜNCELLEME HAZIR" : "GÜNCEL");
             updateBadge.getStyleClass().setAll("status-badge", newer ? "badge-update" : "badge-current");
-            updateButton.setDisable(!newer || !release.hasDownload());
+            updateButton.setDisable(!newer || !release.hasDownload() || !windowsUpdater.isSupported());
             if (!release.hasDownload()) activityLabel.setText("Bu işletim sistemi için uygun paket bulunamadı.");
+            else if (newer && !windowsUpdater.isSupported()) {
+                activityLabel.setText("Yeni sürümü GitHub Releases sayfasından kurabilirsiniz.");
+            }
         }));
     }
 

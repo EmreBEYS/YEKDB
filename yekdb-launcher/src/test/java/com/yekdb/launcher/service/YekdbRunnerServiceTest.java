@@ -40,7 +40,23 @@ class YekdbRunnerServiceTest {
 
         assertEquals(
                 java.util.List.of("cmd.exe", "/c", "start", "YEKDB SQL Terminal", engine.toString()),
-                new YekdbRunnerService(config).launchCommand(engine));
+                new YekdbRunnerService(config).launchCommand(engine, directory));
+    }
+
+    @Test
+    void macEngineUsesTerminalWithoutAppleEvents(@TempDir Path directory) throws Exception {
+        assumeTrue(System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("mac"));
+        Path engine = Files.createFile(directory.resolve("YEKDB Engine"));
+        Path runtime = directory.resolve("runtime");
+        LauncherConfig config = new LauncherConfig(
+                "owner", "repo", ".*", ".*", ".*", "bin/yekdb.exe", "yekdb.jar", runtime);
+
+        assertEquals(
+                java.util.List.of("/usr/bin/open", "-a", "Terminal", directory.resolve("run-yekdb.command").toString()),
+                new YekdbRunnerService(config).launchCommand(engine, directory));
+        String script = Files.readString(directory.resolve("run-yekdb.command"));
+        org.junit.jupiter.api.Assertions.assertTrue(script.contains("cd '" + directory + "'"));
+        org.junit.jupiter.api.Assertions.assertTrue(script.contains("exec '" + engine + "'"));
     }
 
     @Test
