@@ -1,6 +1,9 @@
 package com.yekdb.transaction;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -22,6 +25,9 @@ public final class TransactionDurabilityLog {
 
     private static final String HEADER =
             "YEKDB_TRANSACTION_LOG_V1";
+
+    private static final Object PROCESS_WRITE_LOCK =
+            new Object();
 
     public void appendBegin(
             Path databasePath,
@@ -170,10 +176,14 @@ public final class TransactionDurabilityLog {
         }
 
         try {
-            return Files.readAllLines(
+            List<String> lines = Files.readAllLines(
                     logFile,
                     StandardCharsets.UTF_8
             );
+
+            validateHeader(lines);
+
+            return lines;
         } catch (IOException exception) {
             throw new TransactionDurabilityException(
                     "Transaction durability log could not be read."
@@ -197,16 +207,37 @@ public final class TransactionDurabilityLog {
                     databasePath
             );
 
-            ensureHeader(
-                    logFile
-            );
+            synchronized (PROCESS_WRITE_LOCK) {
+                try (FileChannel channel = FileChannel.open(
+                        logFile,
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.READ,
+                        StandardOpenOption.WRITE
+                ); FileLock ignored = channel.lock()) {
 
-            Files.writeString(
-                    logFile,
-                    entry + System.lineSeparator(),
-                    StandardCharsets.UTF_8,
-                    StandardOpenOption.APPEND
-            );
+                    if (channel.size() == 0) {
+                        writeLine(
+                                channel,
+                                HEADER
+                        );
+                    } else {
+                        validateHeader(
+                                readHeader(channel)
+                        );
+                    }
+
+                    channel.position(
+                            channel.size()
+                    );
+
+                    writeLine(
+                            channel,
+                            entry
+                    );
+
+                    channel.force(true);
+                }
+            }
 
         } catch (IOException exception) {
             throw new TransactionDurabilityException(
@@ -215,21 +246,72 @@ public final class TransactionDurabilityLog {
         }
     }
 
-    private void ensureHeader(
-            Path logFile
+    private String readHeader(
+            FileChannel channel
     ) throws IOException {
 
-        if (Files.exists(logFile)) {
+        ByteBuffer buffer = ByteBuffer.allocate(
+                HEADER.getBytes(StandardCharsets.UTF_8).length + 2
+        );
+
+        channel.position(0);
+        channel.read(buffer);
+        buffer.flip();
+
+        StringBuilder header = new StringBuilder();
+
+        while (buffer.hasRemaining()) {
+            char character = (char) (buffer.get() & 0xFF);
+
+            if (character == '\n') {
+                break;
+            }
+
+            if (character != '\r') {
+                header.append(character);
+            }
+        }
+
+        return header.toString();
+    }
+
+    private void writeLine(
+            FileChannel channel,
+            String line
+    ) throws IOException {
+
+        ByteBuffer buffer = ByteBuffer.wrap(
+                (line + System.lineSeparator())
+                        .getBytes(StandardCharsets.UTF_8)
+        );
+
+        while (buffer.hasRemaining()) {
+            channel.write(buffer);
+        }
+    }
+
+    private void validateHeader(
+            List<String> lines
+    ) {
+
+        if (lines.isEmpty()) {
             return;
         }
 
-        Files.writeString(
-                logFile,
-                HEADER + System.lineSeparator(),
-                StandardCharsets.UTF_8,
-                StandardOpenOption.CREATE_NEW,
-                StandardOpenOption.WRITE
+        validateHeader(
+                lines.get(0)
         );
+    }
+
+    private void validateHeader(
+            String header
+    ) {
+
+        if (!HEADER.equals(header)) {
+            throw new TransactionDurabilityException(
+                    "Invalid transaction durability log header."
+            );
+        }
     }
 
     private String formatBegin(

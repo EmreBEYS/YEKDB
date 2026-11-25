@@ -25,7 +25,7 @@ class V2BaselineCompatibilityTest {
 
     @Test
     void shouldExposeThePostV1DevelopmentVersion() {
-        assertEquals("1.0.13", VersionCommand.VERSION);
+        assertEquals("1.0.14", VersionCommand.VERSION);
     }
 
     @Test
