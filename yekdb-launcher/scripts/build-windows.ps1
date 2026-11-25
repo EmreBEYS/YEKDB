@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '1.0.0',
+    [string]$Version = '1.0.14',
     [string]$CertificateThumbprint,
     [string]$TimestampUrl = 'http://timestamp.digicert.com'
 )
@@ -22,14 +22,14 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'YEKDB core build failed.' }
     & $maven clean package
     if ($LASTEXITCODE -ne 0) { throw 'Launcher build failed.' }
-    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'target\yekdb-1.0.0.jar') -Destination (Join-Path $packageInput 'yekdb.jar') -Force
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot "target\yekdb-$Version.jar") -Destination (Join-Path $packageInput 'yekdb.jar') -Force
 
     if (Test-Path -LiteralPath $imageRoot) { Remove-Item -LiteralPath $imageRoot -Recurse -Force }
     New-Item -ItemType Directory -Force -Path $imageRoot, $bundleRoot, $destination | Out-Null
     & jpackage --type app-image --name 'YEKDB Launcher' --app-version $Version --vendor 'YEKDB' `
         --copyright 'Copyright © YEKDB 2026' `
         --description 'YEKDB Launcher and Database Engine' --input $packageInput `
-        --main-jar 'yekdb-launcher-1.0.0.jar' --main-class 'com.yekdb.launcher.LauncherMain' `
+        --main-jar "yekdb-launcher-$Version.jar" --main-class 'com.yekdb.launcher.LauncherMain' `
         --add-launcher "YEKDB Engine=$(Join-Path $projectRoot 'packaging\windows\yekdb-engine.properties')" `
         --icon (Join-Path $projectRoot 'packaging\icons\yekdb.ico') --dest $imageRoot
     if ($LASTEXITCODE -ne 0) { throw 'jpackage app-image failed.' }

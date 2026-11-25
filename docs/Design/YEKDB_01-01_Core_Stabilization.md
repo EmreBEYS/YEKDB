@@ -43,7 +43,8 @@ Sprint 01-00 compatibility tests.
 After reconciliation and the 01-01 hardening in this branch:
 
 - core: 2,048 tests passed, 0 failures, 0 errors, 0 skipped;
-- launcher: 13 tests executed, 12 passed, 1 platform-dependent test skipped;
+- launcher on macOS: 18 tests executed, 17 passed, 1 platform-dependent test skipped;
+- launcher on Windows: 18 tests executed, 14 passed, 4 macOS/platform-dependent tests skipped;
 - focused recovery verification: 9 tests passed;
 - Java compilation target: 21;
 - production sources: 374;
