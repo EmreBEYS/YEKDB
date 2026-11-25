@@ -44,12 +44,13 @@ if [[ "$(uname -m)" == "arm64" && "$JAVA_ARCH" != "aarch64" ]]; then
 fi
 
 cd "$PROJECT_ROOT"
-MAVEN_OPTIONS=()
 if [[ -n "${MAVEN_REPO_LOCAL:-}" ]]; then
-  MAVEN_OPTIONS+=("-Dmaven.repo.local=$MAVEN_REPO_LOCAL")
+  ./mvnw -f "$REPOSITORY_ROOT/pom.xml" clean package -DskipTests "-Dmaven.repo.local=$MAVEN_REPO_LOCAL"
+  ./mvnw clean package "-Dmaven.repo.local=$MAVEN_REPO_LOCAL"
+else
+  ./mvnw -f "$REPOSITORY_ROOT/pom.xml" clean package -DskipTests
+  ./mvnw clean package
 fi
-./mvnw -f "$REPOSITORY_ROOT/pom.xml" clean package -DskipTests "${MAVEN_OPTIONS[@]}"
-./mvnw clean package "${MAVEN_OPTIONS[@]}"
 
 CORE_JAR="$REPOSITORY_ROOT/target/yekdb-$VERSION.jar"
 LAUNCHER_JAR="yekdb-launcher-$VERSION.jar"
