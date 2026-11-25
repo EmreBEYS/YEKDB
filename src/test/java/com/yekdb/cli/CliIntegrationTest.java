@@ -25,7 +25,7 @@ class CliIntegrationTest {
                 application.execute("version");
 
         assertTrue(versionResult.isSuccess());
-        assertTrue(versionResult.getMessage().contains("1.0.13"));
+        assertTrue(versionResult.getMessage().contains("1.0.14"));
 
         CliCommandResult statusResult =
                 application.execute("status");

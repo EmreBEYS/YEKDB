@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TransactionDurabilityLogRecoveryTest {
@@ -90,6 +91,89 @@ class TransactionDurabilityLogRecoveryTest {
                 log.readIncompleteTransactions(
                         databasePath
                 ).isEmpty()
+        );
+    }
+
+    @Test
+    void shouldRepairAnEmptyExistingLogBeforeAppending() throws IOException {
+
+        Path logFile =
+                databasePath.resolve(
+                        TransactionDurabilityLog.FILE_NAME
+                );
+
+        Files.createFile(logFile);
+
+        TransactionContext transaction =
+                new TransactionManager().begin();
+
+        new TransactionDurabilityLog().appendBegin(
+                databasePath,
+                transaction
+        );
+
+        List<String> lines =
+                Files.readAllLines(logFile);
+
+        assertEquals(
+                "YEKDB_TRANSACTION_LOG_V1",
+                lines.get(0)
+        );
+
+        assertTrue(
+                lines.get(1).startsWith("txId=1|status=ACTIVE")
+        );
+    }
+
+    @Test
+    void shouldRejectAnInvalidLogHeaderWithoutAppending() throws IOException {
+
+        Path logFile =
+                databasePath.resolve(
+                        TransactionDurabilityLog.FILE_NAME
+                );
+
+        Files.writeString(
+                logFile,
+                "UNKNOWN_LOG_FORMAT" + System.lineSeparator()
+        );
+
+        TransactionContext transaction =
+                new TransactionManager().begin();
+
+        TransactionDurabilityLog log =
+                new TransactionDurabilityLog();
+
+        assertThrows(
+                TransactionDurabilityException.class,
+                () -> log.appendBegin(
+                        databasePath,
+                        transaction
+                )
+        );
+
+        assertEquals(
+                List.of("UNKNOWN_LOG_FORMAT"),
+                Files.readAllLines(logFile)
+        );
+    }
+
+    @Test
+    void shouldRejectAnInvalidLogHeaderWhileReading() throws IOException {
+
+        Files.writeString(
+                databasePath.resolve(
+                        TransactionDurabilityLog.FILE_NAME
+                ),
+                "UNKNOWN_LOG_FORMAT" + System.lineSeparator()
+        );
+
+        TransactionDurabilityLog log =
+                new TransactionDurabilityLog();
+
+        assertThrows(
+                TransactionDurabilityException.class,
+                () -> log.readEntries(databasePath)
         );
     }
 }

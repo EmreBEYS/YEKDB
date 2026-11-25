@@ -21,7 +21,7 @@
             <Button text="☷   Loglar" onAction="#showLogs" maxWidth="Infinity" styleClass="nav-button"/>
             <Region VBox.vgrow="ALWAYS"/>
             <VBox spacing="6" styleClass="sidebar-footer">
-                <Label text="YEKDB 00—40" styleClass="footer-version"/>
+                <Label text="YEKDB 1.0.14" styleClass="footer-version"/>
                 <Label text="Java database platform" styleClass="muted"/>
             </VBox>
         </VBox>

@@ -7,8 +7,8 @@
 ![Maven](https://img.shields.io/badge/Maven-3.x-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-green)
 ![Status](https://img.shields.io/badge/Status-V2%20Preparation-blue)
-![Tests](https://img.shields.io/badge/JUnit-2045%20Tests%20Passed-brightgreen)
-![Sprint](https://img.shields.io/badge/Sprint-01--00-blueviolet)
+![Tests](https://img.shields.io/badge/JUnit-2048%20Tests%20Passed-brightgreen)
+![Sprint](https://img.shields.io/badge/Sprint-01--01-blueviolet)
 
 ---
 
@@ -1292,7 +1292,7 @@ mvn clean package
 Start the terminal:
 
 ```bash
-java -jar target/yekdb-1.0.13.jar
+java -jar target/yekdb-1.0.14.jar
 ```
 
 The default data directory is:
@@ -1311,7 +1311,7 @@ Example:
 
 ```bash
 java -Dyekdb.data.dir=/path/to/yekdb/data \
-     -jar target/yekdb-1.0.13.jar
+     -jar target/yekdb-1.0.14.jar
 ```
 
 For a repeatable V1 walkthrough, start with an empty data directory and pipe or paste `demo/YEKDB_V1_Demo.sql` into the terminal.
@@ -2402,6 +2402,25 @@ Runnable 1.0.13 JAR successful
 
 See `docs/Design/YEKDB_01-00_V2_Architecture.md` for the complete architecture and compatibility
 contract.
+
+## Sprint 01-01 Status
+
+Core, CLI, configuration and launcher versions are aligned to `1.0.14`.
+Windows launcher updates require a published matching EXE release asset;
+macOS installation remains manual. Committing source does not publish a release.
+
+Sprint 01-01 verified the clean MacBook V1 baseline against GitHub, fast-forwarded the local
+repository to the merged 01-00 architecture baseline, and opened the
+`sprint/01-01-core-stabilization` branch.
+
+The first stabilization increment hardens the existing transaction decision log without claiming
+physical WAL support or changing a V1 disk format. Log appends are locked and forced to stable
+storage, empty logs are repaired, invalid headers are rejected, and recovery now runs before the
+table catalog is loaded. The core suite passes 2,048 tests; the JavaFX launcher suite executes 13
+tests with one platform-dependent skip.
+
+The verified architecture, recovery limitations, GUI readiness findings, and remaining 01-01
+backlog are recorded in `docs/Design/YEKDB_01-01_Core_Stabilization.md`.
 
 ## Roadmap
 

@@ -1469,16 +1469,16 @@ public final class QueryExecutor implements AutoCloseable {
                         command.getDatabaseName()
                 );
 
+        transactionRecoveryManager.recover(
+                database.getDatabasePath()
+        );
+
         tableManager =
                 new TableManager(
                         database.getDatabasePath()
                 );
 
         tableManager.loadCatalog();
-
-        transactionRecoveryManager.recover(
-                database.getDatabasePath()
-        );
 
         indexManager =
                 new IndexManager();
