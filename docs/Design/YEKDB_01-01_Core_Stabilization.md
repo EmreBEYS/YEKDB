@@ -65,8 +65,9 @@ JavaFX administration application should use that boundary. The existing
 `1.0.14`; it is not the V2 database administration GUI.
 
 The Windows update path downloads a matching `YEKDB-Setup-*.exe` release asset
-and launches its installer. The macOS update button is disabled by the current
-controller; installation remains manual through GitHub Releases. A local
+and launches its installer. The macOS update button now downloads and stages a
+verified DMG and hands off bundle replacement after launcher exit. See
+`YEKDB_01-01_1.0.14_Patch_Notes.md` for prerequisites and verification limits. A local
 commit does not publish release assets or update installed applications.
 Native Windows installation and macOS upgrade behavior have not been verified
 end-to-end in this sprint.

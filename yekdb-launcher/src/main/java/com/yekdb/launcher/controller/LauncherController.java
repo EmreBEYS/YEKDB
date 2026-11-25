@@ -7,6 +7,7 @@ import com.yekdb.launcher.service.BundledRuntimeService;
 import com.yekdb.launcher.service.GitHubReleaseService;
 import com.yekdb.launcher.service.VersionService;
 import com.yekdb.launcher.service.WindowsUpdateService;
+import com.yekdb.launcher.service.MacUpdateService;
 import com.yekdb.launcher.service.YekdbRunnerService;
 import com.yekdb.launcher.util.AppLog;
 import javafx.application.Platform;
@@ -44,6 +45,7 @@ public final class LauncherController {
     private final LauncherConfig config = LauncherConfig.load();
     private final VersionService versions = new VersionService();
     private final WindowsUpdateService windowsUpdater = new WindowsUpdateService();
+    private final MacUpdateService macUpdater = new MacUpdateService();
     private final YekdbRunnerService runner = new YekdbRunnerService(config);
     private ReleaseInfo latestRelease;
 
@@ -111,9 +113,9 @@ public final class LauncherController {
             boolean newer = versions.isNewer(release.version(), runner.installedVersion());
             updateBadge.setText(newer ? "GÜNCELLEME HAZIR" : "GÜNCEL");
             updateBadge.getStyleClass().setAll("status-badge", newer ? "badge-update" : "badge-current");
-            updateButton.setDisable(!newer || !release.hasDownload() || !windowsUpdater.isSupported());
+            updateButton.setDisable(!newer || !release.hasDownload() || !(windowsUpdater.isSupported() || macUpdater.isSupported()));
             if (!release.hasDownload()) activityLabel.setText("Bu işletim sistemi için uygun paket bulunamadı.");
-            else if (newer && !windowsUpdater.isSupported()) {
+            else if (newer && !(windowsUpdater.isSupported() || macUpdater.isSupported())) {
                 activityLabel.setText("Yeni sürümü GitHub Releases sayfasından kurabilirsiniz.");
             }
         }));
@@ -122,6 +124,7 @@ public final class LauncherController {
     @FXML
     private void downloadAndInstall() {
         if (latestRelease == null || !latestRelease.hasDownload()) return;
+        ReleaseInfo release = latestRelease;
         setBusy(true, "Güncelleme indiriliyor…");
         progressBar.setVisible(true);
         progressBar.setProgress(0);
@@ -130,12 +133,15 @@ public final class LauncherController {
         CompletableFuture.supplyAsync(() -> {
             try {
                 Path cache = config.installDirectory().resolveSibling("downloads");
-                String safeVersion = latestRelease.version().replaceAll("[^A-Za-z0-9._-]", "_");
-                Path setup = cache.resolve("YEKDB-Setup-" + safeVersion + ".exe");
+                String safeVersion = release.version().replaceAll("[^A-Za-z0-9._-]", "_");
+                if (macUpdater.isSupported() && !release.sha256().matches("(?i)[0-9a-f]{64}")) {
+                    throw new IllegalStateException("macOS güncellemesi için yayınlanmış SHA-256 özeti gerekli.");
+                }
+                Path setup = cache.resolve("YEKDB-Setup-" + safeVersion + (macUpdater.isSupported() ? ".dmg" : ".exe"));
                 new DownloadService().download(
-                        latestRelease.downloadUri(), setup, latestRelease.downloadSize(), latestRelease.sha256(),
+                        release.downloadUri(), setup, release.downloadSize(), release.sha256(),
                         value -> Platform.runLater(() -> progressBar.setProgress(value)));
-                return setup;
+                return macUpdater.isSupported() ? macUpdater.prepare(setup, release.version()) : setup;
             } catch (Exception exception) {
                 throw new RuntimeException(exception);
             }
@@ -150,7 +156,8 @@ public final class LauncherController {
             try {
                 AppLog.info("Güncelleme doğrulandı; yükleyici başlatılıyor: " + setup);
                 setBusy(false, "Güncelleme doğrulandı. Kurulum açılıyor…");
-                windowsUpdater.launchInstaller(setup);
+                if (macUpdater.isSupported()) macUpdater.install(setup);
+                else windowsUpdater.launchInstaller(setup);
                 Platform.exit();
             } catch (Exception exception) {
                 AppLog.error("Güncelleme yükleyicisi başlatılamadı", exception);
@@ -181,6 +188,8 @@ public final class LauncherController {
 
     private void setBusy(boolean busy, String message) {
         checkButton.setDisable(busy);
+        if (busy) updateButton.setDisable(true);
+        launchButton.setDisable(busy || !runner.isInstalled());
         activityLabel.setText(message);
     }
 

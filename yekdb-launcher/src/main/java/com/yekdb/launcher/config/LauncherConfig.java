@@ -60,7 +60,11 @@ public record LauncherConfig(
     public String assetPatternForCurrentOs() {
         String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         if (os.contains("win")) return windowsAssetPattern;
-        if (os.contains("mac")) return macAssetPattern;
+        if (os.contains("mac")) {
+            String arch = System.getProperty("os.arch", "");
+            String assetArch = arch.equals("aarch64") || arch.equals("arm64") ? "arm64" : "x86_64";
+            return macAssetPattern.replace("{arch}", assetArch);
+        }
         return linuxAssetPattern;
     }
 

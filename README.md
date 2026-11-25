@@ -2406,8 +2406,11 @@ contract.
 ## Sprint 01-01 Status
 
 Core, CLI, configuration and launcher versions are aligned to `1.0.14`.
-Windows launcher updates require a published matching EXE release asset;
-macOS installation remains manual. Committing source does not publish a release.
+Windows launcher updates require a published matching EXE release asset.
+macOS launcher updates now stage a verified architecture-specific DMG and replace
+the installed application after launcher exit, keeping the previous bundle.
+See `docs/Design/YEKDB_01-01_1.0.14_Patch_Notes.md` for prerequisites and limits.
+Committing source does not publish a release.
 
 Sprint 01-01 verified the clean MacBook V1 baseline against GitHub, fast-forwarded the local
 repository to the merged 01-00 architecture baseline, and opened the
