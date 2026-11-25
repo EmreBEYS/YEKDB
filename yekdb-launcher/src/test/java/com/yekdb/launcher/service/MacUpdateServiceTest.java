@@ -11,7 +11,7 @@ class MacUpdateServiceTest {
     @TempDir Path temporary;
 
     @Test void resolvesPackagedBundleWithSpaces() throws Exception {
-        assertEquals(Path.of("/Applications/My Apps/YEKDB.app"),
+        assertEquals(Path.of("/Applications/My Apps/YEKDB.app").toAbsolutePath().normalize(),
                 MacUpdateService.bundlePath("/Applications/My Apps/YEKDB.app/Contents/MacOS/YEKDB"));
     }
 

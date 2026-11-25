@@ -2,11 +2,13 @@
 param(
     [Parameter(Mandatory)] [string]$Version,
     [ValidateSet('windows', 'macos', 'linux')] [string]$Platform = 'windows',
-    [string]$CoreJar = '..\target\yekdb-1.0.0.jar'
+    [string]$CoreJar
 )
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+$repositoryRoot = Split-Path -Parent $projectRoot
+if (-not $CoreJar) { $CoreJar = Join-Path $repositoryRoot "target\yekdb-$Version.jar" }
 $stage = Join-Path $projectRoot "target\release-$Platform"
 $archive = Join-Path $projectRoot "dist\yekdb-$Version-$Platform.zip"
 
