@@ -38,6 +38,9 @@ and compatibility contract before storage or query behavior changes.
 - Configuration and logging infrastructure
 - Persistent `.ydb` database files
 - Physical page architecture and page serialization
+- Binary physical write-ahead log (`<database>.ydb.wal`)
+- Monotonic LSN, transaction/page IDs, before/after page images and CRC32 validation
+- WAL-before-data ordering with a forced WAL record before every Storage Engine page write
 - Page headers and random page access
 - Table management and persistent table metadata
 - Binary table header format
@@ -1447,12 +1450,12 @@ The `\history` command itself is intentionally not added to history.
 
 YEKDB uses JUnit 5 with regression testing after every development phase.
 
-Current V1 status after Sprint 00-38:
+Current V1-compatible status after Sprint 01-01 Physical WAL:
 
 ```text
 Compile: SUCCESS
 Package: SUCCESS (runnable JAR)
-Tests:   2042 / 2042 PASSED
+Tests:   2054 / 2054 PASSED
 V1 final integration: PASSED
 ```
 
@@ -2416,14 +2419,35 @@ Sprint 01-01 verified the clean MacBook V1 baseline against GitHub, fast-forward
 repository to the merged 01-00 architecture baseline, and opened the
 `sprint/01-01-core-stabilization` branch.
 
-The first stabilization increment hardens the existing transaction decision log without claiming
-physical WAL support or changing a V1 disk format. Log appends are locked and forced to stable
-storage, empty logs are repaired, invalid headers are rejected, and recovery now runs before the
-table catalog is loaded. The core suite passes 2,048 tests; the JavaFX launcher suite executes 13
-tests with one platform-dependent skip.
+The first stabilization increment hardened the existing UTF-8 transaction decision log without
+changing its V1 format. Log appends are locked and forced to stable storage, empty logs are
+repaired, invalid headers are rejected, and recovery runs before the table catalog is loaded.
+
+The Physical WAL increment adds a separate binary log next to each Storage Engine data file. The
+existing `transaction.log` and transaction recovery contract remain unchanged. Every page mutation
+that passes through the Storage Engine's `PageManager` now follows this order:
+
+1. Serialize the complete before and after page images.
+2. Append a versioned binary record with a strictly increasing LSN, transaction ID and page ID.
+3. Validate record boundaries and protect the record with CRC32.
+4. Force the WAL channel to stable storage with `FileChannel.force(true)`.
+5. Only then write the page and related page-count header mutation to the data file.
+
+The WAL reader keeps the last complete, valid prefix after a torn tail and rejects complete records
+whose structure, LSN sequence or CRC32 is invalid. LSN allocation resumes monotonically after a
+restart. New pages use an empty before image; updates store a complete 4096-byte before image and a
+complete 4096-byte after image.
+
+The core suite passes 2,054 tests, including torn-record repair, corrupted-record rejection,
+restart durability, Storage Engine integration, transaction recovery and the complete V1
+regression suite.
 
 The verified architecture, recovery limitations, GUI readiness findings, and remaining 01-01
 backlog are recorded in `docs/Design/YEKDB_01-01_Core_Stabilization.md`.
+
+The latest repository tag is `v1.0.14`; therefore the compatible next release target for this
+increment is `v1.0.15` (not `v0.1.0.15`). Release tagging remains a separate release-preparation
+step after this change is reviewed and merged.
 
 ## Roadmap
 

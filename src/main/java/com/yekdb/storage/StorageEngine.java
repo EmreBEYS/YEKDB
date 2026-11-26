@@ -4,9 +4,13 @@ import com.yekdb.storage.file.DataFile;
 import com.yekdb.storage.file.DatabaseHeader;
 import com.yekdb.storage.record.page.Page;
 import com.yekdb.storage.record.page.PageManager;
+import com.yekdb.storage.record.page.PageSerializer;
+import com.yekdb.storage.wal.WalManager;
+import com.yekdb.storage.wal.WalRecord;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -26,6 +30,8 @@ public final class StorageEngine {
     private DatabaseHeader databaseHeader;
 
     private PageManager pageManager;
+
+    private WalManager walManager;
 
     private boolean initialized;
 
@@ -61,7 +67,16 @@ public final class StorageEngine {
                 openExistingDatabase();
             }
 
-            pageManager = new PageManager(dataFile);
+            walManager = new WalManager(
+                    resolveWalPath()
+            );
+            walManager.open();
+
+            pageManager = new PageManager(
+                    dataFile,
+                    new PageSerializer(),
+                    walManager
+            );
 
             validatePhysicalPageCount();
 
@@ -109,9 +124,24 @@ public final class StorageEngine {
             } else {
                 failure.addSuppressed(exception);
             }
+        }
+
+        try {
+            if (walManager != null
+                    && walManager.isOpen()) {
+                walManager.close();
+            }
+        } catch (IOException exception) {
+
+            if (failure == null) {
+                failure = exception;
+            } else {
+                failure.addSuppressed(exception);
+            }
         } finally {
             initialized = false;
             pageManager = null;
+            walManager = null;
             databaseHeader = null;
         }
 
@@ -128,6 +158,26 @@ public final class StorageEngine {
      */
     public void writePage(Page page) throws IOException {
 
+        writePage(
+                0,
+                page
+        );
+    }
+
+    /**
+     * Sayfa degisikligini once fiziksel WAL'a kalici olarak yazar,
+     * ardindan veri dosyasina uygular.
+     *
+     * @param transactionId degisikligi yapan transaction kimligi;
+     *                      sistem yazimlari icin 0
+     * @param page          yazilacak fiziksel sayfa
+     * @return kayda ayrilan monoton LSN
+     */
+    public long writePage(
+            long transactionId,
+            Page page
+    ) throws IOException {
+
         ensureInitialized();
 
         Objects.requireNonNull(
@@ -140,13 +190,18 @@ public final class StorageEngine {
         boolean newPage =
                 !pageManager.pageExists(pageId);
 
-        pageManager.writePage(page);
+        long lsn = pageManager.writePage(
+                transactionId,
+                page
+        );
 
         if (newPage) {
             databaseHeader = readDatabaseHeader();
         }
 
         dataFile.sync();
+
+        return lsn;
     }
 
     /**
@@ -232,6 +287,18 @@ public final class StorageEngine {
 
     public Path getDataFilePath() {
         return dataFile.getFilePath();
+    }
+
+    public Path getWalPath() {
+        return resolveWalPath();
+    }
+
+    public List<WalRecord> readWalRecords()
+            throws IOException {
+
+        ensureInitialized();
+
+        return walManager.readAll();
     }
 
     /**
@@ -358,5 +425,27 @@ public final class StorageEngine {
         initialized = false;
         databaseHeader = null;
         pageManager = null;
+
+        if (walManager != null) {
+            try {
+                walManager.close();
+            } catch (IOException ignored) {
+                // Ilk baslatma hatasini gizlememek icin yutulur.
+            }
+        }
+
+        walManager = null;
+    }
+
+    private Path resolveWalPath() {
+
+        Path dataPath = dataFile.getFilePath();
+        String fileName = dataPath
+                .getFileName()
+                .toString();
+
+        return dataPath.resolveSibling(
+                fileName + WalManager.FILE_SUFFIX
+        );
     }
 }
