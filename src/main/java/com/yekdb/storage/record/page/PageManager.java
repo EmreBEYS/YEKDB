@@ -2,6 +2,7 @@ package com.yekdb.storage.record.page;
 
 import com.yekdb.storage.file.DataFile;
 import com.yekdb.storage.file.DatabaseHeader;
+import com.yekdb.storage.wal.WalManager;
 
 import java.io.IOException;
 import java.util.Objects;
@@ -28,16 +29,31 @@ public final class PageManager {
 
     private final PageSerializer pageSerializer;
 
+    private final WalManager walManager;
+
     public PageManager(DataFile dataFile) {
         this(
                 dataFile,
-                new PageSerializer()
+                new PageSerializer(),
+                null
         );
     }
 
     public PageManager(
             DataFile dataFile,
             PageSerializer pageSerializer
+    ) {
+        this(
+                dataFile,
+                pageSerializer,
+                null
+        );
+    }
+
+    public PageManager(
+            DataFile dataFile,
+            PageSerializer pageSerializer,
+            WalManager walManager
     ) {
         this.dataFile = Objects.requireNonNull(
                 dataFile,
@@ -48,6 +64,8 @@ public final class PageManager {
                 pageSerializer,
                 "Page serializer cannot be null."
         );
+
+        this.walManager = walManager;
     }
 
     /**
@@ -57,6 +75,23 @@ public final class PageManager {
      * dosyanın sonuna sıralı olarak eklenebilir.
      */
     public void writePage(Page page) throws IOException {
+
+        writePage(
+                0,
+                page
+        );
+    }
+
+    /**
+     * Sayfayi, yapilandirilmis bir WAL yoneticisi varsa once WAL kaydini
+     * kalici hale getirerek veri dosyasina yazar.
+     *
+     * @return ayrilan LSN; WAL kullanilmiyorsa 0
+     */
+    public long writePage(
+            long transactionId,
+            Page page
+    ) throws IOException {
 
         Objects.requireNonNull(
                 page,
@@ -85,6 +120,25 @@ public final class PageManager {
         long pageOffset =
                 calculatePageOffset(pageId);
 
+        long lsn = 0;
+
+        if (walManager != null) {
+
+            byte[] beforeImage = isNewPage
+                    ? new byte[0]
+                    : dataFile.read(
+                            pageOffset,
+                            Page.PAGE_SIZE
+                    );
+
+            lsn = walManager.appendPageUpdate(
+                    transactionId,
+                    pageId,
+                    beforeImage,
+                    pageBytes
+            );
+        }
+
         dataFile.write(
                 pageOffset,
                 pageBytes
@@ -103,6 +157,8 @@ public final class PageManager {
 
             writeDatabaseHeader(databaseHeader);
         }
+
+        return lsn;
     }
     /**
      * Belirtilen kimliğe sahip sayfayı veri dosyasından okur.
