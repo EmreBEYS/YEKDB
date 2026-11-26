@@ -2,12 +2,6 @@ name: Release YEKDB v1.0.14
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/release-v1.0.14.yml
-      - yekdb-launcher/scripts/build-macos.sh
 
 permissions:
   contents: write
