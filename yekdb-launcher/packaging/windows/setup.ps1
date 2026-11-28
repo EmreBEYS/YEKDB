@@ -141,7 +141,7 @@ $installButton.Add_Click({
         }
 
         $configFile = Join-Path $destination 'app\YEKDB Launcher.cfg'
-        $version = '1.0.14'
+        $version = '1.0.16'
         if (Test-Path -LiteralPath $configFile) {
             $versionMatch = [regex]::Match((Get-Content -Raw -LiteralPath $configFile), 'jpackage\.app-version=([^\r\n]+)')
             if ($versionMatch.Success) { $version = $versionMatch.Groups[1].Value.Trim() }
