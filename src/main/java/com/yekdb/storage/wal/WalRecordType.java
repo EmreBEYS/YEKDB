@@ -5,7 +5,10 @@ package com.yekdb.storage.wal;
  */
 public enum WalRecordType {
 
-    PAGE_UPDATE((byte) 1);
+    PAGE_UPDATE((byte) 1),
+    TRANSACTION_BEGIN((byte) 2),
+    TRANSACTION_COMMIT((byte) 3),
+    TRANSACTION_ROLLBACK((byte) 4);
 
     private final byte code;
 
@@ -15,6 +18,10 @@ public enum WalRecordType {
 
     public byte getCode() {
         return code;
+    }
+
+    public boolean isTransactionBoundary() {
+        return this != PAGE_UPDATE;
     }
 
     public static WalRecordType fromCode(byte code) {

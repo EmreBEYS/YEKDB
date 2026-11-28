@@ -5,13 +5,18 @@ import com.yekdb.storage.file.DatabaseHeader;
 import com.yekdb.storage.record.page.Page;
 import com.yekdb.storage.record.page.PageManager;
 import com.yekdb.storage.record.page.PageSerializer;
+import com.yekdb.storage.recovery.CrashRecoveryManager;
+import com.yekdb.storage.recovery.CrashRecoveryResult;
 import com.yekdb.storage.wal.WalManager;
 import com.yekdb.storage.wal.WalRecord;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.HashSet;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * YEKDB depolama alt sisteminin ana yöneticisidir.
@@ -33,6 +38,14 @@ public final class StorageEngine {
 
     private WalManager walManager;
 
+    private final CrashRecoveryManager crashRecoveryManager;
+
+    private final Set<Long> activeWalTransactions;
+
+    private CrashRecoveryResult lastRecoveryResult;
+
+    private long nextWalTransactionId;
+
     private boolean initialized;
 
     public StorageEngine(Path dataFilePath) {
@@ -43,6 +56,10 @@ public final class StorageEngine {
         );
 
         this.dataFile = new DataFile(dataFilePath);
+        this.crashRecoveryManager = new CrashRecoveryManager();
+        this.activeWalTransactions = new HashSet<>();
+        this.lastRecoveryResult = CrashRecoveryResult.empty();
+        this.nextWalTransactionId = 0;
         this.initialized = false;
     }
 
@@ -61,8 +78,11 @@ public final class StorageEngine {
         try {
             dataFile.open();
 
-            if (dataFile.size() == 0) {
+            boolean newDatabase = dataFile.size() == 0;
+
+            if (newDatabase) {
                 createNewDatabase();
+                Files.deleteIfExists(resolveWalPath());
             } else {
                 openExistingDatabase();
             }
@@ -71,6 +91,17 @@ public final class StorageEngine {
                     resolveWalPath()
             );
             walManager.open();
+
+            lastRecoveryResult = crashRecoveryManager.recover(
+                    dataFile,
+                    walManager
+            );
+            databaseHeader = readDatabaseHeader();
+            nextWalTransactionId = walManager.readAll()
+                    .stream()
+                    .mapToLong(WalRecord::getTransactionId)
+                    .max()
+                    .orElse(0L);
 
             pageManager = new PageManager(
                     dataFile,
@@ -143,6 +174,7 @@ public final class StorageEngine {
             pageManager = null;
             walManager = null;
             databaseHeader = null;
+            activeWalTransactions.clear();
         }
 
         if (failure != null) {
@@ -302,6 +334,42 @@ public final class StorageEngine {
     }
 
     /**
+     * Crash recovery tarafindan izlenecek yeni ve benzersiz bir fiziksel
+     * transaction baslatir.
+     */
+    public synchronized long beginWalTransaction()
+            throws IOException {
+
+        ensureInitialized();
+
+        long transactionId = Math.incrementExact(
+                nextWalTransactionId
+        );
+        walManager.appendTransactionBegin(transactionId);
+        activeWalTransactions.add(transactionId);
+        nextWalTransactionId = transactionId;
+        return transactionId;
+    }
+
+    /**
+     * Commit kaydini zorla diske yazar. Bu kayit kalici olduktan sonra
+     * transaction startup redo asamasinda winner kabul edilir.
+     */
+    public synchronized void commitWalTransaction(
+            long transactionId
+    ) throws IOException {
+
+        ensureActiveWalTransaction(transactionId);
+        walManager.appendTransactionCommit(transactionId);
+        activeWalTransactions.remove(transactionId);
+    }
+
+    public CrashRecoveryResult getLastRecoveryResult() {
+        ensureInitialized();
+        return lastRecoveryResult;
+    }
+
+    /**
      * Yeni ve boş bir YEKDB veri dosyası oluşturur.
      */
     private void createNewDatabase() throws IOException {
@@ -425,6 +493,7 @@ public final class StorageEngine {
         initialized = false;
         databaseHeader = null;
         pageManager = null;
+        activeWalTransactions.clear();
 
         if (walManager != null) {
             try {
@@ -435,6 +504,19 @@ public final class StorageEngine {
         }
 
         walManager = null;
+    }
+
+    private void ensureActiveWalTransaction(
+            long transactionId
+    ) {
+        ensureInitialized();
+
+        if (!activeWalTransactions.contains(transactionId)) {
+            throw new IllegalStateException(
+                    "WAL transaction is not active: "
+                            + transactionId
+            );
+        }
     }
 
     private Path resolveWalPath() {

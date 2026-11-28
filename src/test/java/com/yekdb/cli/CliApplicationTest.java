@@ -49,7 +49,7 @@ class CliApplicationTest {
 
         assertTrue(
                 result.getMessage()
-                        .contains("1.0.15")
+                        .contains("1.0.16")
         );
     }
 

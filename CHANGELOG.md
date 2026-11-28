@@ -2,7 +2,33 @@
 
 All notable changes to YEKDB are documented in this file.
 
-## [Unreleased] — target v1.0.15
+## [1.0.16] — 2026-11-28
+
+### Added
+
+- Startup crash recovery with explicit analysis, redo and undo phases.
+- Durable `TRANSACTION_BEGIN`, `TRANSACTION_COMMIT` and recovery-generated
+  `TRANSACTION_ROLLBACK` WAL boundaries.
+- Redo of committed page updates and rollback of transactions left incomplete by a crash.
+- Final-page-image planning so repeated recovery converges without rewriting already-correct pages.
+- Recovery summaries covering winners, losers, physical changes, idempotent skips and torn-tail repair.
+- Separate-JVM forced-halt tests, repeated-recovery tests, malformed-sequence tests and corruption tests.
+
+### Changed
+
+- `StorageEngine.initialize()` now runs physical recovery before constructing `PageManager` or
+  validating the page count.
+- New databases discard an orphaned same-name WAL sidecar before creating their first WAL header.
+- Core and launcher development versions are aligned to `1.0.16`.
+
+### Compatibility
+
+- Sprint 01-01 page records without transaction boundaries remain valid and are treated as
+  implicitly committed.
+- The V1 data-page and database-header formats remain unchanged.
+- The UTF-8 transaction decision log remains independent from the binary physical WAL.
+
+## [1.0.15 foundation] — physical WAL (not tagged by this change)
 
 ### Added
 

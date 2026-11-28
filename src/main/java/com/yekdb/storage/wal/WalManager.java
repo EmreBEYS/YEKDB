@@ -33,6 +33,8 @@ public final class WalManager implements AutoCloseable {
 
     private long nextLsn;
 
+    private boolean repairedTornTailOnOpen;
+
     public WalManager(Path walPath) {
 
         this.walPath = Objects.requireNonNull(
@@ -42,6 +44,7 @@ public final class WalManager implements AutoCloseable {
         this.writer = new WalWriter();
         this.reader = new WalReader();
         this.nextLsn = 1;
+        this.repairedTornTailOnOpen = false;
     }
 
     public synchronized void open() throws IOException {
@@ -71,6 +74,7 @@ public final class WalManager implements AutoCloseable {
             WalReader.ScanResult scanResult =
                     reader.scan(channel);
 
+            repairedTornTailOnOpen = scanResult.tornTail();
             repairTornTail(scanResult);
             nextLsn = scanResult.lastLsn() + 1;
         } catch (IOException | RuntimeException exception) {
@@ -86,45 +90,40 @@ public final class WalManager implements AutoCloseable {
             byte[] afterImage
     ) throws IOException {
 
-        ensureOpen();
+        return append(
+                transactionId,
+                pageId,
+                WalRecordType.PAGE_UPDATE,
+                beforeImage,
+                afterImage
+        );
+    }
 
-        try (FileLock ignored = channel.lock()) {
+    public synchronized long appendTransactionBegin(
+            long transactionId
+    ) throws IOException {
+        return appendBoundary(
+                transactionId,
+                WalRecordType.TRANSACTION_BEGIN
+        );
+    }
 
-            WalReader.ScanResult scanResult =
-                    reader.scan(channel);
+    public synchronized long appendTransactionCommit(
+            long transactionId
+    ) throws IOException {
+        return appendBoundary(
+                transactionId,
+                WalRecordType.TRANSACTION_COMMIT
+        );
+    }
 
-            repairTornTail(scanResult);
-
-            long lsn = Math.max(
-                    nextLsn,
-                    scanResult.lastLsn() + 1
-            );
-
-            WalRecord record = new WalRecord(
-                    lsn,
-                    transactionId,
-                    pageId,
-                    WalRecordType.PAGE_UPDATE,
-                    beforeImage,
-                    afterImage
-            );
-
-            byte[] bytes = writer.serialize(record);
-            ByteBuffer buffer = ByteBuffer.wrap(bytes);
-            long writePosition = channel.size();
-
-            while (buffer.hasRemaining()) {
-                writePosition += channel.write(
-                        buffer,
-                        writePosition
-                );
-            }
-
-            channel.force(true);
-            nextLsn = lsn + 1;
-
-            return lsn;
-        }
+    public synchronized long appendTransactionRollback(
+            long transactionId
+    ) throws IOException {
+        return appendBoundary(
+                transactionId,
+                WalRecordType.TRANSACTION_ROLLBACK
+        );
     }
 
     public synchronized List<WalRecord> readAll()
@@ -137,6 +136,10 @@ public final class WalManager implements AutoCloseable {
 
     public Path getWalPath() {
         return walPath;
+    }
+
+    public synchronized boolean repairedTornTailOnOpen() {
+        return repairedTornTailOnOpen;
     }
 
     public synchronized boolean isOpen() {
@@ -179,6 +182,63 @@ public final class WalManager implements AutoCloseable {
         }
 
         channel.force(true);
+    }
+
+    private long appendBoundary(
+            long transactionId,
+            WalRecordType type
+    ) throws IOException {
+        return append(
+                transactionId,
+                -1,
+                type,
+                new byte[0],
+                new byte[0]
+        );
+    }
+
+    private long append(
+            long transactionId,
+            int pageId,
+            WalRecordType type,
+            byte[] beforeImage,
+            byte[] afterImage
+    ) throws IOException {
+
+        ensureOpen();
+
+        try (FileLock ignored = channel.lock()) {
+            WalReader.ScanResult scanResult = reader.scan(channel);
+            repairTornTail(scanResult);
+
+            long lsn = Math.max(
+                    nextLsn,
+                    scanResult.lastLsn() + 1
+            );
+            WalRecord record = new WalRecord(
+                    lsn,
+                    transactionId,
+                    pageId,
+                    type,
+                    beforeImage,
+                    afterImage
+            );
+            ByteBuffer buffer = ByteBuffer.wrap(
+                    writer.serialize(record)
+            );
+            long writePosition = channel.size();
+
+            while (buffer.hasRemaining()) {
+                writePosition += channel.write(
+                        buffer,
+                        writePosition
+                );
+            }
+
+            channel.force(true);
+            nextLsn = lsn + 1;
+            return lsn;
+        }
     }
 
     private void repairTornTail(
