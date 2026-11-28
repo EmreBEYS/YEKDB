@@ -41,12 +41,6 @@ public final class WalRecord {
             );
         }
 
-        if (pageId < 0) {
-            throw new IllegalArgumentException(
-                    "Page ID cannot be negative."
-            );
-        }
-
         this.lsn = lsn;
         this.transactionId = transactionId;
         this.pageId = pageId;
@@ -62,6 +56,8 @@ public final class WalRecord {
                 afterImage,
                 "After image cannot be null."
         );
+
+        validateShape();
     }
 
     public long getLsn() {
@@ -116,5 +112,31 @@ public final class WalRecord {
                 image,
                 image.length
         );
+    }
+
+    private void validateShape() {
+
+        if (type == WalRecordType.PAGE_UPDATE) {
+            if (pageId < 0) {
+                throw new IllegalArgumentException(
+                        "Page update ID cannot be negative."
+                );
+            }
+            return;
+        }
+
+        if (transactionId <= 0) {
+            throw new IllegalArgumentException(
+                    "Transaction boundary ID must be positive."
+            );
+        }
+
+        if (pageId != -1
+                || beforeImage.length != 0
+                || afterImage.length != 0) {
+            throw new IllegalArgumentException(
+                    "Transaction boundary records cannot contain page images."
+            );
+        }
     }
 }

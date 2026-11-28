@@ -51,6 +51,6 @@ public final class BundledRuntimeService {
 
     private String bundledVersion() {
         String version = BundledRuntimeService.class.getPackage().getImplementationVersion();
-        return version == null || version.isBlank() ? "1.0.14" : version;
+        return version == null || version.isBlank() ? "1.0.16" : version;
     }
 }

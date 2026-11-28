@@ -1295,7 +1295,7 @@ mvn clean package
 Start the terminal:
 
 ```bash
-java -jar target/yekdb-1.0.14.jar
+java -jar target/yekdb-1.0.16.jar
 ```
 
 The default data directory is:
@@ -1314,7 +1314,7 @@ Example:
 
 ```bash
 java -Dyekdb.data.dir=/path/to/yekdb/data \
-     -jar target/yekdb-1.0.14.jar
+     -jar target/yekdb-1.0.16.jar
 ```
 
 For a repeatable V1 walkthrough, start with an empty data directory and pipe or paste `demo/YEKDB_V1_Demo.sql` into the terminal.
@@ -1450,12 +1450,12 @@ The `\history` command itself is intentionally not added to history.
 
 YEKDB uses JUnit 5 with regression testing after every development phase.
 
-Current V1-compatible status after Sprint 01-01 Physical WAL:
+Current V1-compatible status after Sprint 01-02 Crash Recovery:
 
 ```text
 Compile: SUCCESS
 Package: SUCCESS (runnable JAR)
-Tests:   2054 / 2054 PASSED
+Tests:   2059 / 2059 PASSED
 V1 final integration: PASSED
 ```
 
@@ -2438,16 +2438,23 @@ whose structure, LSN sequence or CRC32 is invalid. LSN allocation resumes monoto
 restart. New pages use an empty before image; updates store a complete 4096-byte before image and a
 complete 4096-byte after image.
 
-The core suite passes 2,054 tests, including torn-record repair, corrupted-record rejection,
-restart durability, Storage Engine integration, transaction recovery and the complete V1
-regression suite.
+Sprint 01-02 adds startup analysis, committed-update redo, incomplete-transaction undo and durable
+rollback completion on top of the physical WAL. Recovery runs before page-count validation and
+reports winners, losers, applied images, idempotent skips and torn-tail repair. Recovery-aware
+callers use `beginWalTransaction()`, `writePage(transactionId, page)` and
+`commitWalTransaction(transactionId)`.
+
+The core suite passes 2,059 tests, including separate-JVM forced halts, repeated recovery,
+torn-record repair, corrupted-record rejection, restart durability, Storage Engine integration,
+transaction recovery and the complete V1 regression suite. See
+`docs/Design/YEKDB_01-02_Crash_Recovery_Manager.md` and the draft 1.0.16 release notes for details.
 
 The verified architecture, recovery limitations, GUI readiness findings, and remaining 01-01
 backlog are recorded in `docs/Design/YEKDB_01-01_Core_Stabilization.md`.
 
-The latest repository tag is `v1.0.14`; therefore the compatible next release target for this
-increment is `v1.0.15` (not `v0.1.0.15`). Release tagging remains a separate release-preparation
-step after this change is reviewed and merged.
+The Sprint 01-02 release is `v1.0.16`, combining the 01-01 physical WAL foundation with startup
+analysis, redo and undo recovery. Windows and Apple Silicon packages are produced by the dedicated
+v1.0.16 release workflow after the full regression suite succeeds.
 
 ## Roadmap
 
@@ -2535,7 +2542,7 @@ step after this change is reviewed and merged.
 - Extended `ALTER COLUMN` operations such as type/default changes
 - Further physical storage and free-space management
 - Persistent index storage / recovery improvements
-- Full physical Write Ahead Logging (WAL) with redo/undo replay
+- WAL checkpoint truncation and page-LSN optimization
 - Buffer pool
 - Row/page-level locking and MVCC
 - Client/server architecture

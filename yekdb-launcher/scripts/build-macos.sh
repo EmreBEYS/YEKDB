@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="${1:-1.0.14}"
+VERSION="${1:-1.0.16}"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REPOSITORY_ROOT="$(cd "$PROJECT_ROOT/.." && pwd)"
 DIST_DIR="$PROJECT_ROOT/dist"
